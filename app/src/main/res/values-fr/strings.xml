@@ -409,9 +409,9 @@
     <string name="title_import_special_button">Importer des touches spéciales personnalisées</string>
     <string name="summary_import_special_button">Disponible dans le menu Retour et les touches spéciales.\nRemarque : l\'importation écrasera la configuration actuelle, veuillez sauvegarder en conséquence.</string>
     <string name="title_software_update">Mise à jour du logiciel</string>
-    <string name="summary_software_update">Version Artemis Nior par ClassicOldSong - Visitez la page des versions GitHub pour obtenir la dernière version</string>
+    <string name="summary_software_update">Version Moonmeow par meowerse - Visitez la page des versions GitHub pour obtenir la dernière version</string>
     <string name="title_follow_update">Suivre les mises à jour</string>
-    <string name="summary_follow_update">Suivre les mises à jour d\'Artemis avec Obtainium</string>
+    <string name="summary_follow_update">Suivre les mises à jour d\'Moonmeow avec Obtainium</string>
     <string name="title_special_key_layout">Disposition des touches spéciales</string>
     <string name="title_show_virtual_key">Afficher les touches virtuelles à l\'écran</string>
     <string name="summary_show_virtual_key">Affiche une couche de touches spéciales virtuelles sur l\'écran tactile.\nL\'opacité des touches est partagée avec la manette virtuelle ci-dessus.</string>
@@ -560,7 +560,7 @@
     <string name="game_dialog_title_server_cmd_empty">Aucune commande de serveur</string>
     <string name="game_dialog_message_server_cmd_empty">Veuillez vous assurer que vous utilisez Apollo comme logiciel serveur et que vous avez accordé à ce client l\'autorisation "Commande de serveur".</string>
     <string name="vdisplay_not_ready">Le pilote d\'affichage virtuel n\'est pas prêt sur le serveur. Veuillez vous assurer que le pilote SudoVDA est installé et activé.</string>
-    <string name="vdisplay_not_supported"><![CDATA[L\'affichage virtuel n\'est pas pris en charge sur ce serveur. Veuillez utiliser <a href=\"https://github.com/ClassicOldSong/Apollo\">Apollo</a> comme logiciel de streaming hôte.]]></string>
+    <string name="vdisplay_not_supported"><![CDATA[L\'affichage virtuel n\'est pas pris en charge sur ce serveur. Veuillez utiliser <a href=\"https://github.com/meowerse/Apollo\">Apollo</a> comme logiciel de streaming hôte.]]></string>
     <string name="clipboard_sync_unsupported">Ce serveur ne prend pas en charge la synchronisation du presse-papiers. Veuillez installer ou mettre à jour votre serveur vers la dernière version d\'Apollo.</string>
     <string name="send_clipboard_failed">Échec de l\'envoi du presse-papiers : </string>
     <string name="get_clipboard_failed">Échec de la récupération du presse-papiers : </string>

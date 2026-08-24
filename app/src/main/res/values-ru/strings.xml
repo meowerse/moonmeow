@@ -320,7 +320,7 @@
     <string name="pair_otp_pairing_msg">Сопряжение, подождите…</string>
     <string name="pair_passphrase_hint">Пароль</string>
     <string name="pair_pin_length_msg">PIN должен состоять из 4 цифр</string>
-    <string name="email_subject">Artemistics - журнал производительности</string>
+    <string name="email_subject">Moonmeowtics - журнал производительности</string>
     <string name="email_chooser_title">Отправить журнал производительности...</string>
     <string name="toast_no_email_clients">Почтовые клиенты не установлены.</string>
     <string name="applist_menu_start_vdisplay">Запустить в виртуальном дисплее</string>
@@ -413,9 +413,9 @@
     <string name="summary_share_performance_logs">Поделиться данными о производительности с друзьями/сообществом</string>
     <string name="title_share_performance_logs_button">Поделиться логами производительности</string>
     <string name="title_software_update">Обновление ПО</string>
-    <string name="summary_software_update">Artemis Nior от ClassicOldSong — смотрите релизы на GitHub для последней версии</string>
+    <string name="summary_software_update">Moonmeow от meowerse — смотрите релизы на GitHub для последней версии</string>
     <string name="title_follow_update">Следить за обновлениями</string>
-    <string name="summary_follow_update">Следите за обновлениями Artemis через Obtainium</string>
+    <string name="summary_follow_update">Следите за обновлениями Moonmeow через Obtainium</string>
     <string name="title_special_key_layout">Раскладка спец-клавиш</string>
     <string name="title_show_virtual_key">Показать виртуальные клавиши на экране</string>
     <string name="summary_show_virtual_key">Отобразить слой виртуальных спец-клавиш на тачскрине.\nНепрозрачность клавиш общая с виртуальным геймпадом.</string>

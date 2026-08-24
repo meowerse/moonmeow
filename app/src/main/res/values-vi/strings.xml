@@ -433,7 +433,7 @@
     <string name="summary_import_special_button">Sử dụng được trong Menu Quay lại và phím đặc biệt.\nLưu ý: Nhập sẽ ghi đè cấu hình hiện tại, vui lòng sao lưu trước.</string>
 
     <string name="title_software_update">Cập nhật phần mềm</string>
-    <string name="summary_software_update">Phiên bản Artemis Việt Hóa bởi ZeronX - Truy cập GitHub Release để nhận phiên bản mới nhất</string>
+    <string name="summary_software_update">Phiên bản Moonmeow Việt Hóa bởi ZeronX - Truy cập GitHub Release để nhận phiên bản mới nhất</string>
 
     <string name="title_special_key_layout">Bố cục phím đặc biệt</string>
 
@@ -602,7 +602,7 @@
     <string name="game_dialog_message_server_cmd_empty">Hãy đảm bảo bạn đang dùng phần mềm máy chủ Apollo và ứng dụng này đã được cấp quyền "Lệnh máy chủ".</string>
 
     <string name="vdisplay_not_ready">Driver hiển thị ảo trên máy chủ chưa sẵn sàng. Hãy kiểm tra xem bạn đã cài và bật driver SudoVDA chưa.</string>
-    <string name="vdisplay_not_supported"><![CDATA[Máy chủ không hỗ trợ hiển thị ảo. Vui lòng dùng phần mềm Apollo: <a href="https://github.com/ClassicOldSong/Apollo">Apollo</a> để stream.]]></string>
+    <string name="vdisplay_not_supported"><![CDATA[Máy chủ không hỗ trợ hiển thị ảo. Vui lòng dùng phần mềm Apollo: <a href="https://github.com/meowerse/Apollo">Apollo</a> để stream.]]></string>
 
     <string name="clipboard_sync_unsupported">Máy chủ không hỗ trợ đồng bộ clipboard. Vui lòng cài hoặc nâng cấp lên phiên bản mới nhất của Apollo.</string>
     <string name="send_clipboard_failed">Gửi clipboard thất bại: </string>

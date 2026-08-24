@@ -143,7 +143,7 @@
 	</string>
 
 	<string name="email_recipient">artemistics.logs@gmail.com</string>
-	<string name="email_subject">Artemistics - 效能日誌</string>
+	<string name="email_subject">Moonmeowtics - 效能日誌</string>
 	<string name="email_chooser_title">傳送效能日誌...</string>
 	<string name="toast_no_email_clients">未安裝電子郵件用戶端。</string>
 	<string name="toast_no_logs">尚未儲存任何效能數據。</string>
@@ -491,10 +491,10 @@
 	<string name="title_share_performance_logs_button">分享效能日誌</string>
 
 	<string name="title_software_update">軟體更新</string>
-	<string name="summary_software_update">Artemis Nior 版本（ClassicOldSong）－前往 GitHub Releases 取得最新版本</string>
+	<string name="summary_software_update">Moonmeow 版本（meowerse）－前往 GitHub Releases 取得最新版本</string>
 
 	<string name="title_follow_update">追蹤更新</string>
-	<string name="summary_follow_update">使用 Obtainium 追蹤 Artemis 更新</string>
+	<string name="summary_follow_update">使用 Obtainium 追蹤 Moonmeow 更新</string>
 
 	<string name="title_special_key_layout">特殊按鍵佈局</string>
 	<string name="title_show_virtual_key">在螢幕上顯示虛擬按鍵</string>
@@ -688,7 +688,7 @@
 	<string name="game_dialog_message_server_cmd_empty">請確認您使用的是 Apollo 作為伺服器軟體，且已授予此客戶端「伺服器指令」權限。</string>
 
 	<string name="vdisplay_not_ready">伺服器上的虛擬顯示器驅動尚未就緒。請確認已安裝並啟用 SudoVDA 驅動程式。</string>
-	<string name="vdisplay_not_supported"><![CDATA[此伺服器不支援虛擬顯示器。請使用 <a href="https://github.com/ClassicOldSong/Apollo">Apollo</a> 作為主機串流軟體。]]></string>
+	<string name="vdisplay_not_supported"><![CDATA[此伺服器不支援虛擬顯示器。請使用 <a href="https://github.com/meowerse/Apollo">Apollo</a> 作為主機串流軟體。]]></string>
 	<string name="clipboard_sync_unsupported">此伺服器不支援剪貼簿同步。請安裝或將伺服器升級至最新版本的 Apollo。</string>
 	<string name="send_clipboard_failed">傳送剪貼簿失敗： </string>
 
