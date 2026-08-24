@@ -56,7 +56,10 @@ public class SimpleStartupTest {
         // Test application onCreate which initializes ProfilesManager
         // After the fix, this should no longer crash
         try {
-            ArtemisApplication app = new ArtemisApplication();
+            // Robolectric instantiates the manifest's ArtemisApplication with a base
+            // context attached; `new ArtemisApplication()` has none and NPEs on Toast.
+            ArtemisApplication app =
+                    (ArtemisApplication) ApplicationProvider.getApplicationContext();
             app.onCreate();
 
             // Should now work without crashing
