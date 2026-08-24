@@ -4216,6 +4216,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // Always exit zoom mode if mouse mode has changed
         isPanZoomMode = false;
+        // MEOW-TOUCH(inline-pinch-zoom): the inline latch is the same state in the
+        // modeless path, and the touch contexts it was arbitrating for have just been
+        // rebuilt above. No further event from the old gesture will arrive to clear it,
+        // so clear it here rather than leaving it to the next ACTION_DOWN.
+        if (inlinePinchZoom != null) {
+            inlinePinchZoom.reset();
+        }
         updateZoomButtonAppearance();
     }
 

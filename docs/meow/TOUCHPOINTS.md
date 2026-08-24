@@ -122,6 +122,63 @@ until every finger lifts. That is at most the length of one pinch, and the alter
 (letting a third finger re-enter the multi-touch path mid-zoom) means guessing at an
 ambiguous gesture while the view is being transformed. Accepted on purpose.
 
+What is *not* accepted is the zoom latching in the first place while one of those
+gestures is still landing — see the dwell below.
+
+### The ZOOM latch waits 40ms, and that is load bearing
+
+`TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS` holds the ZOOM latch back for 40ms
+after the second finger lands. SCROLL is not delayed.
+
+The reason is the section above. Latching ZOOM is *consuming*: it cancels the in-flight
+touch contexts and swallows every later `ACTION_POINTER_DOWN`, and the 3/4/5 finger
+gestures are recognised **further down** `Game`'s dispatch than the inline-pinch hook. So
+anything the latch swallows, they never see.
+
+The ordering looks like it protects them, and this is the trap: a third finger arrives as
+`ACTION_POINTER_DOWN` with `pointerCount == 3`, which disqualifies the arbiter before any
+of this matters. But that only holds **if ZOOM has not already latched**. Fingers in a
+multi-finger tap do not land in the same frame — at 120-240Hz there are several
+`ACTION_MOVE` frames between the second contact and the third — and a "grab"-shaped tap
+whose fingers converge as they land can push the span past the slop inside that gap.
+Without the dwell the gesture latches ZOOM first and the user gets a zoom instead of the
+soft keyboard or the game menu, *intermittently*, which is the worst kind.
+
+Note that the tests which look like they cover this — `threeFingerGestureIsNeverStolen`
+and `aThirdFingerDoesNotReArmAfterItLifts` — do **not**. Both put the third finger down
+with no intervening `ACTION_MOVE`, which is the one ordering that can never fail.
+`aMultiFingerTapIsNotStolenWhenTheFirstTwoFingersConvergeAsItLands` and
+`aFourFingerGestureLandingOverSeveralFramesIsNeverStolen` are the ones that bite; both go
+red if the dwell is set to 0.
+
+**Time, not a frame count.** Three frames is 12.5ms at 240Hz and 25ms at 120Hz, so a
+frame count that covers the gap on one device misses it on another. The timestamp is
+`MotionEvent.getEventTime()`, passed into the arbiter as a plain `long` — the arbiter
+stays Android-free and reads no clock of its own, which is what keeps it unit testable on
+a bare JVM. There is deliberately **no** overload that omits the timestamp: one would
+silently skip the guard in exactly the tests written to cover it.
+
+**What the dwell costs, stated plainly.** It is not free, and 40ms is the low end of the
+range for that reason. While the arbiter is undecided the events pass through to the
+touch contexts, and those confirm a move at 20px — only 2px above `MAX_SLOP_PX`, where we
+would otherwise have latched. For an anchored pinch (one finger still) the moving finger
+travels the whole span change, so a pinch that crosses 20px inside 40ms — roughly
+500px/s — will leak a scroll frame or two to the host before the latch, where previously
+it leaked none. A slow or symmetric pinch leaks nothing. That is a real cost paid on
+every fast pinch, traded against a stolen keyboard/menu gesture; every extra millisecond
+of dwell buys less multi-finger coverage than the last while costing the same, because
+most multi-finger taps land well inside 40ms.
+
+Closing the leak *as well* means withholding two-finger events while undecided and
+replaying them on a SCROLL latch — the same change rejected under "What the slop does not
+cover" below, and rejected here for the same reason, plus a new one: swallowing the move
+frames would leave the contexts believing the fingers never moved, so lifting them would
+land on the host as a two-finger tap, i.e. a spurious right click.
+
+Do not raise the dwell to cover sloppier multi-finger taps without re-reading the
+paragraph above; `theDefaultDwellIsShortEnoughToStayImperceptible` pins it to the 25-60ms
+band on purpose.
+
 ### Invariant worth knowing before you retune anything
 
 `TwoFingerGestureArbiter`'s span slop must stay below the point at which the touch

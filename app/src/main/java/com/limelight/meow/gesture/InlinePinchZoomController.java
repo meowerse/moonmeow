@@ -138,20 +138,39 @@ public final class InlinePinchZoomController {
      */
     public boolean onTouchEvent(MotionEvent event) {
         int pointerCount = event.getPointerCount();
+        long eventTimeMs = event.getEventTime();
         if (pointerCount >= 2) {
             return handle(event.getActionMasked(), pointerCount,
-                    event.getX(0), event.getY(0), event.getX(1), event.getY(1));
+                    event.getX(0), event.getY(0), event.getX(1), event.getY(1), eventTimeMs);
         }
-        return handle(event.getActionMasked(), pointerCount, 0f, 0f, 0f, 0f);
+        return handle(event.getActionMasked(), pointerCount, 0f, 0f, 0f, 0f, eventTimeMs);
+    }
+
+    /**
+     * Drop any latched zoom without running {@link #onZoomEnd}. For callers that tear the
+     * gesture surface out from under an in-flight gesture — {@code Game.applyMouseMode}
+     * rebuilds the touch contexts — where no further events from the old gesture will
+     * arrive to clear the latch naturally.
+     */
+    public void reset() {
+        zooming = false;
+        needsRebaseline = false;
+        arbiter.reset();
     }
 
     /**
      * Android-free core of {@link #onTouchEvent}. The {@code actionMasked} values are
      * {@link MotionEvent}'s compile time constants, so this stays callable from a plain
      * JVM unit test.
+     *
+     * @param eventTimeMs {@code MotionEvent.getEventTime()}. Required rather than
+     *                    optional: it drives
+     *                    {@link TwoFingerGestureArbiter#DEFAULT_ZOOM_LATCH_DWELL_MS}, and
+     *                    an overload that defaulted it would silently skip the guard in
+     *                    exactly the tests meant to cover it.
      */
     public boolean handle(int actionMasked, int pointerCount,
-                          float x0, float y0, float x1, float y1) {
+                          float x0, float y0, float x1, float y1, long eventTimeMs) {
         switch (actionMasked) {
             case MotionEvent.ACTION_DOWN:
                 zooming = false;
@@ -168,7 +187,7 @@ public final class InlinePinchZoomController {
                     return true;
                 }
                 if (pointerCount == 2) {
-                    arbiter.beginTwoFinger(x0, y0, x1, y1);
+                    arbiter.beginTwoFinger(x0, y0, x1, y1, eventTimeMs);
                 } else {
                     arbiter.disqualify();
                 }
@@ -179,7 +198,7 @@ public final class InlinePinchZoomController {
                     if (pointerCount != 2) {
                         return false;
                     }
-                    if (arbiter.update(x0, y0, x1, y1) != TwoFingerGestureArbiter.Decision.ZOOM) {
+                    if (arbiter.update(x0, y0, x1, y1, eventTimeMs) != TwoFingerGestureArbiter.Decision.ZOOM) {
                         return false;
                     }
                     zooming = true;
@@ -192,10 +211,10 @@ public final class InlinePinchZoomController {
                     if (needsRebaseline) {
                         // Fingers changed since the last frame we acted on. Take the new
                         // positions as the reference and emit nothing for this frame.
-                        arbiter.beginTwoFinger(x0, y0, x1, y1);
+                        arbiter.beginTwoFinger(x0, y0, x1, y1, eventTimeMs);
                         needsRebaseline = false;
                     } else {
-                        arbiter.update(x0, y0, x1, y1);
+                        arbiter.update(x0, y0, x1, y1, eventTimeMs);
                         applyCurrentFrame();
                     }
                 }
