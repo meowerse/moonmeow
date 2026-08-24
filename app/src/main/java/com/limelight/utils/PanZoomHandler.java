@@ -8,9 +8,12 @@ import android.view.View;
 
 import com.limelight.Game;
 import com.limelight.LimeLog;
+import com.limelight.meow.gesture.InlinePinchZoomController;
 import com.limelight.preferences.PreferenceConfiguration;
 
-public class PanZoomHandler {
+// MEOW-TOUCH(inline-pinch-zoom): implement the meow ZoomTarget seam so the inline
+// (modeless) pinch path drives exactly the same transform as the explicit Pan/Zoom mode.
+public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
     static private final float MAX_SCALE = 10.0f;
 
     private final Game game;
@@ -108,31 +111,49 @@ public class PanZoomHandler {
         constrainToBounds();
     }
 
+    // MEOW-TOUCH(inline-pinch-zoom): the scale transform, extracted verbatim from
+    // ScaleListener.onScale so the inline pinch path and the explicit Pan/Zoom mode
+    // share one implementation instead of drifting apart.
+    @Override
+    public void pinchBy(float scaleDelta, float focusX, float focusY) {
+        float newScaleFactor = scaleFactor * scaleDelta;
+        newScaleFactor = Math.max(1, Math.min(newScaleFactor, MAX_SCALE)); // Apply minimum scale
+
+        float dPivotX = (childX - focusX) / scaleFactor * newScaleFactor;
+        float dPivotY = (childY - focusY) / scaleFactor * newScaleFactor;
+
+        childX = focusX + dPivotX;
+        childY = focusY + dPivotY;
+
+        scaleFactor = newScaleFactor;
+
+        streamView.setScaleX(scaleFactor);
+        streamView.setScaleY(scaleFactor);
+
+        streamView.setX(childX);
+        streamView.setY(childY);
+
+        constrainToBounds();
+    }
+
+    // MEOW-TOUCH(inline-pinch-zoom): the pan transform, extracted verbatim from
+    // GestureListener.onScroll. Note the sign: onScroll reports a scroll *distance*,
+    // which is the negation of the movement delta this takes.
+    @Override
+    public void panBy(float dx, float dy) {
+        childX = streamView.getX() + dx;
+        childY = streamView.getY() + dy;
+
+        streamView.setX(childX);
+        streamView.setY(childY);
+
+        constrainToBounds();
+    }
+
     private class ScaleListener extends ScaleGestureDetector.SimpleOnScaleGestureListener {
         @Override
         public boolean onScale(ScaleGestureDetector detector) {
-            float newScaleFactor = scaleFactor * detector.getScaleFactor();
-            newScaleFactor = Math.max(1, Math.min(newScaleFactor, MAX_SCALE)); // Apply minimum scale
-
-            // Calculate pivot point
-            float focusX = detector.getFocusX();
-            float focusY = detector.getFocusY();
-
-            float dPivotX = (childX - focusX) / scaleFactor * newScaleFactor;
-            float dPivotY = (childY - focusY) / scaleFactor * newScaleFactor;
-
-            childX = focusX + dPivotX;
-            childY = focusY + dPivotY;
-
-            scaleFactor = newScaleFactor;
-
-            streamView.setScaleX(scaleFactor);
-            streamView.setScaleY(scaleFactor);
-
-            streamView.setX(childX);
-            streamView.setY(childY);
-
-            constrainToBounds();
+            pinchBy(detector.getScaleFactor(), detector.getFocusX(), detector.getFocusY());
             return true;
         }
 
@@ -145,13 +166,7 @@ public class PanZoomHandler {
     private class GestureListener extends GestureDetector.SimpleOnGestureListener {
         @Override
         public boolean onScroll(MotionEvent e1, MotionEvent e2, float distanceX, float distanceY) {
-            childX = streamView.getX() - distanceX;
-            childY = streamView.getY() - distanceY;
-
-            streamView.setX(childX);
-            streamView.setY(childY);
-
-            constrainToBounds();
+            panBy(-distanceX, -distanceY);
             return true;
         }
     }

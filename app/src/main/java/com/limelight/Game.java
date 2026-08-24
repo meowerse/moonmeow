@@ -28,6 +28,7 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.meow.gesture.InlinePinchZoomController;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -149,6 +150,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private final TouchContext[] touchContextMap = new TouchContext[2];
     private final TouchContext[] trackpadContextMap = new TouchContext[2];
     private PanZoomHandler panZoomHandler;
+    // MEOW-TOUCH(inline-pinch-zoom): modeless pinch-to-zoom, see docs/meow/TOUCHPOINTS.md
+    private InlinePinchZoomController inlinePinchZoom;
     private long threeFingerDownTime = 0;
     private long fourFingerDownTime = 0;
     private long fiveFingerDownTime = 0;
@@ -485,6 +488,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 streamContainer,
                 prefConfig
         );
+
+        // MEOW-TOUCH(inline-pinch-zoom): drive the same handler from a modeless pinch
+        inlinePinchZoom = new InlinePinchZoomController(
+                this, panZoomHandler, this::cancelInFlightTouchContexts, this::updatePipAutoEnter);
 
         // Restore previous zoom & pan if enabled and saved
         if (prefConfig.rememberZoomPan) {
@@ -3078,6 +3085,14 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                         return true;
                     }
 
+                    // MEOW-TOUCH(inline-pinch-zoom): pinch to zoom without the mode toggle.
+                    // Skipped when the host is receiving native touch events, because there
+                    // a pinch belongs to the remote application, not to our local view.
+                    if (inlinePinchZoom != null && !prefConfig.enableMultiTouchScreen
+                            && inlinePinchZoom.onTouchEvent(event)) {
+                        return true;
+                    }
+
                     // If touch is disabled or not initialized, we'll try panning the streamView
                     if (touchContextMap[0] == null) {
                         return true;
@@ -3331,6 +3346,18 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         cancelStaleTouchState(event, view);
         return true;
+    }
+
+    // MEOW-TOUCH(inline-pinch-zoom): drop whatever the touch contexts were building up
+    // when a gesture turns out to be a pinch, so it cannot land on the host as a stray
+    // scroll or as the two-finger-tap right click.
+    private void cancelInFlightTouchContexts() {
+        for (TouchContext touchContext : touchContextMap) {
+            if (touchContext != null) {
+                touchContext.cancelTouch();
+                touchContext.setPointerCount(0);
+            }
+        }
     }
 
     private void cancelStaleTouchState(MotionEvent event, View view) {
