@@ -5,6 +5,7 @@ import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
+import android.content.Context;
 import android.view.MotionEvent;
 
 import org.junit.Before;
@@ -69,6 +70,37 @@ public class InlinePinchZoomControllerTest {
 
     private boolean up() {
         return controller.handle(MotionEvent.ACTION_UP, 1, 0f, 0f, 0f, 0f);
+    }
+
+    @Test
+    public void theSlopActuallyUsedInProductionStaysUnderTheScrollLeakThreshold() {
+        // The Context constructor is what Game uses, and it does NOT use the arbiter's
+        // defaults -- it derives the slop from ViewConfiguration and caps it at
+        // MAX_SLOP_PX. Asserting on the DEFAULT_* constants alone leaves that cap
+        // unpinned, so raising it would silently reintroduce the scroll leak on every
+        // device. Assert through the real construction path instead.
+        //
+        // Feed it the densities that matter. 26px is what the Poco X7 Pro reports (8dp at
+        // 520dpi, measured); 32px is 8dp at 640dpi. Both are past RelativeTouchContext's
+        // 20px move threshold, so both MUST be capped -- this is the assertion that goes
+        // red if anyone raises MAX_SLOP_PX.
+        for (float platformSlop : new float[]{20f, 24f, 26f, 32f, 64f}) {
+            assertTrue("platform slop " + platformSlop + "px must be capped below 20px, was "
+                            + InlinePinchZoomController.effectiveSlopPx(platformSlop),
+                    InlinePinchZoomController.effectiveSlopPx(platformSlop) < 20f);
+        }
+
+        // A low-density device keeps its own smaller slop rather than being raised to ours.
+        assertEquals(8f, InlinePinchZoomController.effectiveSlopPx(8f), 1e-4f);
+        // An unavailable platform value falls back to something still under the threshold.
+        assertTrue(InlinePinchZoomController.effectiveSlopPx(0f) < 20f);
+        assertTrue(InlinePinchZoomController.effectiveSlopPx(-1f) < 20f);
+
+        // And the arbiter Game actually gets is built from that same capped value.
+        TwoFingerGestureArbiter arbiter =
+                new InlinePinchZoomController((Context) null, target, () -> {}, () -> {}).getArbiter();
+        assertTrue(arbiter.getSpanSlopPx() < 20f);
+        assertTrue(arbiter.getTranslationSlopPx() < 20f);
     }
 
     @Test
@@ -215,6 +247,14 @@ public class InlinePinchZoomControllerTest {
         assertTrue(target.calls.isEmpty());
     }
 
+    /**
+     * Scoped to the controller in isolation. At the {@code Game} level the guarantee is
+     * weaker: {@code handleMultiTouchGesture} calls {@code cancelStaleTouchState}, which
+     * re-dispatches a synthetic ACTION_CANCEL back through this controller, and that
+     * resets the arbiter and clears the disqualification. Harmless — the user is back to
+     * a clean slate either way — but do not read this test as a claim about the real
+     * dispatch path.
+     */
     @Test
     public void aThirdFingerDoesNotReArmAfterItLifts() {
         down(100f, 100f);

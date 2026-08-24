@@ -40,10 +40,52 @@ The touch hook is skipped when `prefConfig.enableMultiTouchScreen` is set. In th
 mode the host receives native touch events, so a pinch belongs to the remote
 application rather than to our local view; stealing it would be a regression.
 
+**Consequence worth stating plainly: inline pinch does nothing in the default mouse
+mode.** `preferences.xml` defaults `mouse_mode_list` to `0` (Multi-touch), and
+`PreferenceConfiguration` maps mode 0 to `enableMultiTouchScreen = true`. On a fresh
+install the feature is therefore inert; it is active in Normal-mouse (modes 1/5) and
+both Trackpad modes (2/3), which is where the desktop-use audience already lives.
+
+The guard is also deliberately broader than its own rationale. Native touch only
+actually reaches the host when `trySendTouchEvent(...)` succeeds; when the host does
+not support touch, events fall through to ordinary mouse handling and inline pinch
+would be safe there too. Extending it to that case means deciding per event whether
+the host took the touch, which is a behaviour change to native-touch mode and wants
+its own branch. Left alone on purpose.
+
 `cancelInFlightTouchContexts()` exists because a gesture is ambiguous when it starts.
 By the time it is confirmed as a pinch, the `TouchContext`s have already seen the
 pointers go down. Without cancelling them, lifting the fingers at the end of a pinch
 would land on the host as a two-finger-tap right click.
+
+It calls `cancelTouch()` **and** `setPointerCount(0)`, mirroring the upstream
+`cancelStaleTouchState`. Both calls are load bearing and dropping either is a trap:
+
+- Without `setPointerCount(0)` the context keeps `pointerCount == 2`, so the next
+  gesture's `setPointerCount(1)` hits `TrackpadContext`'s `this.pointerCount == 2 &&
+  pointerCount == 1` branch, arming a 200ms `isScrollTransitioning` cursor stall *and*
+  firing a spurious button-up at the start of an unrelated gesture.
+- `setPointerCount(0)` is also what clears `confirmedDrag`, `isClickPending` and
+  `isDblClickPending`, so a stale drag cannot leak forward.
+
+### Known upstream defect this feature makes easier to reach
+
+`TrackpadContext.cancelTouch()` releases `getMouseButtonIndex()`, which is derived from
+the *current* pointer count rather than from the button that was actually pressed. A
+quick tap presses `BUTTON_LEFT` and holds it for up to 230ms
+(`CLICK_RELEASE_DELAY`); if two fingers land inside that window, `touchDownEvent`
+converts it to `confirmedDrag` with LEFT still down, and any subsequent cancel releases
+`BUTTON_RIGHT` instead — stranding the left button on the host desktop.
+
+This is **not introduced here**. Upstream already reaches it through the ordinary
+double-tap-then-two-finger-drag path and through any 3+ finger gesture, both of which
+route into the same `cancelStaleTouchState`. Inline pinch adds one more route to it
+(tap, then pinch within 230ms).
+
+It is deliberately **not** fixed on this branch: the correct fix is for
+`TrackpadContext` to record the button it pressed and release that one, plus clear
+`confirmedDrag` in `cancelTouch()`. That is a stateful change to a third upstream file
+with its own test surface, and §9 says one feature per branch. It deserves its own.
 
 ### `app/src/main/java/com/limelight/utils/PanZoomHandler.java` — extract + implement
 
@@ -70,6 +112,16 @@ same code as the inline path.
 
 Tested by `app/src/test/java/com/limelight/meow/gesture/`.
 
+### While a zoom is latched, multi-finger gestures are unavailable
+
+`InlinePinchZoomController` consumes `ACTION_POINTER_DOWN` / `ACTION_POINTER_UP` once a
+gesture has latched to zoom, so `handleMultiTouchGesture` never runs and
+`threeFingerDownTime` / `fourFingerDownTime` / `fiveFingerDownTime` are never set. The
+keyboard toggles and — worth knowing — the **five-finger game-menu gesture** are dead
+until every finger lifts. That is at most the length of one pinch, and the alternative
+(letting a third finger re-enter the multi-touch path mid-zoom) means guessing at an
+ambiguous gesture while the view is being transformed. Accepted on purpose.
+
 ### Invariant worth knowing before you retune anything
 
 `TwoFingerGestureArbiter`'s span slop must stay below the point at which the touch
@@ -87,10 +139,23 @@ latching under 20px of span change is what stops a pinch from briefly scrolling 
 remote desktop on its way in.
 
 The obvious default, `ViewConfiguration.getScaledTouchSlop()`, does not satisfy this:
-8dp is 26px on the Poco X7 Pro (520dpi) and 32px at 640dpi. `InlinePinchZoomController`
-caps it at `MAX_SLOP_PX` = 18px for that reason, and
-`TwoFingerGestureArbiterTest.defaultSlopsStayUnderTheThresholdAtWhichScrollLeaksToTheHost`
-fails if anyone raises it back.
+8dp is 26px on the Poco X7 Pro (520dpi, measured) and 32px at 640dpi.
+`InlinePinchZoomController.effectiveSlopPx(...)` caps it at `MAX_SLOP_PX` = 18px for
+that reason, and
+`InlinePinchZoomControllerTest.theSlopActuallyUsedInProductionStaysUnderTheScrollLeakThreshold`
+feeds it those densities directly so the cap goes red if anyone raises it. (Asserting on
+`TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX` alone does **not** cover the cap —
+production never uses that default. Verified by mutation: raising `MAX_SLOP_PX` to 20,
+25 or 33 all fail the test.)
 
 Erring low is cheap: the slop only decides *when* the arbiter commits, not *what* it
 commits to — that is the dominance rule in `classify(...)`.
+
+**What the slop does not cover.** The contexts' second move test is a path integral,
+not a displacement test: `RelativeTouchContext` accumulates `distanceMoved` against a
+25px `TAP_DISTANCE_THRESHOLD`. The arbiter bounds displacement while undecided, and no
+displacement bound bounds a path length — so a gesture that wanders with the fingers
+together and only then pinches can still leak one scroll frame before the latch.
+Closing that means withholding two-finger events while undecided and replaying them on
+a SCROLL latch, which is disproportionate to the residual leak. Lowering the slop
+cannot close it; do not try.

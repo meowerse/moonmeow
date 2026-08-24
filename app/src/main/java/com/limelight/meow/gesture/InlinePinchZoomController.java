@@ -48,6 +48,27 @@ public final class InlinePinchZoomController {
         void panBy(float dx, float dy);
     }
 
+    /**
+     * Ceiling on the slop we derive from the platform, and the one number in here that is
+     * load bearing rather than a matter of taste.
+     *
+     * <p>A gesture is ambiguous while it starts, so the touch contexts see the pointers go
+     * down before we know it is a pinch. They begin emitting scroll to the host as soon as
+     * they confirm a move, and their thresholds are fixed pixel counts that do not scale
+     * with display density: {@code RelativeTouchContext.TAP_MOVEMENT_THRESHOLD} is 20px
+     * (its {@code TAP_DISTANCE_THRESHOLD} is 25px) and {@code TrackpadContext}'s is 30px.
+     * We must therefore latch below 20px of span change, or a pinch that starts from rest
+     * briefly scrolls the remote desktop before we take over. See
+     * {@link TwoFingerGestureArbiter#DEFAULT_SPAN_SLOP_PX} for the case this does
+     * <em>not</em> cover — the contexts' accumulated-path test, which no displacement
+     * bound can close.
+     *
+     * <p>{@code ViewConfiguration#getScaledTouchSlop()} does scale with density: 8dp is
+     * 26px on the Poco X7 Pro (520dpi) and 32px at 640dpi, which would break the invariant
+     * outright. Hence the cap.
+     */
+    private static final float MAX_SLOP_PX = 18f;
+
     private final TwoFingerGestureArbiter arbiter;
     private final ZoomTarget target;
     private final Runnable onZoomBegin;
@@ -80,35 +101,35 @@ public final class InlinePinchZoomController {
     }
 
     /**
-     * Ceiling on the slop we derive from the platform, and the one number in here that is
-     * load bearing rather than a matter of taste.
+     * Turns the platform's touch slop into the slop we actually arbitrate with. Separated
+     * from {@link #touchSlop(Context)} and made {@code static} so the cap can be pinned by
+     * a test at densities this machine will never report — which is the whole point of it.
      *
-     * <p>A gesture is ambiguous while it starts, so the touch contexts see the pointers go
-     * down before we know it is a pinch. They begin emitting scroll to the host as soon as
-     * they confirm a move, and their thresholds are fixed pixel counts that do not scale
-     * with display density: {@code RelativeTouchContext.TAP_MOVEMENT_THRESHOLD} is 20px
-     * (its {@code TAP_DISTANCE_THRESHOLD} is 25px) and {@code TrackpadContext}'s is 30px.
-     * We must therefore latch below 20px of span change, or a pinch briefly scrolls the
-     * remote desktop before we take over.
-     *
-     * <p>{@code ViewConfiguration#getScaledTouchSlop()} does scale with density: 8dp is
-     * 26px on the Poco X7 Pro (520dpi) and 32px at 640dpi, which would break the invariant
-     * outright. Hence the cap.
+     * @param platformSlopPx {@code ViewConfiguration#getScaledTouchSlop()}, or a
+     *                       non-positive value if it is unavailable
      */
-    private static final float MAX_SLOP_PX = 18f;
+    static float effectiveSlopPx(float platformSlopPx) {
+        float base = platformSlopPx > 0f ? platformSlopPx : TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX;
+        return Math.min(base, MAX_SLOP_PX);
+    }
 
     private static float touchSlop(Context context) {
         if (context == null) {
-            return Math.min(TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX, MAX_SLOP_PX);
+            return effectiveSlopPx(0f);
         }
-        int slop = ViewConfiguration.get(context).getScaledTouchSlop();
-        float effective = slop > 0 ? slop : TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX;
-        return Math.min(effective, MAX_SLOP_PX);
+        return effectiveSlopPx(ViewConfiguration.get(context).getScaledTouchSlop());
     }
 
     /** True while a gesture is being consumed as a zoom. */
     public boolean isZooming() {
         return zooming;
+    }
+
+    /** The arbiter this controller was built with. Exposed so the slop actually used in
+     *  production — which is {@link #MAX_SLOP_PX}-capped, not the arbiter's default — can
+     *  be asserted by tests. */
+    public TwoFingerGestureArbiter getArbiter() {
+        return arbiter;
     }
 
     /**
