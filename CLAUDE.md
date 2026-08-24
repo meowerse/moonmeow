@@ -28,7 +28,12 @@ Note `master` and `next` in that repo are **stale** (2024) and 573 commits behin
 
 Shipped:
 - `applicationId` → `meow.alxnko.moonmeow` (`.root`, `.debug` variants)
-- App label → "Moonmeow", UI strings rebranded across all 33 locales
+- App label → "Moonmeow", UI strings rebranded in the 6 locales that carried the
+  Artemis name (en, fr, ru, vi, zh-rCN, zh-rTW). There are 33 `values-*` dirs and 29
+  `strings.xml` files, but the rest never mentioned it — "all 33 locales" was wrong.
+  Strings whose *destination* is still Artemis-owned (the release and Obtainium
+  links, the `artemistics` performance-log address) deliberately still say Artemis;
+  renaming the label without the destination makes the app lie.
 - Own release signing key
 
 Deliberately **not** changed: the `com.limelight` Java namespace.
@@ -114,6 +119,17 @@ git grep -n 'MEOW-TOUCH' -- app/src
 
 Keep it short. A growing registry means features are being welded into upstream code
 instead of layered beside it.
+
+**Test files are out of scope for this registry.** A marker means "we welded
+something in here, expect a conflict". Repairing an inherited test that upstream
+drift has broken — a widget type it swapped, a theme it changed — moves the test
+*toward* upstream, which reduces conflict surface rather than adding to it. Fix
+those in place, explain the root cause in the commit message, and do not register
+them. A test edited to support one of *our* features is a different thing and does
+get a marker.
+
+Note the registry file `docs/meow/TOUCHPOINTS.md` does not exist yet, because no
+product-code touch-point has been needed. Create it with the first one.
 
 ---
 

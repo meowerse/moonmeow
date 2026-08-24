@@ -76,6 +76,9 @@ public class ProfilesNavigationTest {
 
         View btn = pcView.findViewById(R.id.profilesButton);
         assertNotNull("profilesButton not found", btn);
+        // Looked up as View so an upstream widget swap does not break the test, but
+        // still assert it is a button — a non-button here would be a real regression.
+        assertTrue("profilesButton should be a Button", btn instanceof android.widget.Button);
 
         btn.performClick();
 
@@ -96,6 +99,7 @@ public class ProfilesNavigationTest {
 
         View btn = appView.findViewById(R.id.profilesButton);
         assertNotNull("profilesButton not found in AppView", btn);
+        assertTrue("profilesButton should be a Button", btn instanceof android.widget.Button);
 
         btn.performClick();
 
