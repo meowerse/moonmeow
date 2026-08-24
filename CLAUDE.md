@@ -137,8 +137,42 @@ git grep -nE '^(<<<<<<<|=======|>>>>>>>)'
 
 ## 5. Testing
 
-Upstream ships almost no tests — `app/src/test` is nearly empty. That is the
-inherited state, and it is not acceptable for code we add.
+### What we actually inherited
+
+Not "nearly empty". `app/src/test` carries a working JVM/Robolectric suite —
+**15 files under `app/src/test/java/com/limelight/`: 10 test classes holding 51
+`@Test` methods, plus 5 helpers.**
+
+| Area | Classes | `@Test` |
+| --- | --- | --- |
+| Startup / lifecycle | `StartupCrashTest`, `StartupTest`, `SimpleStartupTest` | 32 |
+| Layout inflation | `LayoutInflationTest` | 1 |
+| `profiles/` | `ProfilesManagerTest`, `ProfilesActivityUiTest`, `ProfilesNavigationTest`, `ProfilesOverlayTest`, `OverlayPreferencesTest` | 16 |
+| Text input | `ui/StreamViewCommitTextTest` | 2 |
+
+Helpers, not tests: `shadows/ShadowMoonBridge`, `shadows/ShadowGameManager`,
+`shadows/ShadowBackdropFrameRenderer`, `TestLogSuppressor`, `ProfileTestHelper`.
+
+Stack: JUnit 4.13.2, Robolectric 4.16, Mockito 5.19.0, `androidx.test:core` 1.7.0.
+`testOptions.unitTests.includeAndroidResources = true` lets real layout XML inflate;
+`robolectric.properties` registers `ShadowBackdropFrameRenderer` globally.
+
+```bash
+./gradlew testNonRoot_gameDebugUnitTest      # the gate task
+./gradlew testNonRoot_gameReleaseUnitTest    # same suite, release variant
+./gradlew :app:test                          # all four flavour/build-type combinations
+```
+
+Report: `app/build/reports/tests/testNonRoot_gameDebugUnitTest/index.html`.
+Conventions for adding to the suite live in `android_test_setup.md`.
+
+**The real hole is instrumented tests: `app/src/androidTest` does not exist — zero.**
+Anything decoder-, surface-, or device-specific is verified only by hand on a real
+phone today. That is what rule 5 below exists to compensate for.
+
+So: treat the JVM suite as a safety net that already works and must stay green —
+never delete a failing inherited test to get a green gate. Our own code is held to a
+higher bar than what we inherited.
 
 ### Rules
 
@@ -148,16 +182,24 @@ inherited state, and it is not acceptable for code we add.
    zoom transforms, and keyboard mapping are pure functions over input events — put
    them in plain classes with no Android dependency and test them directly.
 4. **Instrumented tests for anything touching the decoder or surface** — these break
-   per-device and a JVM unit test will not catch it.
+   per-device and a JVM unit test will not catch it. This means creating
+   `app/src/androidTest`, which does not exist yet.
 5. **Runtime verification is mandatory for UI changes.** Build, install, launch, and
    confirm no crash:
 
 ```bash
 ./gradlew assembleNonRoot_gameRelease
 adb install -r app/build/outputs/apk/nonRoot_game/release/*arm64-v8a*.apk
-adb logcat -c && adb shell am start -n meow.alxnko.moonmeow/.PcView
+adb logcat -c && adb shell am start -n meow.alxnko.moonmeow/com.limelight.PcView
 sleep 5 && adb logcat -b crash -d      # MUST be empty
 ```
+
+**Spell the component out in full.** The shorthand `meow.alxnko.moonmeow/.PcView` does
+not work here and never will: `am` expands a leading `.` against the *applicationId*,
+but our activities live in the `com.limelight` namespace (§1). The shorthand fails with
+`Error type 3 … Activity class {meow.alxnko.moonmeow/meow.alxnko.moonmeow.PcView} does
+not exist` — which looks exactly like a crash if you are not reading closely, and is the
+one place the applicationId/namespace split leaks into a command you type.
 
 The crash buffer check is not optional. A build that succeeds and an app that runs
 are different claims — this repo has already shipped a green build that crashed on
@@ -165,21 +207,30 @@ launch.
 
 ### Priority order for new tests
 
-1. Gesture/touch handling — the area we are actively changing.
-2. Preference parsing and migration.
-3. Keyboard/input mapping.
-4. Anything in `meow/`.
+Ordered by what is actually uncovered, not by what sounds important:
 
+1. **Instrumented tests (`app/src/androidTest`)** — the one genuinely empty bucket.
+   Decoder negotiation and surface lifecycle cannot be reached from Robolectric.
+2. **Gesture/touch handling** — the area we are actively changing, and absent from
+   the inherited suite.
+3. **Keyboard/input mapping** — `StreamViewCommitTextTest` covers `commitText` only.
+4. **Preference parsing and migration** — `OverlayPreferencesTest` covers the overlay
+   subset; everything else is uncovered.
+5. **Anything in `meow/`** — covered by rule 1 above, listed here for completeness.
 ---
 
 ## 6. The gate — run before every push
 
 ```bash
-./gradlew assembleNonRoot_gameRelease   # release build, lintVital runs here
-./gradlew testNonRoot_gameReleaseUnitTest
+./gradlew assembleNonRoot_gameRelease     # release build, lintVital runs here
+./gradlew testNonRoot_gameDebugUnitTest   # 51 tests, all must pass
 ```
 
 Then the runtime check in §5. Red gate → nothing gets pushed.
+
+Both halves are required. The build alone proves the app compiles and links; it says
+nothing about whether the app works, and this repo has shipped a green build that
+crashed on launch.
 
 **Never add a lint baseline to silence `lintVital`.** It failed once here on 12 dead
 strings that existed only in `values-ru` and were referenced nowhere — the fix was to

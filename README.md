@@ -1,19 +1,32 @@
-# Artemis Android
+# Moonmeow
 
-Previously named Moonlight Noir
+An Android client for streaming a desktop — or a game — from your PC to your phone.
 
-An open source client for [Apollo](https://github.com/ClassicOldSong/Apollo)/[Sunshine](https://github.com/LizardByte/Sunshine).
+Moonmeow is a fork of [Artemis](https://github.com/ClassicOldSong/moonlight-android)
+(formerly Moonlight Noir), which is itself a fork of
+[Moonlight](https://github.com/moonlight-stream/moonlight-android). It connects to
+[sunmeow](https://github.com/meowerse/sunmeow) — our fork of
+[Apollo](https://github.com/ClassicOldSong/Apollo) — and remains compatible with
+Apollo and [Sunshine](https://github.com/LizardByte/Sunshine) hosts.
 
-Artemis Android will allow you to stream your collection of games from your Windows PC to your Android device,
-whether in your own home or over the internet.
+## What it is for
 
-Artemis is currently the best fork of Moonlight with loads of optimizations for office usage.
+Most Moonlight clients are built for gaming. Moonmeow is tuned for the case its
+author actually uses: **desktop and office work from a phone** — writing code,
+reading logs, driving a terminal — over the same low-latency video path.
 
-A more seamless experience with virtual display will be Artemis paired with [Apollo](https://github.com/ClassicOldSong/Apollo).
+That shapes what we care about. Text input, pointer precision, keyboard shortcuts
+that survive Android's interception, arbitrary resolutions that match a phone
+screen instead of a TV, and panning around a desktop that is larger than the
+display in your hand. Frame pacing for a 4K shooter matters less to us than
+whether Ctrl+Shift+P reaches the host.
 
-# Features
+Paired with sunmeow's virtual display, the phone becomes a real monitor with its
+own resolution rather than a mirror of a physical one.
 
-If you switch back to the main stream version, you'll be missing the following awesome features which are very unlikely to be added there:
+## Features
+
+Inherited from Artemis, and the reason we fork it rather than upstream Moonlight:
 
 1. Custom virtual buttons with import and export support.
 2. [Custom resolutions](https://github.com/moonlight-stream/moonlight-android/pull/1349).
@@ -31,54 +44,133 @@ If you switch back to the main stream version, you'll be missing the following a
 14. [Virtual touchpad space and sensitivity adjustment](https://github.com/moonlight-stream/moonlight-android/issues/1348#issuecomment-2236344729) for playing right-click view games, such as Warcraft.
 15. Force use device's own vibration motor (in case your gamepad's vibration is not effective).
 16. Gamepad debugging page to view gamepad vibration and gyroscope information, as well as Android kernel version information.
-17. Trackpad tap/scrolling support
-18. Natural track pad mode with touch screen
-19. Non-QWERTY keyboard layout support
-20. Quick Meta key with physical BACK button
-21. Frame rate lock fix for some devices
-22. Video scale mode: Fit/Fill/Stretch
-23. View pan/zoom support
-24. Rotate screen in-game
-25. Add option to quit app directly
-26. Samsung DeX scrolling support
-27. Proper click/scroll/right-click for trackpad on generic Android tablet when using local cursor
-28. Virtual Display integration with [Apollo](https://github.com/ClassicOldSong/Apollo)
-29. Server Command integration with [Apollo](https://github.com/ClassicOldSong/Apollo)
-30. Clipboard sync (requires Apollo)
-31. SBS 3D for external Displays (Using AI MiDaS v2 Lite)
+17. Trackpad tap/scrolling support.
+18. Natural trackpad mode with touch screen.
+19. Non-QWERTY keyboard layout support.
+20. Quick Meta key with physical BACK button.
+21. Frame rate lock fix for some devices.
+22. Video scale mode: Fit/Fill/Stretch.
+23. View pan/zoom support.
+24. Rotate screen in-game.
+25. Option to quit the app directly.
+26. Samsung DeX scrolling support.
+27. Proper click/scroll/right-click for trackpad on generic Android tablets when using local cursor.
+28. Virtual Display integration (requires Apollo or sunmeow).
+29. Server Command integration (requires Apollo or sunmeow).
+30. Clipboard sync (requires Apollo or sunmeow).
+31. SBS 3D for external displays (using AI MiDaS v2 Lite).
 
-# Disclaimer
+## Relationship to upstream
 
-This is the `go away` version of Moonlight Android.
+We track Artemis's `moonlight-noir` branch, not Moonlight's `master`, because
+Artemis is where the development is:
 
-I got kicked from Moonlight and Sunshine's Discord server literally for helping people out.
+| Repository | Latest commit | Notes |
+| --- | --- | --- |
+| [moonlight-stream/moonlight-android](https://github.com/moonlight-stream/moonlight-android) | 2024-07-27 | last release v12.1, February 2024 |
+| [ClassicOldSong/moonlight-android](https://github.com/ClassicOldSong/moonlight-android) (`moonlight-noir`) | 2025-10-18 | 568 commits ahead of upstream |
 
-This is what I got for finding a bug, opened an issue, getting no response, troubleshoot myself, fixed the issue myself, shared it by PR to the main repo hoping my efforts can help someone else during the maintainance gap.
+Artemis is ahead on every axis we care about and is explicitly tuned for
+desktop/office use rather than gaming. Note that `master` and `next` in the
+Artemis repository are stale (2024) and far behind `moonlight-noir`.
 
-Yes, I'm going away. Fixes and improvements on this fork are not necessarily be merged to the main repo either. I have also started [a fork of Sunshine called Apollo](https://github.com/ClassicOldSong/Apollo) and will add useful features that will never get merged by the main repo shortly. [Apollo](https://github.com/ClassicOldSong/Apollo) and [Moonlight Noir](https://github.com/ClassicOldSong/moonlight-android) will no longer be compatible with OG Sunshine and OG Moonlight eventually, but they'll work even better with much more carefully designed features.
+Moonmeow exists on top of that for one reason: to be *our* build — our
+`applicationId`, our signing key, our release cadence, and a place to put
+desktop-oriented changes that we do not expect anyone upstream to carry. We
+merge from Artemis regularly and try hard to add files rather than edit
+inherited ones, so those merges stay cheap.
 
-The main repo had stayed silent for 5 months, with nobody actually responding to issues, and people are getting totally no help besides the limited FAQ in their Discord server. I tried to answer issues and questions, solve problems within my ablilty but I got kicked out just for helping others.
-
-**PRs for feature improvements are welcomed here unlike the main repo, your ideas are more likely to be appreciated and your efforts are actually being respected. We welcome people who can and willing to share their efforts, helping yourselves and other people in need.**
-
-**Update**: They have contacted me and apologized for this incident, but the fact it **happened** still motivated me to start my own fork.
+Moonmeow ships as `meow.alxnko.moonmeow`, so it installs alongside Moonlight
+and Artemis rather than replacing either. The Java namespace is still
+`com.limelight` on purpose — renaming it would conflict with every upstream
+merge and change nothing a user can see.
 
 ## Downloads
-* [Download APK directly](https://github.com/ClassicOldSong/moonlight-android/releases)
-* [Use Obtainium](https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22com.limelight.noir%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2FClassicOldSong%2Fmoonlight-android%22%2C%22author%22%3A%22ClassicOldSong%22%2C%22name%22%3A%22Artemis%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22nonRoot%5C%22%2C%5C%22matchGroutToUse%5C%22%3A%5C%22%241%5C%22%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22v(.%2B)%5C%22%7D%22%7D) (recommended)
+
+There are no prebuilt releases. Moonmeow is built from source — see below.
 
 ## Building
-* Install Android Studio and the Android NDK
-* Run ‘git submodule update --init --recursive’ from within moonlight-android/
-* In moonlight-android/, create a file called ‘local.properties’. Add an ‘ndk.dir=’ property to the local.properties file and set it equal to your NDK directory.
-* Build the APK using Android Studio or gradle
 
-## Authors
+Requirements:
 
-* [Cameron Gutman](https://github.com/cgutman)  
-* [Diego Waxemberg](https://github.com/dwaxemberg)  
-* [Aaron Neyer](https://github.com/Aaronneyer)  
+* Android SDK (`compileSdk 36`, `minSdk 21`)
+* Android NDK **27.0.12077973** — the version is pinned in `app/build.gradle`;
+  install it through the SDK Manager so Gradle can find it under `$ANDROID_HOME/ndk/`
+* JDK 17 or newer
+
+Steps:
+
+```bash
+git clone https://github.com/meowerse/moonmeow.git
+cd moonmeow
+git submodule update --init --recursive     # pulls moonlight-common-c and enet
+
+# point Gradle at your SDK
+echo "sdk.dir=$ANDROID_HOME" > local.properties
+
+./gradlew assembleNonRoot_gameRelease
+```
+
+The APKs land in `app/build/outputs/apk/nonRoot_game/release/`, split per ABI
+(`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`).
+
+Unit tests:
+
+```bash
+./gradlew testNonRoot_gameDebugUnitTest
+```
+
+Other useful variants: `assembleNonRoot_gameDebug` for a debuggable build
+(installs as `meow.alxnko.moonmeow.debug`, side by side with release), and the
+`root` flavour, which exists only for pre-Android-8 devices that need root for
+mouse capture.
+
+### Signing
+
+Release builds are signed from a gitignored `keystore.properties` in the repo
+root:
+
+```properties
+storeFile=/path/to/your-release.jks
+storePassword=…
+keyAlias=…
+keyPassword=…
+```
+
+**Without that file the release build still succeeds — it is simply unsigned**,
+which is fine for local testing but cannot be installed as an update over a
+signed build. `keystore.properties`, `*.jks`, and `local.properties` are all
+gitignored; never commit them.
+
+## Contributing
+
+`CLAUDE.md` (and `AGENTS.md`, which points at it) describes how work is done
+here: additive-only changes wherever possible, `moonlight-common-c` treated as a
+sealed dependency, and a build + unit-test + on-device launch check before
+anything is pushed. Read it before your first change.
+
+## License
+
+Moonmeow is licensed under the **GNU General Public License v3.0**, inherited
+from Moonlight and Artemis. See [LICENSE.txt](LICENSE.txt) for the full text.
+
+## Authors and credits
+
+Moonlight — the project all of this descends from — is the work of students at
+[Case Western](http://case.edu) and was started as a project at
+[MHacks](http://mhacks.org):
+
+* [Cameron Gutman](https://github.com/cgutman)
+* [Diego Waxemberg](https://github.com/dwaxemberg)
+* [Aaron Neyer](https://github.com/Aaronneyer)
 * [Andrew Hennessy](https://github.com/yetanothername)
 
-Moonlight is the work of students at [Case Western](http://case.edu) and was
-started as a project at [MHacks](http://mhacks.org).
+Artemis (Moonlight Noir), the fork Moonmeow is built on, and Apollo, the host it
+was designed against, are by [ClassicOldSong](https://github.com/ClassicOldSong).
+Nearly every desktop-oriented feature listed above is their work.
+
+Sunshine, the host software Apollo forks, is by
+[LizardByte](https://github.com/LizardByte).
+
+Moonmeow is maintained by [meowerse](https://github.com/meowerse). It is an
+unofficial fork and is not endorsed by any of the projects above.
