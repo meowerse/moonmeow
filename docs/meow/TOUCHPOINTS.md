@@ -72,10 +72,25 @@ Tested by `app/src/test/java/com/limelight/meow/gesture/`.
 
 ### Invariant worth knowing before you retune anything
 
-`TwoFingerGestureArbiter`'s span slop must stay below
-`TrackpadContext.TAP_MOVEMENT_THRESHOLD` (30px), which is how far one finger must
-travel before the trackpad code confirms a move and starts emitting scroll packets.
-A symmetric pinch moves each finger by half the span change and an anchored pinch
-moves one finger by the whole span change, so latching at or under 30px of span
-change is what stops a scroll blip from leaking to the host at the start of a pinch.
-The default is `ViewConfiguration.getScaledTouchSlop()` (~24px at 3x density).
+`TwoFingerGestureArbiter`'s span slop must stay below the point at which the touch
+contexts confirm a move and start emitting scroll to the host. Those thresholds are
+fixed pixel counts that do **not** scale with display density:
+
+| Context | Threshold |
+| --- | --- |
+| `RelativeTouchContext.TAP_MOVEMENT_THRESHOLD` | 20px (and `TAP_DISTANCE_THRESHOLD` 25px) |
+| `TrackpadContext.TAP_MOVEMENT_THRESHOLD` | 30px |
+
+20px is therefore the binding constraint. A symmetric pinch moves each finger by half
+the span change and an anchored pinch moves one finger by the whole span change, so
+latching under 20px of span change is what stops a pinch from briefly scrolling the
+remote desktop on its way in.
+
+The obvious default, `ViewConfiguration.getScaledTouchSlop()`, does not satisfy this:
+8dp is 26px on the Poco X7 Pro (520dpi) and 32px at 640dpi. `InlinePinchZoomController`
+caps it at `MAX_SLOP_PX` = 18px for that reason, and
+`TwoFingerGestureArbiterTest.defaultSlopsStayUnderTheThresholdAtWhichScrollLeaksToTheHost`
+fails if anyone raises it back.
+
+Erring low is cheap: the slop only decides *when* the arbiter commits, not *what* it
+commits to — that is the dominance rule in `classify(...)`.

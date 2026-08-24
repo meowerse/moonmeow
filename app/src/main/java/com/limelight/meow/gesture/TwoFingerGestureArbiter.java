@@ -33,19 +33,22 @@ public final class TwoFingerGestureArbiter {
     /**
      * Span change (in pixels) that must accumulate before a gesture can be read as a pinch.
      *
-     * <p>This value has an invariant attached to it: it must stay comfortably below
-     * {@code TrackpadContext.TAP_MOVEMENT_THRESHOLD} (30px), which is how far a single
-     * finger has to travel before the trackpad code confirms a move and starts emitting
-     * scroll wheel packets. A symmetric pinch moves each finger by half the span change
-     * and an anchored pinch moves one finger by the whole span change, so deciding at
-     * or below 30px of span change means we latch before any scroll leaks to the host.
-     * Callers normally pass {@code ViewConfiguration#getScaledTouchSlop()} (~24px at
-     * 3x density), which satisfies this.
+     * <p>This value has an invariant attached to it: it must stay below the point at which
+     * the touch contexts confirm a move and start emitting scroll to the host, which is
+     * 20px for {@code RelativeTouchContext} and 30px for {@code TrackpadContext}. A
+     * symmetric pinch moves each finger by half the span change and an anchored pinch
+     * moves one finger by the whole span change, so latching below 20px of span change is
+     * what stops a pinch from briefly scrolling the remote desktop on its way in.
+     * {@code InlinePinchZoomController} enforces the ceiling; see its {@code MAX_SLOP_PX}.
+     *
+     * <p>Note that the slop only decides <em>when</em> we commit, not <em>what</em> we
+     * commit to — that is {@link #classify}'s dominance rule — so erring low costs
+     * accuracy far less than erring high costs stray input.
      */
-    public static final float DEFAULT_SPAN_SLOP_PX = 24f;
+    public static final float DEFAULT_SPAN_SLOP_PX = 18f;
 
     /** Centroid travel (in pixels) that must accumulate before a gesture reads as a scroll. */
-    public static final float DEFAULT_TRANSLATION_SLOP_PX = 24f;
+    public static final float DEFAULT_TRANSLATION_SLOP_PX = 18f;
 
     /**
      * Tie break weight applied to the translation when both slops are crossed in the

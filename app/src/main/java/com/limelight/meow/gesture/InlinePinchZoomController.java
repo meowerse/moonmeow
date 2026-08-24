@@ -17,7 +17,9 @@ import android.view.ViewConfiguration;
  * <ul>
  *   <li>fewer than two fingers &rarr; not our business, pass through</li>
  *   <li>three or more fingers &rarr; one of the existing multi-finger gestures, pass through
- *       and stay out of the way for the rest of the gesture</li>
+ *       and stay out of the way for the rest of the gesture. A third finger arriving
+ *       <em>during</em> a zoom instead pauses it, and the zoom resumes from wherever the
+ *       fingers are once we are back to two.</li>
  *   <li>two fingers &rarr; ask {@link TwoFingerGestureArbiter}. SCROLL passes through to the
  *       existing trackpad handling; ZOOM is consumed and drives the {@link ZoomTarget}.</li>
  * </ul>
@@ -77,12 +79,31 @@ public final class InlinePinchZoomController {
         this.onZoomEnd = onZoomEnd;
     }
 
+    /**
+     * Ceiling on the slop we derive from the platform, and the one number in here that is
+     * load bearing rather than a matter of taste.
+     *
+     * <p>A gesture is ambiguous while it starts, so the touch contexts see the pointers go
+     * down before we know it is a pinch. They begin emitting scroll to the host as soon as
+     * they confirm a move, and their thresholds are fixed pixel counts that do not scale
+     * with display density: {@code RelativeTouchContext.TAP_MOVEMENT_THRESHOLD} is 20px
+     * (its {@code TAP_DISTANCE_THRESHOLD} is 25px) and {@code TrackpadContext}'s is 30px.
+     * We must therefore latch below 20px of span change, or a pinch briefly scrolls the
+     * remote desktop before we take over.
+     *
+     * <p>{@code ViewConfiguration#getScaledTouchSlop()} does scale with density: 8dp is
+     * 26px on the Poco X7 Pro (520dpi) and 32px at 640dpi, which would break the invariant
+     * outright. Hence the cap.
+     */
+    private static final float MAX_SLOP_PX = 18f;
+
     private static float touchSlop(Context context) {
         if (context == null) {
-            return TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX;
+            return Math.min(TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX, MAX_SLOP_PX);
         }
         int slop = ViewConfiguration.get(context).getScaledTouchSlop();
-        return slop > 0 ? slop : TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX;
+        float effective = slop > 0 ? slop : TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX;
+        return Math.min(effective, MAX_SLOP_PX);
     }
 
     /** True while a gesture is being consumed as a zoom. */

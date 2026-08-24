@@ -70,6 +70,19 @@ public class TwoFingerGestureArbiterTest {
         }
     }
 
+    @Test
+    public void defaultSlopsStayUnderTheThresholdAtWhichScrollLeaksToTheHost() {
+        // RelativeTouchContext.TAP_MOVEMENT_THRESHOLD is 20px and TrackpadContext's is 30px;
+        // those are the points at which the touch contexts confirm a move and start sending
+        // scroll to the remote desktop. We have to have committed to zoom before then, or a
+        // pinch scrolls the host on its way in. Raising these constants past 20 reintroduces
+        // that bug silently, so pin them here.
+        assertTrue("span slop must stay under RelativeTouchContext's 20px move threshold",
+                TwoFingerGestureArbiter.DEFAULT_SPAN_SLOP_PX < 20f);
+        assertTrue("translation slop must stay under the same threshold",
+                TwoFingerGestureArbiter.DEFAULT_TRANSLATION_SLOP_PX < 20f);
+    }
+
     // ---- live gesture streams -----------------------------------------------------
 
     @Test
