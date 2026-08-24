@@ -108,11 +108,20 @@ git submodule update --init --recursive     # pulls moonlight-common-c and enet
 # point Gradle at your SDK
 echo "sdk.dir=$ANDROID_HOME" > local.properties
 
-./gradlew assembleNonRoot_gameRelease
+./gradlew assembleNonRoot_gameDebug      # no signing key needed
 ```
 
-The APKs land in `app/build/outputs/apk/nonRoot_game/release/`, split per ABI
-(`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`).
+The APKs land in `app/build/outputs/apk/nonRoot_game/debug/`, split per ABI
+(`arm64-v8a`, `armeabi-v7a`, `x86`, `x86_64`). Install the one matching your
+device:
+
+```bash
+adb install -r app/build/outputs/apk/nonRoot_game/debug/*arm64-v8a*.apk
+```
+
+For a release build — smaller, faster, and what we actually ship — use
+`./gradlew assembleNonRoot_gameRelease`. It outputs to `.../release/` and needs
+a signing key first; see [Signing](#signing) below.
 
 Unit tests:
 
@@ -120,10 +129,10 @@ Unit tests:
 ./gradlew testNonRoot_gameDebugUnitTest
 ```
 
-Other useful variants: `assembleNonRoot_gameDebug` for a debuggable build
-(installs as `meow.alxnko.moonmeow.debug`, side by side with release), and the
-`root` flavour, which exists only for pre-Android-8 devices that need root for
-mouse capture.
+The debug build installs as `meow.alxnko.moonmeow.debug`, so it sits side by side
+with a release install rather than replacing it. There is also a `root` flavour,
+which exists only for pre-Android-8 devices that need root for mouse capture
+(`maxSdk 25`); you almost certainly do not want it.
 
 ### Signing
 
@@ -137,10 +146,23 @@ keyAlias=…
 keyPassword=…
 ```
 
-**Without that file the release build still succeeds — it is simply unsigned**,
-which is fine for local testing but cannot be installed as an update over a
-signed build. `keystore.properties`, `*.jks`, and `local.properties` are all
-gitignored; never commit them.
+**A release build requires that file.** The `release` build type wires up the
+`moonmeow` signing config unconditionally, so without `keystore.properties` the
+build gets as far as packaging and then fails:
+
+```
+Execution failed for task ':app:packageNonRoot_gameRelease'.
+> SigningConfig "moonmeow" is missing required property "storeFile".
+```
+
+Generate your own key with `keytool -genkeypair -v -keystore my-release.jks
+-keyalg RSA -keysize 2048 -validity 10000 -alias moonmeow` and point
+`keystore.properties` at it — it does not have to be ours. If you only want to
+run the app, `./gradlew assembleNonRoot_gameDebug` needs no keystore at all; it
+uses Android's debug key and installs as `meow.alxnko.moonmeow.debug`.
+
+`keystore.properties`, `*.jks`, and `local.properties` are all gitignored; never
+commit them.
 
 ## Contributing
 
