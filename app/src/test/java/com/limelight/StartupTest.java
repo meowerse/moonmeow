@@ -51,7 +51,10 @@ public class StartupTest {
     @Test
     public void testApplicationStartup() {
         // Test ArtemisApplication creation and initialization
-        ArtemisApplication app = new ArtemisApplication();
+        // Robolectric instantiates the manifest's ArtemisApplication with a base
+        // context attached; `new ArtemisApplication()` has none and NPEs on Toast.
+        ArtemisApplication app =
+                (ArtemisApplication) ApplicationProvider.getApplicationContext();
         app.onCreate();
 
         // Verify ProfilesManager was initialized
