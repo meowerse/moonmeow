@@ -67,12 +67,16 @@ Artemis is where the development is:
 
 | Repository | Latest commit | Notes |
 | --- | --- | --- |
-| [moonlight-stream/moonlight-android](https://github.com/moonlight-stream/moonlight-android) | 2024-07-27 | last release v12.1, February 2024 |
+| [moonlight-stream/moonlight-android](https://github.com/moonlight-stream/moonlight-android) (`master`) | 2024-07-27 | last release v12.1, February 2024 |
 | [ClassicOldSong/moonlight-android](https://github.com/ClassicOldSong/moonlight-android) (`moonlight-noir`) | 2025-10-18 | 568 commits ahead of upstream |
 
 Artemis is ahead on every axis we care about and is explicitly tuned for
 desktop/office use rather than gaming. Note that `master` and `next` in the
 Artemis repository are stale (2024) and far behind `moonlight-noir`.
+
+Moonlight's repository does still see pushes, but on a `weblate` translation-bot
+branch; every other branch, `master` included, is 2014–2024. The project is not
+abandoned — it has 354 open issues and 43 open PRs — it is just not shipping.
 
 Moonmeow exists on top of that for one reason: to be *our* build — our
 `applicationId`, our signing key, our release cadence, and a place to put

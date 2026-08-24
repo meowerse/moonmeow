@@ -238,8 +238,18 @@ Helpers, not tests: `shadows/ShadowMoonBridge`, `shadows/ShadowGameManager`,
 `shadows/ShadowBackdropFrameRenderer`, `TestLogSuppressor`, `ProfileTestHelper`.
 
 Stack: JUnit 4.13.2, Robolectric 4.16, Mockito 5.19.0, `androidx.test:core` 1.7.0.
-`testOptions.unitTests.includeAndroidResources = true` lets real layout XML inflate;
-`robolectric.properties` registers `ShadowBackdropFrameRenderer` globally.
+`testOptions.unitTests.includeAndroidResources = true` lets real layout XML inflate.
+
+There is a `robolectric.properties` at the repo root naming
+`ShadowBackdropFrameRenderer`, and **it does nothing**. Robolectric reads that file
+as a classpath resource, so it would have to live in `app/src/test/resources/` — a
+directory that does not exist. Nothing copies it into the test classpath (`find
+app/build -name robolectric.properties` after a test run comes back empty), and no
+`@Config` names the shadow, so `ShadowBackdropFrameRenderer` is dead code. Shadows
+that actually apply are the ones listed per class: `ShadowMoonBridge` and
+`ShadowGameManager`. Do not assume the global file is protecting you. Moving it into
+`app/src/test/resources/` would activate it, which is a behaviour change and wants
+its own commit and its own test run.
 
 ```bash
 ./gradlew testNonRoot_gameDebugUnitTest      # the gate task
@@ -301,6 +311,7 @@ Ordered by what is actually uncovered, not by what sounds important:
 4. **Preference parsing and migration** — `OverlayPreferencesTest` covers the overlay
    subset; everything else is uncovered.
 5. **Anything in `meow/`** — covered by rule 1 above, listed here for completeness.
+
 ---
 
 ## 6. The gate — run before every push

@@ -471,7 +471,7 @@
     <string name="title_software_update">软件更新</string>
     <string name="summary_software_update">ClassicOldSong 黑月光修改版 - 访问 GitHub Release 以获取更新</string>
     <string name="title_follow_update">订阅更新</string>
-    <string name="summary_follow_update">使用 Obtainium 订阅 Moonmeow 的更新</string>
+    <string name="summary_follow_update">使用 Obtainium 订阅 Artemis 的更新</string>
     <string name="title_special_key_layout">特殊按键布局</string>
     <string name="title_show_virtual_key">屏幕显示虚拟按键</string>
     <string name="summary_show_virtual_key">在触摸屏上显示一层虚拟特殊按键。\n按键透明度与上方选项中虚拟手柄共用。</string>
@@ -617,7 +617,7 @@
     <string name="summary_performance_link">查看其他设备的性能数据</string>
     <string name="email_chooser_title">发送性能统计...</string>
     <string name="toast_no_email_clients">找不到电子邮件客户端</string>
-    <string name="email_subject">Moonmeowtics - 性能统计</string>
+    <string name="email_subject">Artemistics - 性能统计</string>
     <string name="summary_share_performance_logs">与朋友或社区分享你的性能统计数据</string>
     <string name="email_prefix_message">"\n        请按原样将此邮件发送至 artemistics.logs@gmail.com 以帮助社区。\n\n        您分享的性能数据将会帮助改进和扩充以下地址的统计数据：\n\n        https://tinyurl.com/artemis-performance\n\n\n    "</string>
 

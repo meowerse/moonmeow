@@ -143,7 +143,7 @@
     </string>
 
     <string name="email_recipient">artemistics.logs@gmail.com</string>
-    <string name="email_subject">Moonmeowtics - Performance Log</string>
+    <string name="email_subject">Artemistics - Performance Log</string>
     <string name="email_chooser_title">Send performance log...</string>
     <string name="toast_no_email_clients">No email clients installed.</string>
     <string name="toast_no_logs">There is no performance data stored yet.</string>
@@ -471,9 +471,9 @@
     <string name="summary_share_performance_logs">Share your performance with friends or the community</string>
     <string name="title_share_performance_logs_button">Share Performance Logs</string>
     <string name="title_software_update">Software Update</string>
-    <string name="summary_software_update">Moonmeow Nior Version by ClassicOldSong - Visit GitHub Releases to get latest version</string>
+    <string name="summary_software_update">Artemis Nior Version by ClassicOldSong - Visit GitHub Releases to get latest version</string>
     <string name="title_follow_update">Follow Update</string>
-    <string name="summary_follow_update">Follow updates of Moonmeow with Obtainium</string>
+    <string name="summary_follow_update">Follow updates of Artemis with Obtainium</string>
     <string name="title_special_key_layout">Special Key Layout</string>
     <string name="title_show_virtual_key">Display virtual keys on screen</string>
     <string name="summary_show_virtual_key">Display a layer of virtual special keys on the touchscreen.\nKey opacity is shared with the virtual gamepad above.</string>

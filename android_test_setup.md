@@ -122,10 +122,13 @@ Quick-start guide: writing JVM/Robolectric unit tests for this repo
     • **Resources** – because `includeAndroidResources=true`, you can safely inflate real layout XML, but keep the SDK level in `@Config` ≥ the latest attribute you reference.  
     • **Product flavours** – tests are compiled once per flavour; don’t hard-code `BuildConfig.APPLICATION_ID`, use `context.getPackageName()` when needed.  
     • **Suppress noisy log spam** – call `TestLogSuppressor.install()` once per test-class (see above).  
-    • **A global shadow is already registered.** `robolectric.properties` in the repo root sets
-      `shadows=com.limelight.shadows.ShadowBackdropFrameRenderer`, so that one applies to every
-      test without being named in `@Config`. `ShadowMoonBridge` and `ShadowGameManager` still
-      have to be listed per class.  
+    • **The root `robolectric.properties` is inert — do not rely on it.** It sets
+      `shadows=com.limelight.shadows.ShadowBackdropFrameRenderer`, but Robolectric reads that
+      file off the *classpath*, so it would need to be at `app/src/test/resources/` — which
+      does not exist. After a test run, `find app/build -name robolectric.properties` returns
+      nothing, and no `@Config` names that shadow, so it never loads. List every shadow you
+      need in `@Config` on the class itself. (Relocating the file would switch the shadow on
+      for the whole suite; treat that as a behaviour change, not a tidy-up.)  
     • **Layouts need a Material theme.** The app's layouts use Material components
       (`ExtendedFloatingActionButton` and friends), which throw
       `IllegalArgumentException: The style on this component requires your app theme to be
