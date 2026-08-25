@@ -45,6 +45,10 @@ LOCAL_SRC_FILES := moonlight-common-c/src/AudioStream.c \
                    callbacks.c \
                    minisdl.c \
 
+# MEOW-TOUCH(viewport-follow): our own JNI translation unit, kept out of simplejni.c
+# so an upstream sync never conflicts on it. See docs/meow/TOUCHPOINTS.md
+LOCAL_SRC_FILES += meowjni.c
+
 
 LOCAL_C_INCLUDES := $(LOCAL_PATH)/moonlight-common-c/enet/include \
                     $(LOCAL_PATH)/moonlight-common-c/nanors \
