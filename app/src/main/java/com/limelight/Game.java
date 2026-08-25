@@ -28,6 +28,7 @@ import com.limelight.binding.video.CrashListener;
 import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
+import com.limelight.meow.gesture.InlinePinchZoomController;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -149,6 +150,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private final TouchContext[] touchContextMap = new TouchContext[2];
     private final TouchContext[] trackpadContextMap = new TouchContext[2];
     private PanZoomHandler panZoomHandler;
+    // MEOW-TOUCH(inline-pinch-zoom): modeless pinch-to-zoom, see docs/meow/TOUCHPOINTS.md
+    private InlinePinchZoomController inlinePinchZoom;
     private long threeFingerDownTime = 0;
     private long fourFingerDownTime = 0;
     private long fiveFingerDownTime = 0;
@@ -485,6 +488,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 streamContainer,
                 prefConfig
         );
+
+        // MEOW-TOUCH(inline-pinch-zoom): drive the same handler from a modeless pinch
+        inlinePinchZoom = new InlinePinchZoomController(
+                this, panZoomHandler, this::cancelInFlightTouchContexts, this::updatePipAutoEnter);
 
         // Restore previous zoom & pan if enabled and saved
         if (prefConfig.rememberZoomPan) {
@@ -3079,11 +3086,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                     }
 
                     // If touch is disabled or not initialized, we'll try panning the streamView
-                    if (touchContextMap[0] == null) {
-                        return true;
-                    }
+                    boolean touchContextsUnavailable = touchContextMap[0] == null;
 
-                    if (prefConfig.enableMultiTouchGestures || !prefConfig.enableMultiTouchScreen) {
+                    if (!touchContextsUnavailable
+                            && (prefConfig.enableMultiTouchGestures || !prefConfig.enableMultiTouchScreen)) {
                         int pointerCount = event.getPointerCount();
                         if (pointerCount > 2) {
                             int eventAction = event.getActionMasked();
@@ -3098,6 +3104,29 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                                 return true;
                             }
                         }
+                    }
+
+                    // MEOW-TOUCH(inline-pinch-zoom): pinch to zoom without the mode toggle.
+                    // Skipped when the host is receiving native touch events, because there
+                    // a pinch belongs to the remote application, not to our local view.
+                    //
+                    // This sits *after* the multi-finger block on purpose, and the ordering
+                    // is load bearing. Latching ZOOM is a consuming decision: from then on
+                    // every ACTION_POINTER_DOWN is swallowed, so with the hook first a third
+                    // finger that lands after the latch never reaches handleMultiTouchGesture
+                    // and the soft-keyboard / full-keyboard / game-menu taps silently die.
+                    // Giving the multi-finger block first refusal costs zoom nothing: it only
+                    // ever acts on ACTION_POINTER_DOWN / ACTION_POINTER_UP / ACTION_UP at
+                    // pointerCount > 2, and never on ACTION_MOVE, which is what drives zoom.
+                    // The `touchContextsUnavailable` early return is deferred past this for
+                    // the same reason it used to sit above the hook -- see TOUCHPOINTS.md.
+                    if (inlinePinchZoom != null && !prefConfig.enableMultiTouchScreen
+                            && inlinePinchZoom.onTouchEvent(event)) {
+                        return true;
+                    }
+
+                    if (touchContextsUnavailable) {
+                        return true;
                     }
 
                     if (prefConfig.enableMultiTouchScreen && !prefConfig.touchscreenTrackpad && trySendTouchEvent(view, event)) {
@@ -3331,6 +3360,18 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         cancelStaleTouchState(event, view);
         return true;
+    }
+
+    // MEOW-TOUCH(inline-pinch-zoom): drop whatever the touch contexts were building up
+    // when a gesture turns out to be a pinch, so it cannot land on the host as a stray
+    // scroll or as the two-finger-tap right click.
+    private void cancelInFlightTouchContexts() {
+        for (TouchContext touchContext : touchContextMap) {
+            if (touchContext != null) {
+                touchContext.cancelTouch();
+                touchContext.setPointerCount(0);
+            }
+        }
     }
 
     private void cancelStaleTouchState(MotionEvent event, View view) {
@@ -4189,6 +4230,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // Always exit zoom mode if mouse mode has changed
         isPanZoomMode = false;
+        // MEOW-TOUCH(inline-pinch-zoom): the inline latch is the same state in the
+        // modeless path, and the touch contexts it was arbitrating for have just been
+        // rebuilt above. No further event from the old gesture will arrive to clear it,
+        // so clear it here rather than leaving it to the next ACTION_DOWN.
+        if (inlinePinchZoom != null) {
+            inlinePinchZoom.reset();
+        }
         updateZoomButtonAppearance();
     }
 
