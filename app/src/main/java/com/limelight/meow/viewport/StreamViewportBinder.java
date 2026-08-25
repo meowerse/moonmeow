@@ -146,7 +146,7 @@ public final class StreamViewportBinder
      * Blocks, bounded, until the uncrop has been handed to the library.
      */
     public void onStreamStopped() {
-        MeowViewportBridge.setEchoListener(null);
+        MeowViewportBridge.clearEchoListener(this);
         live = false;
 
         if (Looper.myLooper() == handler.getLooper()) {
@@ -209,11 +209,6 @@ public final class StreamViewportBinder
             reporter.onViewportApplied(x, y, width, height, desktopWidth, desktopHeight);
             live = reporter.isLive();
         });
-    }
-
-    /** Visible for tests. */
-    ViewportReporter reporter() {
-        return reporter;
     }
 
     private void post(Runnable task) {

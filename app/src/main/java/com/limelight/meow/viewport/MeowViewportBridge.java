@@ -114,9 +114,23 @@ public final class MeowViewportBridge implements ViewportReporter.Sender {
         }
     }
 
-    /** Registers the listener for the current stream. Pass null at teardown. */
+    /** Registers the listener for the current stream. */
     public static void setEchoListener(EchoListener listener) {
         echoListener = listener;
+    }
+
+    /**
+     * Deregisters {@code listener}, but only if it is still the registered one.
+     *
+     * <p>Guards the one overlap this static can suffer: if a second {@code Game} registers
+     * before the first tears down — which is what a stream restart through PiP looks like —
+     * an unconditional clear would silently deregister the live stream's binder and the new
+     * session would never see an echo.
+     */
+    public static void clearEchoListener(EchoListener listener) {
+        if (echoListener == listener) {
+            echoListener = null;
+        }
     }
 
     /** True when the native symbols resolved and calls will actually reach the library. */

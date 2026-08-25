@@ -433,6 +433,11 @@ The host's echo is posted onto the same handler.
 `STOP_DRAIN_TIMEOUT_MS` (250 ms): the terminal uncrop must reach the wire before
 `LiStopConnection`, because sending after that races the ENet peer's destruction.
 
+The echo listener is a static, because the native callback is a bare C function pointer
+with no context parameter. Deregistration is `clearEchoListener(this)` rather than
+`setEchoListener(null)`, so a stream restart through PiP — where the new `Game` registers
+before the old one tears down — cannot silently deregister the live session's binder.
+
 An earlier revision carried a `ViewportThrottle` and a 120 ms settle timer of its own. Both
 are **gone**: `LiSendViewportEvent` already rate limits to 50 ms, drops redundant
 rectangles, retries failed sends and flushes the trailing one from the loss-stats thread.

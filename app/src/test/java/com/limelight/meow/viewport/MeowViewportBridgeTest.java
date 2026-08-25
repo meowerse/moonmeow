@@ -21,6 +21,29 @@ public class MeowViewportBridgeTest {
     }
 
     @Test
+    public void clearingWithSomeoneElsesListenerLeavesTheLiveOneRegistered() {
+        // A stream restart through PiP can register the new binder before the old one tears
+        // down. An unconditional clear would deregister the live stream and it would never
+        // see an echo.
+        final Object[] captured = new Object[1];
+        MeowViewportBridge.EchoListener stale = (x, y, w, h, dw, dh) -> {
+        };
+        MeowViewportBridge.EchoListener live =
+                (x, y, w, h, dw, dh) -> captured[0] = "called";
+        MeowViewportBridge.setEchoListener(stale);
+        MeowViewportBridge.setEchoListener(live);
+
+        MeowViewportBridge.clearEchoListener(stale);
+        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0);
+        assertEquals("called", captured[0]);
+
+        MeowViewportBridge.clearEchoListener(live);
+        captured[0] = null;
+        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0);
+        assertNull(captured[0]);
+    }
+
+    @Test
     public void aMissingNativeLibraryIsDetectedAtClassInitRatherThanAtFirstCall() {
         assertFalse("no .so on the JVM, so this must be false here",
                 MeowViewportBridge.isNativeReady());
@@ -84,8 +107,10 @@ public class MeowViewportBridgeTest {
         // A late echo from a stream that has already ended must not reach a binder whose
         // handler thread has been quit.
         final Object[] captured = new Object[1];
-        MeowViewportBridge.setEchoListener((x, y, w, h, dw, dh) -> captured[0] = "called");
-        MeowViewportBridge.setEchoListener(null);
+        MeowViewportBridge.EchoListener listener =
+                (x, y, w, h, dw, dh) -> captured[0] = "called";
+        MeowViewportBridge.setEchoListener(listener);
+        MeowViewportBridge.clearEchoListener(listener);
         MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0);
         assertNull(captured[0]);
     }
