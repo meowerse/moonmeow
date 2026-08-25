@@ -22,25 +22,19 @@ public class TwoFingerGestureArbiterTest {
         return new TwoFingerGestureArbiter(SLOP, SLOP, BIAS);
     }
 
-    /** Arbitrary but fixed origin for the fake timebase; MotionEvent's is uptime millis. */
-    private static final long T0 = 10_000L;
-
     /**
-     * A move frame that arrives after the ZOOM latch dwell has elapsed. Every test below
-     * that is about <em>classification</em> uses this, so the dwell is out of its way; the
-     * tests that are about the dwell itself pass their own timestamps to
-     * {@link TwoFingerGestureArbiter#update} directly. There is deliberately no helper
-     * that omits the timestamp -- see the dwell tests for why.
+     * The arbiter takes no timestamps: it is a pure function of pointer positions. A ZOOM
+     * latch is safe at any moment because {@code Game.handleMotionEvent} offers every
+     * {@code pointerCount > 2} event to the multi-finger recognisers before the inline
+     * pinch hook, so there is no window in which latching early could steal one.
      */
-    private static final long AFTER_DWELL = T0 + TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS;
-
     private static void begin(TwoFingerGestureArbiter a, float x0, float y0, float x1, float y1) {
-        a.beginTwoFinger(x0, y0, x1, y1, T0);
+        a.beginTwoFinger(x0, y0, x1, y1);
     }
 
     private static Decision update(TwoFingerGestureArbiter a,
                                    float x0, float y0, float x1, float y1) {
-        return a.update(x0, y0, x1, y1, AFTER_DWELL);
+        return a.update(x0, y0, x1, y1);
     }
 
     // ---- classify(): the decision truth table ------------------------------------
@@ -276,112 +270,47 @@ public class TwoFingerGestureArbiterTest {
                 delta >= 0.1f && delta <= 10f);
     }
 
-    // ---- the ZOOM latch dwell -----------------------------------------------------
+    // ---- latching is not gated on time ---------------------------------------------
 
     @Test
-    public void zoomDoesNotLatchWhileTheDwellIsStillRunning() {
-        // This is the shape of a 3/4/5 finger tap in progress: two fingers are down, they
-        // converge as the rest of the hand lands, and the span crosses the slop long
-        // before the third finger arrives. Latching here is what steals the gesture.
+    public void zoomLatchesOnTheVeryFirstFrameThatCrossesTheSlop() {
+        // There is no time precondition on the ZOOM latch and there must not be one. Any
+        // such delay keeps events reaching the touch contexts, which confirm a move at
+        // 20px -- barely above the slop -- and start sending scroll to the host, and
+        // cancelTouch() cannot un-send that. Latching the instant the slop is crossed is
+        // what keeps a pinch from leaking scroll onto the remote desktop.
         TwoFingerGestureArbiter a = newArbiter();
-        a.beginTwoFinger(100f, 100f, 300f, 100f, T0);   // span 200
-
-        // 8 frames at 240Hz spans ~33ms, inside the 40ms dwell, and pulls the span in by
-        // 80px -- more than three times the 24px slop.
-        for (int frame = 1; frame <= 8; frame++) {
-            long t = T0 + (long) (frame * 4.16f);
-            assertEquals("frame " + frame + " at +" + (t - T0) + "ms must not latch ZOOM yet",
-                    Decision.UNDECIDED, a.update(100f + 5f * frame, 100f, 300f - 5f * frame, 100f, t));
-        }
-        assertEquals(Decision.UNDECIDED, a.getDecision());
+        begin(a, 100f, 100f, 300f, 100f);   // span 200
+        assertEquals(Decision.ZOOM, update(a, 113f, 100f, 287f, 100f));   // span 174
     }
 
     @Test
-    public void zoomLatchesOnceTheDwellHasElapsed() {
-        // The same gesture, sampled past the dwell instead: the guard delays ZOOM, it does
-        // not disable it. Without this assertion the dwell could be "fixed" by never
-        // zooming at all.
+    public void aFastConvergenceLatchesImmediatelyRatherThanHesitating() {
+        // The shape that used to be held back: two fingers converging hard, on frame one.
+        // Whether that is a pinch or a hand still landing is settled downstream by dispatch
+        // order -- see InlinePinchZoomDispatchOrderTest -- not by making the arbiter wait.
         TwoFingerGestureArbiter a = newArbiter();
-        a.beginTwoFinger(100f, 100f, 300f, 100f, T0);
-        assertEquals(Decision.UNDECIDED, a.update(140f, 100f, 260f, 100f, T0 + 20L));
-        assertEquals(Decision.ZOOM,
-                a.update(140f, 100f, 260f, 100f, T0 + TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS));
+        begin(a, 100f, 100f, 300f, 100f);
+        assertEquals(Decision.ZOOM, update(a, 140f, 100f, 260f, 100f));
+        assertEquals(Decision.ZOOM, a.getDecision());
     }
 
     @Test
-    public void theDwellBoundaryIsInclusive() {
-        long dwell = TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS;
+    public void scrollStillLatchesJustAsPromptly() {
+        // SCROLL was never delayed and still is not; the two decisions are symmetric now.
         TwoFingerGestureArbiter a = newArbiter();
-        a.beginTwoFinger(100f, 100f, 300f, 100f, T0);
-        assertEquals(Decision.UNDECIDED, a.update(140f, 100f, 260f, 100f, T0 + dwell - 1L));
-        assertEquals(Decision.ZOOM, a.update(140f, 100f, 260f, 100f, T0 + dwell));
+        begin(a, 100f, 100f, 200f, 100f);
+        assertEquals(Decision.SCROLL, update(a, 100f, 130f, 200f, 130f));
     }
 
     @Test
-    public void scrollStillLatchesInsideTheDwell() {
-        // Only ZOOM is held back. SCROLL latching early costs nothing -- the caller passes
-        // the events through either way -- and delaying it would make two finger scrolling
-        // feel worse for no benefit.
+    public void aGestureThatCrossesNeitherSlopStaysUndecidedHoweverManyFramesItTakes() {
+        // Nothing latches on elapsed frames alone; only crossing a slop decides.
         TwoFingerGestureArbiter a = newArbiter();
-        a.beginTwoFinger(100f, 100f, 200f, 100f, T0);
-        assertEquals(Decision.SCROLL, a.update(100f, 130f, 200f, 130f, T0 + 5L));
-    }
-
-    @Test
-    public void aDwellHeldGestureStillArbitratesTheOtherWayIfItTurnsIntoAScroll() {
-        // Held back from ZOOM at first, the gesture must stay genuinely undecided rather
-        // than latching ZOOM as soon as the clock allows: if it has become a scroll by
-        // then, the dominance rule still applies.
-        TwoFingerGestureArbiter a = newArbiter();
-        a.beginTwoFinger(100f, 100f, 200f, 100f, T0);
-        assertEquals(Decision.UNDECIDED, a.update(70f, 100f, 230f, 100f, T0 + 5L));
-        // Span change 60px, translation 200px: translation dominates.
-        assertEquals(Decision.SCROLL, a.update(270f, 100f, 430f, 100f, T0 + 100L));
-    }
-
-    @Test
-    public void theDwellRestartsWhenTwoFingersAreReArmed() {
-        TwoFingerGestureArbiter a = newArbiter();
-        a.beginTwoFinger(100f, 100f, 300f, 100f, T0);
-        a.endTwoFinger();
-        // Second finger comes back much later; the dwell is measured from *that* landing,
-        // not from the original one, or the re-armed gesture would skip the guard.
-        long t1 = T0 + 5_000L;
-        a.beginTwoFinger(100f, 100f, 300f, 100f, t1);
-        assertEquals(Decision.UNDECIDED, a.update(140f, 100f, 260f, 100f, t1 + 5L));
-        assertEquals(Decision.ZOOM,
-                a.update(140f, 100f, 260f, 100f, t1 + TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS));
-    }
-
-    @Test
-    public void theDwellIsSurvivedByTheMonotonicClockWrapping() {
-        // eventTime is uptime millis; subtracting rather than comparing keeps this correct
-        // if it ever wraps. Straddle Long.MAX_VALUE to prove the arithmetic.
-        TwoFingerGestureArbiter a = newArbiter();
-        long near = Long.MAX_VALUE - 10L;
-        a.beginTwoFinger(100f, 100f, 300f, 100f, near);
-        assertEquals(Decision.UNDECIDED, a.update(140f, 100f, 260f, 100f, near + 5L));
-        assertEquals(Decision.ZOOM, a.update(140f, 100f, 260f, 100f,
-                near + TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS));
-    }
-
-    @Test
-    public void theDefaultDwellIsShortEnoughToStayImperceptible() {
-        // The dwell is paid by every pinch, in leaked scroll frames and in latency. Past
-        // ~60ms it starts to read as lag on a gesture that should feel direct; pin it.
-        assertTrue("dwell must stay short enough to feel immediate",
-                TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS <= 60L);
-        assertTrue("a dwell of zero would not cover the gap between landing fingers",
-                TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS >= 25L);
-    }
-
-    @Test
-    public void constructorRejectsANegativeDwell() {
-        try {
-            new TwoFingerGestureArbiter(SLOP, SLOP, BIAS, -1L);
-            fail("expected rejection of a negative dwell");
-        } catch (IllegalArgumentException expected) {
-            // ok
+        begin(a, 100f, 100f, 200f, 100f);
+        for (int frame = 1; frame <= 50; frame++) {
+            assertEquals("frame " + frame, Decision.UNDECIDED,
+                    update(a, 100f, 100f + (frame % 2), 200f, 100f + (frame % 2)));
         }
     }
 

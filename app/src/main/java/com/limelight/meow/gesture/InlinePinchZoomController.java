@@ -29,6 +29,16 @@ import android.view.ViewConfiguration;
  * would otherwise resume driving the cursor and jerk it across the screen. The existing
  * trackpad code guards the same hazard with its own post-scroll transition timeout.
  *
+ * <p><b>Ordering precondition.</b> Latching ZOOM is a <em>consuming</em> decision: from
+ * that point on every {@code ACTION_POINTER_DOWN} is swallowed, so anything downstream of
+ * this hook never sees a third finger land. The caller must therefore offer every
+ * {@code pointerCount > 2} event to the 3/4/5 finger recognisers <em>before</em> this
+ * controller, which is exactly what {@code Game.handleMotionEvent} does. That is safe for
+ * zoom because those recognisers only act on {@code ACTION_POINTER_DOWN} /
+ * {@code ACTION_POINTER_UP} / {@code ACTION_UP}, and zoom is driven entirely by
+ * {@code ACTION_MOVE}, which they never handle. Reversing the two is the bug this
+ * ordering exists to prevent -- see {@code docs/meow/TOUCHPOINTS.md}.
+ *
  * <p>The event routing lives in {@link #handle} which takes plain numbers, so it is unit
  * tested on the JVM without fabricating {@link MotionEvent}s.
  */
@@ -138,12 +148,11 @@ public final class InlinePinchZoomController {
      */
     public boolean onTouchEvent(MotionEvent event) {
         int pointerCount = event.getPointerCount();
-        long eventTimeMs = event.getEventTime();
         if (pointerCount >= 2) {
             return handle(event.getActionMasked(), pointerCount,
-                    event.getX(0), event.getY(0), event.getX(1), event.getY(1), eventTimeMs);
+                    event.getX(0), event.getY(0), event.getX(1), event.getY(1));
         }
-        return handle(event.getActionMasked(), pointerCount, 0f, 0f, 0f, 0f, eventTimeMs);
+        return handle(event.getActionMasked(), pointerCount, 0f, 0f, 0f, 0f);
     }
 
     /**
@@ -162,15 +171,9 @@ public final class InlinePinchZoomController {
      * Android-free core of {@link #onTouchEvent}. The {@code actionMasked} values are
      * {@link MotionEvent}'s compile time constants, so this stays callable from a plain
      * JVM unit test.
-     *
-     * @param eventTimeMs {@code MotionEvent.getEventTime()}. Required rather than
-     *                    optional: it drives
-     *                    {@link TwoFingerGestureArbiter#DEFAULT_ZOOM_LATCH_DWELL_MS}, and
-     *                    an overload that defaulted it would silently skip the guard in
-     *                    exactly the tests meant to cover it.
      */
     public boolean handle(int actionMasked, int pointerCount,
-                          float x0, float y0, float x1, float y1, long eventTimeMs) {
+                          float x0, float y0, float x1, float y1) {
         switch (actionMasked) {
             case MotionEvent.ACTION_DOWN:
                 zooming = false;
@@ -187,7 +190,7 @@ public final class InlinePinchZoomController {
                     return true;
                 }
                 if (pointerCount == 2) {
-                    arbiter.beginTwoFinger(x0, y0, x1, y1, eventTimeMs);
+                    arbiter.beginTwoFinger(x0, y0, x1, y1);
                 } else {
                     arbiter.disqualify();
                 }
@@ -198,7 +201,7 @@ public final class InlinePinchZoomController {
                     if (pointerCount != 2) {
                         return false;
                     }
-                    if (arbiter.update(x0, y0, x1, y1, eventTimeMs) != TwoFingerGestureArbiter.Decision.ZOOM) {
+                    if (arbiter.update(x0, y0, x1, y1) != TwoFingerGestureArbiter.Decision.ZOOM) {
                         return false;
                     }
                     zooming = true;
@@ -211,10 +214,10 @@ public final class InlinePinchZoomController {
                     if (needsRebaseline) {
                         // Fingers changed since the last frame we acted on. Take the new
                         // positions as the reference and emit nothing for this frame.
-                        arbiter.beginTwoFinger(x0, y0, x1, y1, eventTimeMs);
+                        arbiter.beginTwoFinger(x0, y0, x1, y1);
                         needsRebaseline = false;
                     } else {
-                        arbiter.update(x0, y0, x1, y1, eventTimeMs);
+                        arbiter.update(x0, y0, x1, y1);
                         applyCurrentFrame();
                     }
                 }

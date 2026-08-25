@@ -27,14 +27,18 @@ the single biggest reason this app feels clunky next to it. The gesture has to b
 routed at the point where touch events are already dispatched, which is inside
 `Game`. The explicit Pan/Zoom mode is left intact for users who prefer it.
 
-### `app/src/main/java/com/limelight/Game.java` — 4 sites
+### `app/src/main/java/com/limelight/Game.java` — 5 sites
 
-| Site | Edit |
-| --- | --- |
-| field declaration | `private InlinePinchZoomController inlinePinchZoom;` |
-| `onCreate`, beside the existing `PanZoomHandler` construction | one constructor call wiring the controller to the handler and to two method references |
-| finger branch of `handleMotionEvent`, immediately after the `isPanZoomMode` block | one `if` that offers the event to the controller and returns early if it was consumed |
-| beside `cancelStaleTouchState` | `cancelInFlightTouchContexts()`, a 7-line helper |
+| Line | Site | Edit |
+| --- | --- | --- |
+| 153 | field declaration | `private InlinePinchZoomController inlinePinchZoom;` |
+| 492 | `onCreate`, beside the existing `PanZoomHandler` construction | one constructor call wiring the controller to the handler and to two method references |
+| 3109 | finger branch of `handleMotionEvent`, **after** the multi-finger gesture block | one `if` that offers the event to the controller and returns early if it was consumed. The `touchContextMap[0] == null` early return was turned into a `touchContextsUnavailable` local and moved below the hook, so pinch still works when touch-as-mouse is off — see "Dispatch order is the guarantee" below |
+| 3365 | beside `cancelStaleTouchState` | `cancelInFlightTouchContexts()`, a 7-line helper |
+| 4233 | `applyMouseMode`, after the touch contexts are rebuilt | `inlinePinchZoom.reset()`, so a latched zoom cannot survive the gesture surface being torn out from under it |
+
+Line numbers are a convenience for the audit, not a contract; `git grep -n 'MEOW-TOUCH'`
+is the authority and the count above must match it.
 
 The touch hook is skipped when `prefConfig.enableMultiTouchScreen` is set. In that
 mode the host receives native touch events, so a pinch belongs to the remote
@@ -112,72 +116,69 @@ same code as the inline path.
 
 Tested by `app/src/test/java/com/limelight/meow/gesture/`.
 
-### While a zoom is latched, multi-finger gestures are unavailable
+### Dispatch order is the guarantee, and it is load bearing
 
-`InlinePinchZoomController` consumes `ACTION_POINTER_DOWN` / `ACTION_POINTER_UP` once a
-gesture has latched to zoom, so `handleMultiTouchGesture` never runs and
-`threeFingerDownTime` / `fourFingerDownTime` / `fiveFingerDownTime` are never set. The
-keyboard toggles and — worth knowing — the **five-finger game-menu gesture** are dead
-until every finger lifts. That is at most the length of one pinch, and the alternative
-(letting a third finger re-enter the multi-touch path mid-zoom) means guessing at an
-ambiguous gesture while the view is being transformed. Accepted on purpose.
+The inline-pinch hook sits **below** the `pointerCount > 2` multi-finger block in
+`handleMotionEvent`, so `handleMultiTouchGesture` gets first refusal on every event that
+could be a 3/4/5 finger gesture. Do not move it back up.
 
-What is *not* accepted is the zoom latching in the first place while one of those
-gestures is still landing — see the dwell below.
+The reason is that latching ZOOM is a **consuming** decision: `InlinePinchZoomController`
+cancels the in-flight touch contexts and swallows every later `ACTION_POINTER_DOWN` for
+the rest of the gesture. Anything the hook swallows, the recognisers below it never see —
+so with the hook first, a third finger that lands *after* the latch is simply gone, and
+the soft keyboard, full keyboard and five-finger game menu die silently until every finger
+lifts.
 
-### The ZOOM latch waits 40ms, and that is load bearing
+It looks as though the arbiter's `disqualify()` protects them, and that is the trap: a
+third finger arrives as `ACTION_POINTER_DOWN` with `pointerCount == 3` and disqualifies
+the arbiter — but only **if ZOOM has not already latched**. Fingers in a multi-finger tap
+do not land in the same frame; at 120-240Hz there are several `ACTION_MOVE` frames between
+the second contact and the third, and a "grab"-shaped tap whose fingers converge as they
+land crosses the span slop inside that gap.
 
-`TwoFingerGestureArbiter.DEFAULT_ZOOM_LATCH_DWELL_MS` holds the ZOOM latch back for 40ms
-after the second finger lands. SCROLL is not delayed.
+**Putting the multi-finger block first costs zoom nothing.** That block only ever acts on
+`ACTION_POINTER_DOWN`, `ACTION_POINTER_UP` and `ACTION_UP` at `pointerCount > 2`; it never
+handles `ACTION_MOVE`. Zoom is driven entirely by `ACTION_MOVE`, so every frame that
+matters still reaches the hook unchanged, and a two-finger gesture never enters the block
+at all. `theMultiFingerBlockIsNeverOfferedAMoveFrame` pins that, and goes red if upstream
+ever adds `ACTION_MOVE` to the block.
 
-The reason is the section above. Latching ZOOM is *consuming*: it cancels the in-flight
-touch contexts and swallows every later `ACTION_POINTER_DOWN`, and the 3/4/5 finger
-gestures are recognised **further down** `Game`'s dispatch than the inline-pinch hook. So
-anything the latch swallows, they never see.
+**A three-finger gesture during a zoom ends the zoom, which is correct.**
+`handleMultiTouchGesture` calls `cancelStaleTouchState`, which dispatches a synthetic
+`ACTION_CANCEL` back through the view and therefore re-enters `handleMotionEvent`. The
+multi-finger block ignores `ACTION_CANCEL`, so it falls through to the hook, which ends
+the zoom, fires `onZoomEnd` and resets the arbiter — exactly once, before the outer call
+returns. The user gets the keyboard and a clean slate, rather than a zoom still latched
+behind an open keyboard.
 
-The ordering looks like it protects them, and this is the trap: a third finger arrives as
-`ACTION_POINTER_DOWN` with `pointerCount == 3`, which disqualifies the arbiter before any
-of this matters. But that only holds **if ZOOM has not already latched**. Fingers in a
-multi-finger tap do not land in the same frame — at 120-240Hz there are several
-`ACTION_MOVE` frames between the second contact and the third — and a "grab"-shaped tap
-whose fingers converge as they land can push the span past the slop inside that gap.
-Without the dwell the gesture latches ZOOM first and the user gets a zoom instead of the
-soft keyboard or the game menu, *intermittently*, which is the worst kind.
+**The `touchContextMap[0] == null` early return moved below the hook, deliberately.**
+That return fires only in mouse mode 4 ("touch mouse disabled"), and it used to sit
+*between* the hook and the multi-finger block, so the hook could not simply be moved down
+past it without also disabling pinch in that mode. Losing pinch there would be a real
+regression: mode 4 is exactly the configuration where zooming the local view is the only
+thing touch is still for. It is now a `touchContextsUnavailable` local, checked after the
+hook. Nothing is skipped by the deferral — the multi-finger block still never runs with
+null contexts (`cancelStaleTouchState` would NPE on them), and `trySendTouchEvent` /
+`handleTouchInput` are still unreachable in that mode.
 
-Note that the tests which look like they cover this — `threeFingerGestureIsNeverStolen`
-and `aThirdFingerDoesNotReArmAfterItLifts` — do **not**. Both put the third finger down
-with no intervening `ACTION_MOVE`, which is the one ordering that can never fail.
-`aMultiFingerTapIsNotStolenWhenTheFirstTwoFingersConvergeAsItLands` and
-`aFourFingerGestureLandingOverSeveralFramesIsNeverStolen` are the ones that bite; both go
-red if the dwell is set to 0.
+**There is no dwell, and adding one would be a regression.** An earlier revision withheld
+the ZOOM latch for 40ms after the second finger landed, to let a third finger arrive
+first. That was probabilistic — a third finger landing at 41ms was still stolen, with no
+bound on the gap — and it broke the span-slop invariant below: the slop is set under
+`RelativeTouchContext.TAP_MOVEMENT_THRESHOLD` precisely so the latch happens *before* the
+touch contexts confirm a move and start sending scroll to the host. A dwell adds a *time*
+precondition the slop cannot satisfy, so for 40ms events kept flowing to the contexts
+however far the fingers had moved, and a deliberate pinch (~500px/s) with a vertical
+component leaked real scroll onto the remote desktop. `cancelTouch()` cannot un-send it.
+Ordering fixes deterministically what the dwell only made less likely, and costs nothing.
 
-**Time, not a frame count.** Three frames is 12.5ms at 240Hz and 25ms at 120Hz, so a
-frame count that covers the gap on one device misses it on another. The timestamp is
-`MotionEvent.getEventTime()`, passed into the arbiter as a plain `long` — the arbiter
-stays Android-free and reads no clock of its own, which is what keeps it unit testable on
-a bare JVM. There is deliberately **no** overload that omits the timestamp: one would
-silently skip the guard in exactly the tests written to cover it.
-
-**What the dwell costs, stated plainly.** It is not free, and 40ms is the low end of the
-range for that reason. While the arbiter is undecided the events pass through to the
-touch contexts, and those confirm a move at 20px — only 2px above `MAX_SLOP_PX`, where we
-would otherwise have latched. For an anchored pinch (one finger still) the moving finger
-travels the whole span change, so a pinch that crosses 20px inside 40ms — roughly
-500px/s — will leak a scroll frame or two to the host before the latch, where previously
-it leaked none. A slow or symmetric pinch leaks nothing. That is a real cost paid on
-every fast pinch, traded against a stolen keyboard/menu gesture; every extra millisecond
-of dwell buys less multi-finger coverage than the last while costing the same, because
-most multi-finger taps land well inside 40ms.
-
-Closing the leak *as well* means withholding two-finger events while undecided and
-replaying them on a SCROLL latch — the same change rejected under "What the slop does not
-cover" below, and rejected here for the same reason, plus a new one: swallowing the move
-frames would leave the contexts believing the fingers never moved, so lifting them would
-land on the host as a two-finger tap, i.e. a spurious right click.
-
-Do not raise the dwell to cover sloppier multi-finger taps without re-reading the
-paragraph above; `theDefaultDwellIsShortEnoughToStayImperceptible` pins it to the 25-60ms
-band on purpose.
+Pinned by `InlinePinchZoomDispatchOrderTest`, which models the dispatch order, replays the
+old hook-first ordering to prove the model is falsifiable, and reads `Game.java` itself to
+assert the two call sites are still in the right order. Note that the tests which *look*
+like they cover this — `threeFingerGestureIsNeverStolen` and
+`aThirdFingerDoesNotReArmAfterItLifts` in `InlinePinchZoomControllerTest` — do **not**:
+both put the third finger down with no intervening `ACTION_MOVE`, which is the one
+ordering that can never fail.
 
 ### Invariant worth knowing before you retune anything
 
