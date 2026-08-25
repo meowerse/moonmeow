@@ -60,6 +60,9 @@ public final class StreamViewportBinder
     private final HandlerThread thread;
     private final boolean ownsThread;
 
+    // UI thread only. computeVisibleHostRect() reads View properties, which may only be
+    // read there, so every caller of it -- and therefore of these -- is on the UI thread.
+    // Nothing on the reporter's thread may touch them.
     private final Rect scratchVisible = new Rect();
     private final Point scratchOffset = new Point();
     private final float[] scratchWindow = new float[4];
@@ -141,9 +144,21 @@ public final class StreamViewportBinder
     }
 
     /**
-     * Must run while the connection is still up — the protocol forbids sending a viewport
-     * after {@code LiStopConnection}, and doing so races the ENet peer's destruction.
-     * Blocks, bounded, until the uncrop has been handed to the library.
+     * Sends the terminal uncrop and blocks, bounded, until it has reached the library.
+     *
+     * <p>Must run while the connection is still up and strictly before
+     * {@code LiStopConnection}: the protocol forbids sending a viewport after that, and
+     * doing so races the ENet peer's destruction rather than merely losing a packet.
+     *
+     * <p><b>Do not call this on the UI thread.</b> {@code Game.stopConnection()} calls it
+     * from the same worker thread that then calls {@code conn.stop()} — the one whose
+     * comment says stop "may take a few hundred ms to do some network I/O… let it run in a
+     * separate thread to keep things smooth for the UI". The ordering that matters (uncrop
+     * before stop) is preserved by both running on that thread in sequence, and the UI
+     * thread never waits.
+     *
+     * <p>Idempotent, and safe to call after {@link #release()}: the post simply fails once
+     * the looper has quit.
      */
     public void onStreamStopped() {
         MeowViewportBridge.clearEchoListener(this);
@@ -154,15 +169,14 @@ public final class StreamViewportBinder
             // a future caller that wires it that way). Posting and then waiting on the same
             // thread would deadlock; run it here instead, which is the same work in the same
             // order.
-            reporter.onStreamStopped();
-            quitOwnThread();
+            stopReporter();
             return;
         }
 
         final CountDownLatch drained = new CountDownLatch(1);
         boolean posted = handler.post(() -> {
             try {
-                reporter.onStreamStopped();
+                stopReporter();
             } finally {
                 drained.countDown();
             }
@@ -176,14 +190,34 @@ public final class StreamViewportBinder
                 Thread.currentThread().interrupt();
             }
         }
-
-        quitOwnThread();
     }
 
-    private void quitOwnThread() {
+    /**
+     * Releases the handler thread and the echo registration. Idempotent, safe from any
+     * thread, and safe whether or not a stream ever connected.
+     *
+     * <p>This is separate from {@link #onStreamStopped()} because that only runs once
+     * {@code connectionStarted()} has fired — {@code Game.stopConnection()} is guarded on
+     * {@code connecting || connected}. A handshake that fails, or a user who backs out
+     * while connecting, would otherwise leave this thread alive for the life of the
+     * process and the echo listener pointing at a dead binder that holds the Activity.
+     * On the flaky link this feature targets that is not a rare path. {@code Game.onDestroy}
+     * calls this unconditionally.
+     */
+    public void release() {
+        MeowViewportBridge.clearEchoListener(this);
+        live = false;
         if (ownsThread && thread != null) {
             thread.quitSafely();
         }
+    }
+
+    /** Runs on the reporter's thread. */
+    private void stopReporter() {
+        reporter.onStreamStopped();
+        // Also cleared on the UI thread before this was posted, but a transform update
+        // already queued ahead of this one may have written it back to true in between.
+        live = false;
     }
 
     @Override

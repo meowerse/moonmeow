@@ -32,6 +32,10 @@
 # This file is outside app/src, so the `git grep -n 'MEOW-TOUCH' -- app/src` audit in
 # CLAUDE.md would not see a marker here; the site is recorded in TOUCHPOINTS.md
 # instead, deliberately without the token, so that audit stays exact.
+# NOTE: this keeps the MEMBERS, not the class NAME. It is sufficient only because
+# -dontobfuscate is set at the top of this file. If that is ever removed, the class is
+# renamed, both mangled JNI symbols stop resolving, and the feature dies at first call --
+# switch to -keepclasseswithmembernames at the same time.
 -keepclassmembers class com.limelight.meow.viewport.MeowViewportBridge {
     static void onViewportEcho(int, int, int, int, int, int);
     native <methods>;

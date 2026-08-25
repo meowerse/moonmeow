@@ -20,6 +20,8 @@
 // MeowViewportBridgeContractTest derives that name from the class object and fails
 // if a FindClass or a slash-form string appears here.
 
+#include "meowjni.h"
+
 #include <Limelight.h>
 
 #include <jni.h>

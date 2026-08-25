@@ -257,11 +257,14 @@ one.
 
 | Line | Site | Edit |
 | --- | --- | --- |
-| 416 | above `BridgeConnListenerCallbacks` | an `extern` declaration of `MeowBridgeClSetViewport` |
+| 416 | above `BridgeConnListenerCallbacks` | `#include "meowjni.h"` |
 | 436 | inside `BridgeConnListenerCallbacks` | `.setViewport = MeowBridgeClSetViewport,` |
 
-The callback body itself lives in `meowjni.c`, not here, so this upstream file gains a
-declaration and a struct member and nothing else. It is inert until
+The callback body itself lives in `meowjni.c`, not here, so this upstream file gains an
+include and a struct member and nothing else. The declaration is shared through
+`meowjni.h` rather than repeated as an `extern` here: a parameter list that drifted between
+the two translation units is undefined behaviour the compiler cannot see, and this feature
+already changed that signature once. It is inert until
 `MeowViewportBridge` is class-initialised — which only happens when the preference is on —
 so an install that has not opted in reaches a `NULL` check and returns.
 
@@ -324,14 +327,15 @@ assuming both survive.
 The observer interface lives in `meow/` rather than here so this class only gains a field,
 a setter and two calls.
 
-### `app/src/main/java/com/limelight/Game.java` — 4 sites
+### `app/src/main/java/com/limelight/Game.java` — 5 sites
 
 | Line | Site | Edit |
 | --- | --- | --- |
 | 157 | field declaration | `private StreamViewportBinder viewportBinder;` |
 | 500 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **only when the preference is on and the render mode is `MODE_2D`** and attaches it to `panZoomHandler` |
-| 3502 | top of `stopConnection()` | one guarded `viewportBinder.onStreamStopped()` |
-| 3740 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
+| 1764 | `onDestroy()`, before the capture provider is destroyed | one guarded `viewportBinder.release()` |
+| 3522 | inside `stopConnection()`'s teardown worker, above `conn.stop()` | one guarded `viewportBinder.onStreamStopped()` |
+| 3751 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
 
 The construction is inside the preference guard on purpose: an install that has not opted
 in leaves `viewportBinder` null, so not one line of this feature executes and behaviour is
@@ -355,7 +359,22 @@ pins it.
 `stopConnection()` is the correct place for the uncrop rather than `onDestroy`:
 `LiSendViewportEvent` may only be called between `LiStartConnection` and
 `LiStopConnection`, and calling it after the peer is destroyed is a use-after-free rather
-than merely a lost packet. `ViewportWiringTest` asserts the uncrop sits above `conn.stop()`.
+than merely a lost packet.
+
+It sits **inside** that method's existing teardown worker, immediately above `conn.stop()`,
+not on the UI thread above it. `onStreamStopped()` blocks until the uncrop reaches the
+library, and the comment on that worker already says why network I/O does not belong on the
+UI thread. Both orderings are pinned: `theStreamStopUncropsBeforeTheConnectionGoesDown` and
+`theUncropDoesNotRunOnTheUiThread`.
+
+**`onDestroy()` releases the binder unconditionally, and that is not redundant.**
+`stopConnection()` is guarded on `connecting || connected`, and `connecting` is never
+assigned `true` anywhere in `Game` — so a handshake that fails, or a user who backs out
+while connecting, never reaches `onStreamStopped()` at all. Without the `release()` call the
+reporter's `HandlerThread` would outlive the Activity, once per attempt, and the static echo
+listener would keep pointing at a dead binder that holds `streamView` and `parent` — which
+is to say, the Activity. On the flaky mobile link this feature exists for that is not a rare
+path. `release()` is idempotent and safe from any thread.
 
 `connectionStarted()` passes `displayWidth`/`displayHeight` — the resolution actually
 negotiated in `StreamConfiguration`, which is inverted from `prefConfig` in portrait, so
@@ -477,6 +496,15 @@ still displaying that frame under the user's local zoom — so the user sees the
 asked for magnified *again*, and absolute mouse coordinates (`getNormalizedCoordinates`
 &rarr; `LiSendMousePositionEvent`) now address the crop rather than the desktop.
 
+**A second, smaller gap in the same area: the host's revocation echo is received and
+deliberately not acted on.** `meow::viewport::take_revocation_echo()` exists so the client
+learns the host dropped its crop by itself — an encoder reinit or a display-mode change
+mid-session. It arrives through the same callback, so `ViewportReporter` records it in
+`appliedRect()` and otherwise does nothing: the host is uncropped and the user stays zoomed
+into a full-desktop frame until they next move. Acting on it is not a one-liner, because an
+echo carrying the full content area is indistinguishable from "your request was refused",
+and re-sending on a refusal loops. It belongs with the composition work below.
+
 Wiring the echo did not make this fall out: the echo tells the client *what* was applied,
 but resolving the composition means the client resetting its local transform to 1:1 when the
 host confirms a crop and composing later zooms on top of the applied rectangle rather than on
@@ -484,6 +512,21 @@ the raw frame — and that contradicts "reset the viewport to full-frame when zo
 1:1", because under composition zoom is *always* back at 1:1. `ViewportReporter.appliedRect()`
 and `referenceFrame()` are the inputs that work would need, and are exposed for it. It is a
 different feature from "report the rectangle", and it is the reason the preference ships off.
+
+### Deferred, stated plainly
+
+**The new strings are English-only.** `title_checkbox_enable_viewport_follow` and
+`summary_checkbox_enable_viewport_follow` exist only in `values/strings.xml`; the repo
+carries 33 locales. Nothing is *stale* — no other locale carries the key, so every one falls
+back cleanly — but a non-English user sees two English lines in Settings. That is acceptable
+only while the preference ships off, and it wants doing before it ships on.
+
+**`0x3003` sits inside Apollo's `0x3000` extension block.** If Apollo ever assigns that
+number to something else, an Apollo host's packet would be dispatched into `IDX_VIEWPORT`.
+The `version == 1` and non-zero-extent checks filter almost anything real, but a value that
+passed both would latch `SUPPORTED` against a host that does not implement this. Inherited
+from the packet-type choice, not introduced here; the host half guards its own side with
+`packet_type_collision()`.
 
 ### The submodule changed, and it is under separate review
 

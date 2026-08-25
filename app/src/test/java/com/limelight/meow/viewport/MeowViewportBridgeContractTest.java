@@ -116,6 +116,16 @@ public class MeowViewportBridgeContractTest {
                         .matcher(callbacks).find());
         assertTrue("meowjni.c must define MeowBridgeClSetViewport",
                 read(JNI_SOURCE).contains("void MeowBridgeClSetViewport("));
+        // One declaration, included by both translation units. An `extern` repeated in
+        // callbacks.c could drift from the definition in meowjni.c, and a parameter-list
+        // mismatch across translation units is undefined behaviour the compiler cannot see.
+        assertTrue("callbacks.c must include meowjni.h rather than re-declaring the callback",
+                callbacks.contains("#include \"meowjni.h\""));
+        assertTrue("callbacks.c must not carry its own extern for it",
+                !callbacks.contains("extern void MeowBridgeClSetViewport"));
+        assertTrue("meowjni.h must declare it",
+                read("app/src/main/jni/moonlight-core/meowjni.h")
+                        .contains("void MeowBridgeClSetViewport("));
     }
 
     @Test

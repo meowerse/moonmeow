@@ -28,27 +28,12 @@ public class ViewportRectTest {
     }
 
     @Test
-    public void fullCoversTheWholeFrame() {
-        assertTrue(ViewportRect.full(5360, 1440).coversAllOf(5360, 1440));
-    }
-
-    @Test
-    public void aCroppedRectangleDoesNotCoverTheFrame() {
-        assertFalse(new ViewportRect(100, 0, 5260, 1440).coversAllOf(5360, 1440));
-        assertFalse(new ViewportRect(0, 0, 5359, 1440).coversAllOf(5360, 1440));
-    }
-
-    @Test
-    public void maxEdgeDeltaMeasuresTheWorstMovingEdge() {
-        ViewportRect a = new ViewportRect(100, 100, 200, 200);
-        // right edge moves 300 -> 340, everything else moves less
-        ViewportRect b = new ViewportRect(100, 105, 240, 195);
-        assertEquals(40, a.maxEdgeDelta(b));
-    }
-
-    @Test
-    public void maxEdgeDeltaAgainstNullIsUnboundedSoTheFirstSendAlwaysHappens() {
-        assertEquals(Integer.MAX_VALUE, new ViewportRect(0, 0, 10, 10).maxEdgeDelta(null));
+    public void fullIsTheWholeStreamFrameAtTheOrigin() {
+        ViewportRect full = ViewportRect.full(5360, 1440);
+        assertEquals(0, full.x);
+        assertEquals(0, full.y);
+        assertEquals(5360, full.width);
+        assertEquals(1440, full.height);
     }
 
     @Test

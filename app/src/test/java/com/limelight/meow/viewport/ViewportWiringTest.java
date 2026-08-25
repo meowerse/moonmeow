@@ -41,7 +41,7 @@ public class ViewportWiringTest {
     public void everyTransformNotifiesTheObserver() throws IOException {
         // constrainToBounds is the single choke point: pinchBy, panBy and handleSurfaceChange
         // all end there. Without the notify the host is never told about a zoom at all.
-        String body = methodBody(read(PAN_ZOOM), "private void constrainToBounds()");
+        String body = methodBody(stripComments(read(PAN_ZOOM)), "private void constrainToBounds()");
         assertContains("constrainToBounds must notify the zoom observer",
                 body, "notifyZoomTransformChanged()");
     }
@@ -50,7 +50,7 @@ public class ViewportWiringTest {
     public void aRestoredZoomAlsoNotifies() throws IOException {
         // setInitialZoomAndPan is the one transform that bypasses constrainToBounds. With
         // rememberZoomPan on, missing this leaves the host uncropped until the user moves.
-        String body = methodBody(read(PAN_ZOOM), "public void setInitialZoomAndPan(");
+        String body = methodBody(stripComments(read(PAN_ZOOM)), "public void setInitialZoomAndPan(");
         assertContains("setInitialZoomAndPan must notify the zoom observer",
                 body, "notifyZoomTransformChanged()");
     }
@@ -61,7 +61,7 @@ public class ViewportWiringTest {
         // ViewportGeometry assumes the stream view's box is the video frame: StreamContainer
         // stops sizing itself to the stream aspect outside MODE_2D and getSurfaceView() then
         // returns a GLSurfaceView rendering a stereo composition, so the mapping is nonsense.
-        String condition = enclosingIfCondition(read(GAME), "new StreamViewportBinder(");
+        String condition = enclosingIfCondition(stripComments(read(GAME)), "new StreamViewportBinder(");
         assertContains("the binder must be gated on the preference", condition,
                 "ViewportPreference.isEnabled(this)");
         assertContains("the binder must be gated on the 2D render mode", condition,
@@ -73,14 +73,14 @@ public class ViewportWiringTest {
     @Test
     public void theBinderIsAttachedToThePanZoomHandler() throws IOException {
         assertContains("the binder must be attached to the pan/zoom handler",
-                read(GAME), "panZoomHandler.setZoomTransformObserver(viewportBinder)");
+                stripComments(read(GAME)), "panZoomHandler.setZoomTransformObserver(viewportBinder)");
     }
 
     @Test
     public void theStreamStartAlsoReportsAZoomThatWasAlreadyRestored() throws IOException {
         // setInitialZoomAndPan fires long before the connection is up, so its notify is
         // discarded; the readback in onStreamStarted is what actually delivers it.
-        String body = methodBody(read(BINDER), "public void onStreamStarted(");
+        String body = methodBody(stripComments(read(BINDER)), "public void onStreamStarted(");
         assertContains("onStreamStarted must read the live transform back",
                 body, "computeVisibleHostRect()");
         assertContains("and hand it to the reporter", body, "onVisibleRectChanged(");
@@ -88,7 +88,7 @@ public class ViewportWiringTest {
 
     @Test
     public void theStreamStartResetsTheHostToTheFullDesktop() throws IOException {
-        String body = methodBody(read(GAME), "public void connectionStarted()");
+        String body = methodBody(stripComments(read(GAME)), "public void connectionStarted()");
         assertContains("connectionStarted must reset the viewport",
                 body, "viewportBinder.onStreamStarted(");
     }
@@ -97,30 +97,95 @@ public class ViewportWiringTest {
     public void theStreamStopUncropsBeforeTheConnectionGoesDown() throws IOException {
         // LiSendViewportEvent may only be called between LiStartConnection and
         // LiStopConnection, so this must sit above conn.stop().
-        String source = read(GAME);
-        int stop = source.indexOf("private void stopConnection()");
-        if (stop < 0) {
-            fail("stopConnection() not found in " + GAME);
-        }
-        int uncrop = source.indexOf("viewportBinder.onStreamStopped()", stop);
-        int connStop = source.indexOf("conn.stop()", stop);
-        assertTrue("stopConnection must uncrop; found no viewportBinder.onStreamStopped()"
-                + " after stopConnection()", uncrop > 0);
-        assertTrue("conn.stop() not found after stopConnection()", connStop > 0);
-        assertTrue("the uncrop must happen before conn.stop(), because sending a viewport"
-                + " after LiStopConnection races the ENet peer's destruction",
+        //
+        // Comments are stripped first. The site is documented with a comment that says
+        // "must precede conn.stop()", and matching that as if it were code found the
+        // ordering reversed on a correct implementation -- the exact failure mode this
+        // file was rewritten to stop making.
+        String source = stripComments(read(GAME));
+        String body = methodBody(source, "private void stopConnection()");
+        int uncrop = body.indexOf("viewportBinder.onStreamStopped()");
+        int connStop = body.indexOf("conn.stop()");
+        assertTrue("stopConnection() must uncrop; no viewportBinder.onStreamStopped() in:\n"
+                + indent(body), uncrop >= 0);
+        assertTrue("conn.stop() not found inside stopConnection():\n" + indent(body),
+                connStop >= 0);
+        assertTrue("the uncrop must come before conn.stop(), because sending a viewport"
+                        + " after LiStopConnection races the ENet peer's destruction:\n"
+                        + indent(body),
                 uncrop < connStop);
+    }
+
+    @Test
+    public void theUncropDoesNotRunOnTheUiThread() throws IOException {
+        // It blocks, bounded, waiting for the send to reach the library. stopConnection()
+        // already spawns a worker for conn.stop() precisely because that does network I/O;
+        // the uncrop belongs on the same worker, before it.
+        String body = methodBody(stripComments(read(GAME)), "private void stopConnection()");
+        int thread = body.indexOf("new Thread()");
+        int uncrop = body.indexOf("viewportBinder.onStreamStopped()");
+        assertTrue("stopConnection() must still spawn its teardown worker:\n" + indent(body),
+                thread >= 0);
+        assertTrue("the uncrop must be inside that worker, not on the UI thread above it:\n"
+                + indent(body), uncrop > thread);
+    }
+
+    @Test
+    public void theBinderIsReleasedUnconditionallyOnDestroy() throws IOException {
+        // stopConnection() is guarded on connecting||connected, so a handshake that never
+        // completed never reaches onStreamStopped(). Without this the reporter's thread and
+        // the echo registration -- which holds the Activity -- outlive the Activity.
+        String body = methodBody(stripComments(read(GAME)), "protected void onDestroy()");
+        assertContains("onDestroy must release the viewport binder", body,
+                "viewportBinder.release()");
     }
 
     @Test
     public void theEchoCallbackIsWiredIntoTheConnectionListener() throws IOException {
         // Without this the host's echo goes to the library's stub and the client has no
         // capability signal at all -- which is how it ends up talking to stock Sunshine.
-        String source = read("app/src/main/jni/moonlight-core/callbacks.c");
+        String source = stripComments(read("app/src/main/jni/moonlight-core/callbacks.c"));
         assertContains("callbacks.c must install a setViewport callback",
                 source, ".setViewport =");
         assertContains("and it must be the one implemented in meowjni.c",
                 source, "MeowBridgeClSetViewport");
+    }
+
+    /**
+     * Replaces the contents of line and block comments with spaces, preserving every
+     * offset and every newline so brace and paren matching still work.
+     *
+     * <p>Without this these assertions match the prose that documents the very thing they
+     * are checking, which is worse than useless: it fails correct code and passes nothing.
+     */
+    private static String stripComments(String source) {
+        char[] out = source.toCharArray();
+        int i = 0;
+        while (i < out.length - 1) {
+            if (out[i] == '/' && out[i + 1] == '/') {
+                while (i < out.length && out[i] != '\n') {
+                    out[i++] = ' ';
+                }
+            } else if (out[i] == '/' && out[i + 1] == '*') {
+                while (i < out.length) {
+                    boolean end = i < out.length - 1 && out[i] == '*' && out[i + 1] == '/';
+                    if (out[i] != '\n') {
+                        out[i] = ' ';
+                    }
+                    i++;
+                    if (end) {
+                        if (i < out.length && out[i] != '\n') {
+                            out[i] = ' ';
+                        }
+                        i++;
+                        break;
+                    }
+                }
+            } else {
+                i++;
+            }
+        }
+        return new String(out);
     }
 
     /**

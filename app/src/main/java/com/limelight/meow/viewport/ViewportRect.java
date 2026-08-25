@@ -1,8 +1,9 @@
 package com.limelight.meow.viewport;
 
 /**
- * An immutable rectangle of the host's video frame, in host pixels, with (0,0) at the
- * top-left.
+ * An immutable rectangle of the <em>stream frame</em> — the negotiated stream resolution,
+ * uncropped — with (0,0) at its top-left. Not host desktop pixels; see
+ * {@link ViewportReporter} for why that is the only space both ends can compute.
  *
  * <p>The wire format ({@code LiSendViewportEvent}) carries four {@code uint16}s, so every
  * rectangle is clamped into that range at construction. The C side clamps again — the
@@ -29,31 +30,9 @@ public final class ViewportRect {
         this.height = clamp(height, 1, MAX_COORD);
     }
 
-    /** The whole host frame. This is the rectangle that means "stop cropping". */
-    public static ViewportRect full(int hostWidth, int hostHeight) {
-        return new ViewportRect(0, 0, hostWidth, hostHeight);
-    }
-
-    /** True when this rectangle covers the entire {@code hostWidth} x {@code hostHeight} frame. */
-    public boolean coversAllOf(int hostWidth, int hostHeight) {
-        return x == 0 && y == 0
-                && width == clamp(hostWidth, 1, MAX_COORD)
-                && height == clamp(hostHeight, 1, MAX_COORD);
-    }
-
-    /**
-     * The largest absolute difference between any pair of corresponding edges. Used by
-     * {@link ViewportThrottle} to decide whether a change is worth a control-stream packet.
-     */
-    public int maxEdgeDelta(ViewportRect other) {
-        if (other == null) {
-            return Integer.MAX_VALUE;
-        }
-        int dx = Math.abs(x - other.x);
-        int dy = Math.abs(y - other.y);
-        int dRight = Math.abs((x + width) - (other.x + other.width));
-        int dBottom = Math.abs((y + height) - (other.y + other.height));
-        return Math.max(Math.max(dx, dy), Math.max(dRight, dBottom));
+    /** The whole stream frame. Before the reference frame is known, this means "uncrop". */
+    public static ViewportRect full(int streamWidth, int streamHeight) {
+        return new ViewportRect(0, 0, streamWidth, streamHeight);
     }
 
     private static int clamp(int value, int min, int max) {

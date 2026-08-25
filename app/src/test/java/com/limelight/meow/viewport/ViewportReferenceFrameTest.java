@@ -134,28 +134,29 @@ public class ViewportReferenceFrameTest {
 
     @Test
     public void theArithmeticMatchesTheHostsFullFramePlanExactly() {
-        // Mirrors meow::viewport::full_frame_plan() in sunmeow/src/meow/viewport.h: a float
-        // scalar, a truncating multiply and an integer halving. A double here would disagree
-        // with the host by a row on some sizes, and the two ends have to agree on which row
-        // the content starts at.
+        // Pinned as LITERALS, deliberately. Recomputing the same Java expression here and
+        // comparing it to the class would pass with double on both sides -- which is the one
+        // thing this test exists to prevent. These numbers come from
+        // meow::viewport::full_frame_plan() in sunmeow/src/meow/viewport.h: a float scalar,
+        // a truncating multiply, an integer halving. If a "tidy-up" widens either side to
+        // double, one of these goes red.
+        //
+        // {desktopW, desktopH, streamW, streamH, contentX, contentY, contentW, contentH}
         int[][] cases = {
-                {5360, 1440, 1920, 1080},
-                {5360, 1440, 1280, 720},
-                {3840, 2160, 1920, 1080},
-                {2560, 1080, 1920, 1080},
-                {1920, 1080, 3840, 2160},
+                {5360, 1440, 1920, 1080, 0, 282, 1920, 515},
+                {5360, 1440, 1280, 720, 0, 188, 1280, 343},
+                {5360, 1440, 1920, 516, 0, 0, 1920, 515},
+                {2560, 1080, 1920, 1080, 0, 135, 1920, 810},
+                {1920, 1080, 3840, 2160, 0, 0, 3840, 2160},
         };
         for (int[] c : cases) {
-            float scalar = Math.min((float) c[2] / (float) c[0], (float) c[3] / (float) c[1]);
-            int expectedW = (int) ((float) c[0] * scalar);
-            int expectedH = (int) ((float) c[1] * scalar);
-            ViewportReferenceFrame frame =
-                    ViewportReferenceFrame.of(c[0], c[1], c[2], c[3]);
+            ViewportReferenceFrame frame = ViewportReferenceFrame.of(c[0], c[1], c[2], c[3]);
             assertNotNull(frame);
-            assertEquals(expectedW, frame.contentWidth);
-            assertEquals(expectedH, frame.contentHeight);
-            assertEquals((c[2] - expectedW) / 2, frame.contentX);
-            assertEquals((c[3] - expectedH) / 2, frame.contentY);
+            String what = c[0] + "x" + c[1] + " into " + c[2] + "x" + c[3] + " -> " + frame;
+            assertEquals(what, c[4], frame.contentX);
+            assertEquals(what, c[5], frame.contentY);
+            assertEquals(what, c[6], frame.contentWidth);
+            assertEquals(what, c[7], frame.contentHeight);
         }
     }
 }

@@ -1761,6 +1761,14 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             unbindService(usbDriverServiceConnection);
         }
 
+        // MEOW-TOUCH(viewport-follow): release the reporter's thread unconditionally.
+        // stopConnection() is guarded on connecting||connected, so a handshake that never
+        // completed never reaches onStreamStopped() and would leak the thread and an echo
+        // registration holding this Activity. See docs/meow/TOUCHPOINTS.md
+        if (viewportBinder != null) {
+            viewportBinder.release();
+        }
+
         // Destroy the capture provider
         inputCaptureProvider.destroy();
         streamContainer.onDestroy();
@@ -3499,13 +3507,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             connecting = connected = false;
             updatePipAutoEnter();
 
-            // MEOW-TOUCH(viewport-follow): uncrop while the connection is still up. The
-            // protocol forbids sending a viewport after LiStopConnection, and a session that
-            // ended cropped would otherwise be the host's last word on the subject.
-            if (viewportBinder != null) {
-                viewportBinder.onStreamStopped();
-            }
-
             controllerHandler.stop();
 
             // Update GameManager state to indicate we're no longer in game
@@ -3518,6 +3519,16 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             // during the process of stopping this one.
             new Thread() {
                 public void run() {
+                    // MEOW-TOUCH(viewport-follow): uncrop while the connection is still up.
+                    // Sending a viewport after LiStopConnection races the ENet peer's
+                    // destruction, so this must precede conn.stop() -- and it must not be on
+                    // the UI thread, which is exactly why this worker exists. A session that
+                    // ended cropped would otherwise be the host's last word on the subject.
+                    // See docs/meow/TOUCHPOINTS.md
+                    if (viewportBinder != null) {
+                        viewportBinder.onStreamStopped();
+                    }
+
                     conn.stop();
                     if (httpConn != null && quitOnStop) {
                         try {

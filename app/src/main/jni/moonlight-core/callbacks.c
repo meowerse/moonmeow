@@ -414,11 +414,11 @@ static AUDIO_RENDERER_CALLBACKS BridgeAudioRendererCallbacks = {
 };
 
 // MEOW-TOUCH(viewport-follow): the host's viewport echo. Implemented in meowjni.c
-// so this upstream file gains only the declaration and the struct member below,
-// and is inert until MeowViewportBridge is initialised.
+// so this upstream file gains only this include and the struct member below, and is
+// inert until MeowViewportBridge is initialised. The declaration is shared rather
+// than repeated here so the two translation units cannot drift.
 // See docs/meow/TOUCHPOINTS.md
-extern void MeowBridgeClSetViewport(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
-                                    uint16_t desktopWidth, uint16_t desktopHeight);
+#include "meowjni.h"
 
 static CONNECTION_LISTENER_CALLBACKS BridgeConnListenerCallbacks = {
         .stageStarting = BridgeClStageStarting,
