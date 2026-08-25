@@ -1,0 +1,122 @@
+---
+# Lean CI for moonmeow.
+#
+# This repository had no CI at all -- no `.github/workflows` directory, and
+# upstream ClassicOldSong/moonlight-android has none either. Every gate in
+# CLAUDE.md §6 was therefore enforced only by whoever remembered to run it
+# locally, which is exactly how a pull request reached "ready to merge" with no
+# code review and an on-device check that had been run against a stale build.
+#
+# What this verifies is CLAUDE.md §6, minus the parts that need secrets:
+#   - the release variant passes `lintVital` (§6 is explicit that a lint
+#     baseline must never be added to silence it -- CI is what makes that
+#     enforceable rather than aspirational)
+#   - the release unit tests pass
+#   - the native + Java code actually compiles and packages
+#
+# What this deliberately does NOT do: build the *signed* release APK. That
+# needs `keystore.properties` and the release keystore, which are gitignored
+# and must never reach CI (§7 -- losing or leaking that key means every user
+# reinstalls from scratch). The debug assemble below uses the auto-generated
+# debug key and gives the same compile coverage, including the NDK build.
+#
+# The signed release build and the on-device crash-buffer check in §5 remain
+# local steps. CI cannot plug in a phone.
+
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - moonlight-noir
+  workflow_dispatch:
+
+# A newer push makes an in-flight run obsolete.
+concurrency:
+  group: "${{ github.workflow }}-${{ github.ref }}"
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+
+jobs:
+  build-test:
+    name: Build & test
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      # `filter: blob:none` makes this a partial clone. The submodule under
+      # app/src/main/jni/moonlight-core is the protocol core and is required to
+      # compile, so it must be fetched -- but its history need not be.
+      - name: Checkout
+        uses: actions/checkout@v7
+        with:
+          submodules: recursive
+          filter: blob:none
+
+      # AGP 8.13 requires JDK 17. `cache: gradle` caches ~/.gradle/caches and
+      # wrapper dists keyed on the build files, which is the single biggest
+      # win available here -- a cold Gradle resolves the whole dependency
+      # graph from the network.
+      - name: Set up JDK 17
+        uses: actions/setup-java@v6
+        with:
+          distribution: temurin
+          java-version: '17'
+          cache: gradle
+
+      # app/build.gradle pins `ndkVersion "27.0.12077973"`. The runner image
+      # ships some NDK, but not necessarily that one, and a mismatch fails the
+      # externalNativeBuild rather than silently using another version.
+      - name: Install the pinned NDK
+        run: |
+          NDK_VERSION=$(grep -oP 'ndkVersion\s+"\K[^"]+' app/build.gradle)
+          echo "pinned NDK: ${NDK_VERSION}"
+          "${ANDROID_HOME}/cmdline-tools/latest/bin/sdkmanager" --install "ndk;${NDK_VERSION}"
+
+      # Fail fast and loudly if a secret ever lands in the tree. §7 lists these
+      # three by name; CI is a better place to catch it than a code review.
+      - name: Refuse to build if signing material is present
+        run: |
+          for f in keystore.properties local.properties; do
+            if [ -f "$f" ]; then
+              echo "::error::$f is present in the checkout; it must never be committed (CLAUDE.md §7)"
+              exit 1
+            fi
+          done
+          if git ls-files | grep -qE '\.jks$|keystore\.properties$|^local\.properties$'; then
+            echo "::error::signing material is tracked by git (CLAUDE.md §7)"
+            exit 1
+          fi
+          echo "no signing material tracked or present"
+
+      - name: Grant execute permission to gradlew
+        run: chmod +x ./gradlew
+
+      # lintVital is release-only and is the check §6 cares about. Run it on its
+      # own so a lint failure is distinguishable from a test failure in the log.
+      - name: Lint (lintVital, release variant)
+        run: ./gradlew --no-daemon lintVitalNonRoot_gameRelease
+
+      - name: Unit tests (release variant)
+        run: ./gradlew --no-daemon testNonRoot_gameReleaseUnitTest
+
+      # Compiles Java + the NDK build + packages, without needing the release
+      # keystore. This is what proves the tree actually builds.
+      - name: Assemble (debug, unsigned-key path)
+        run: ./gradlew --no-daemon assembleNonRoot_gameDebug
+
+      # The HTML/XML reports are the only way to see which test failed once the
+      # runner is gone.
+      - name: Upload test and lint reports
+        if: always()
+        uses: actions/upload-artifact@v7
+        with:
+          name: reports
+          path: |
+            app/build/reports/
+            app/build/test-results/
+          retention-days: 7
+          if-no-files-found: ignore
