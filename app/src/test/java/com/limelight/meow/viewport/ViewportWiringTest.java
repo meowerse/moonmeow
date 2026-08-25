@@ -16,8 +16,9 @@ import java.nio.file.Files;
  * This reads the sources and asserts they are still there, the same way
  * {@code InlinePinchZoomDispatchOrderTest} pins its dispatch ordering.
  *
- * <p>Line numbers are deliberately not asserted — {@code docs/meow/TOUCHPOINTS.md} carries
- * those, and {@code git grep MEOW-TOUCH} is the authority.
+ * <p>Line numbers are deliberately not asserted here — {@code docs/meow/TOUCHPOINTS.md}
+ * carries those, and the touch-point markers in the sources are the authority. (This file
+ * deliberately does not spell the marker out, so it never shows up in the registry audit.)
  */
 public class ViewportWiringTest {
 

@@ -159,6 +159,11 @@ public final class ViewportReporter {
     /**
      * Deliver the trailing rectangle. Normally invoked by the scheduler; exposed so a caller
      * that knows a gesture ended can force it without waiting.
+     *
+     * <p>The send is stamped with the time of the last movement rather than the time the
+     * timer fired. That is the instant the user actually stopped, and it means the rate-limit
+     * window for whatever they do next is measured from their gesture rather than from our
+     * timer -- which is why this class needs no clock of its own.
      */
     public void settleNow() {
         if (!isActive()) {

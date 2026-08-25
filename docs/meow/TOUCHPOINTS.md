@@ -31,11 +31,11 @@ routed at the point where touch events are already dispatched, which is inside
 
 | Line | Site | Edit |
 | --- | --- | --- |
-| 153 | field declaration | `private InlinePinchZoomController inlinePinchZoom;` |
-| 492 | `onCreate`, beside the existing `PanZoomHandler` construction | one constructor call wiring the controller to the handler and to two method references |
-| 3109 | finger branch of `handleMotionEvent`, **after** the multi-finger gesture block | one `if` that offers the event to the controller and returns early if it was consumed. The `touchContextMap[0] == null` early return was turned into a `touchContextsUnavailable` local and moved below the hook, so pinch still works when touch-as-mouse is off — see "Dispatch order is the guarantee" below |
-| 3365 | beside `cancelStaleTouchState` | `cancelInFlightTouchContexts()`, a 7-line helper |
-| 4233 | `applyMouseMode`, after the touch contexts are rebuilt | `inlinePinchZoom.reset()`, so a latched zoom cannot survive the gesture surface being torn out from under it |
+| 155 | field declaration | `private InlinePinchZoomController inlinePinchZoom;` |
+| 496 | `onCreate`, beside the existing `PanZoomHandler` construction | one constructor call wiring the controller to the handler and to two method references |
+| 3122 | finger branch of `handleMotionEvent`, **after** the multi-finger gesture block | one `if` that offers the event to the controller and returns early if it was consumed. The `touchContextMap[0] == null` early return was turned into a `touchContextsUnavailable` local and moved below the hook, so pinch still works when touch-as-mouse is off — see "Dispatch order is the guarantee" below |
+| 3378 | beside `cancelStaleTouchState` | `cancelInFlightTouchContexts()`, a 7-line helper |
+| 4259 | `applyMouseMode`, after the touch contexts are rebuilt | `inlinePinchZoom.reset()`, so a latched zoom cannot survive the gesture surface being torn out from under it |
 
 Line numbers are a convenience for the audit, not a contract; `git grep -n 'MEOW-TOUCH'`
 is the authority and the count above must match it.
