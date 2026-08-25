@@ -37,8 +37,18 @@ android {
 
     flavorDimensions.add("root")
 
+    // AGP 9 only generates unit-test tasks for the testBuildType, which defaults to
+    // "debug" -- `testNonRoot_gameReleaseUnitTest` simply no longer exists. CLAUDE.md §6
+    // specifies the release variant (its BuildConfig fields and resValues are the ones
+    // that ship), so pin the test build type rather than silently start testing debug.
+    testBuildType = "release"
+
     buildFeatures {
         buildConfig = true
+        // AGP 9 turns resValues off by default. This project defines app_label,
+        // app_label_root, app_label_game and obtainium_app_url via resValue in both
+        // buildTypes and productFlavors, so it has to be switched back on explicitly.
+        resValues = true
     }
 
     productFlavors {
@@ -123,7 +133,7 @@ android {
             resValue "string", "app_label_game", "Moonmeow Debug (Game)"
 
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
         release {
             // To whomever is releasing/using an APK in release mode with
@@ -162,7 +172,7 @@ android {
             resValue "string", "app_label_game", "Moonmeow (Game)"
 
             minifyEnabled true
-            proguardFiles getDefaultProguardFile('proguard-android.txt'), 'proguard-rules.pro'
+            proguardFiles getDefaultProguardFile('proguard-android-optimize.txt'), 'proguard-rules.pro'
         }
     }
 
