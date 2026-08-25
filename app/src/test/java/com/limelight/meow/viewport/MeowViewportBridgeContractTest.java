@@ -41,6 +41,21 @@ public class MeowViewportBridgeContractTest {
     }
 
     @Test
+    public void theNativeSignatureMatchesTheJavaOne() throws IOException {
+        // The name is only half of the binding. Adding a parameter or widening one to long
+        // keeps the name identical and still fails to resolve at runtime, so pin the shape
+        // the Java declaration actually implies: four jints after the env/class pair.
+        String source = read(JNI_SOURCE);
+        int start = source.indexOf("Java_"
+                + MeowViewportBridge.class.getName().replace('.', '_') + "_sendViewport");
+        assertTrue("symbol not found at all", start > 0);
+        String signature = source.substring(start, source.indexOf('{', start))
+                .replaceAll("\\s+", " ");
+        assertTrue("expected four jint parameters, got: " + signature,
+                signature.contains("JNIEnv *env, jclass clazz, jint x, jint y, jint width, jint height"));
+    }
+
+    @Test
     public void theNativeSourceIsActuallyCompiledIn() throws IOException {
         // A symbol in a file the build never compiles is not a symbol.
         assertTrue("meowjni.c must be listed in Android.mk",

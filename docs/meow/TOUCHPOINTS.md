@@ -33,9 +33,9 @@ routed at the point where touch events are already dispatched, which is inside
 | --- | --- | --- |
 | 155 | field declaration | `private InlinePinchZoomController inlinePinchZoom;` |
 | 496 | `onCreate`, beside the existing `PanZoomHandler` construction | one constructor call wiring the controller to the handler and to two method references |
-| 3122 | finger branch of `handleMotionEvent`, **after** the multi-finger gesture block | one `if` that offers the event to the controller and returns early if it was consumed. The `touchContextMap[0] == null` early return was turned into a `touchContextsUnavailable` local and moved below the hook, so pinch still works when touch-as-mouse is off — see "Dispatch order is the guarantee" below |
-| 3378 | beside `cancelStaleTouchState` | `cancelInFlightTouchContexts()`, a 7-line helper |
-| 4259 | `applyMouseMode`, after the touch contexts are rebuilt | `inlinePinchZoom.reset()`, so a latched zoom cannot survive the gesture surface being torn out from under it |
+| 3126 | finger branch of `handleMotionEvent`, **after** the multi-finger gesture block | one `if` that offers the event to the controller and returns early if it was consumed. The `touchContextMap[0] == null` early return was turned into a `touchContextsUnavailable` local and moved below the hook, so pinch still works when touch-as-mouse is off — see "Dispatch order is the guarantee" below |
+| 3382 | beside `cancelStaleTouchState` | `cancelInFlightTouchContexts()`, a 7-line helper |
+| 4263 | `applyMouseMode`, after the touch contexts are rebuilt | `inlinePinchZoom.reset()`, so a latched zoom cannot survive the gesture surface being torn out from under it |
 
 Line numbers are a convenience for the audit, not a contract; `git grep -n 'MEOW-TOUCH'`
 is the authority and the count above must match it.
@@ -284,13 +284,29 @@ a setter and two calls.
 | Line | Site | Edit |
 | --- | --- | --- |
 | 157 | field declaration | `private StreamViewportBinder viewportBinder;` |
-| 500 | `onCreate`, after the inline-pinch wiring | a six-line block that builds the binder **only when the preference is on** and attaches it to `panZoomHandler` |
-| 3498 | top of `stopConnection()` | one guarded `viewportBinder.onStreamStopped()` |
-| 3736 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
+| 500 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **only when the preference is on and `renderMode == 0`** and attaches it to `panZoomHandler` |
+| 3502 | top of `stopConnection()` | one guarded `viewportBinder.onStreamStopped()` |
+| 3740 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
 
 The construction is inside the preference guard on purpose: an install that has not opted
 in leaves `viewportBinder` null, so not one line of this feature executes and behaviour is
 bit-for-bit what it was before.
+
+The guard also requires `renderMode == 0` (`StreamContainer.StreamMode.MODE_2D`). The
+stereo modes are the one configuration where `ViewportGeometry`'s premise fails:
+`StreamContainer.onMeasure` short-circuits to `super.onMeasure` for them, `getSurfaceView()`
+returns a `GLSurfaceView` rendering a stereo composition rather than the stream frame, and
+the frame-to-host mapping is meaningless. Excluding them is cheaper and more honest than
+teaching the geometry about a stereo layout nobody has asked to zoom into.
+
+`onStreamStarted` is the *only* place the restored-zoom rectangle can be reported.
+`setInitialZoomAndPan` runs from a `streamContainer.post(...)` in `onCreate`, hundreds of
+milliseconds before the connection is up, so its notify is discarded by the reporter's
+`isActive()` guard. `StreamViewportBinder.onStreamStarted` therefore reads the live
+transform back immediately after the full-frame reset; without it, a session started with
+`rememberZoomPan` and a saved zoom runs cropped-to-nothing until the user next touches the
+screen. `StreamViewportBinderTest.aStreamStartingOnARestoredZoomReportsTheCropNotJustTheFullFrame`
+pins it, and goes red when the readback is removed (verified by mutation).
 
 `stopConnection()` is the correct place for the uncrop rather than `onDestroy`:
 `LiSendViewportEvent` may only be called between `LiStartConnection` and
@@ -307,7 +323,7 @@ reading `prefConfig.width` here would be wrong.
 | --- | --- | --- |
 | `ViewportRect.java` | no | immutable rectangle, clamped to the `uint16` wire range |
 | `ViewportGeometry.java` | no | view transform &rarr; visible host rectangle |
-| `ViewportThrottle.java` | no | which updates reach the wire, with an injected clock |
+| `ViewportThrottle.java` | no | which updates reach the wire; time comes in as a parameter |
 | `ViewportReporter.java` | no | the state machine: lifecycle, host support, settle |
 | `ZoomTransformObserver.java` | no | the one-method seam `PanZoomHandler` gained |
 | `MeowViewportBridge.java` | JNI | the native call |
@@ -316,6 +332,14 @@ reading `prefConfig.width` here would be wrong.
 | `ViewportPreference.java` | yes | reads the preference, and documents why it defaults off |
 
 Tested by `app/src/test/java/com/limelight/meow/viewport/`.
+
+`ViewportThrottle` is deliberately a second layer: `LiSendViewportEvent` already coalesces
+at 50ms, drops redundant rectangles and flushes a trailing one from the loss-stats thread.
+Ours exists to keep a 240Hz pinch from crossing the JNI boundary 240 times a second, not to
+protect the wire — the library already does that. One consequence worth knowing: our 120ms
+settle *delays* a below-threshold final rectangle that the library would have delivered at
+50ms. That is the price of not making the JNI call per frame, and 120ms after the fingers
+stop is well under the time it takes the host to re-encode anyway.
 
 ### The coordinate space is an open interop question
 
@@ -331,7 +355,19 @@ not their desktop resolution, the two halves disagree and the crop lands in the 
 place. **This must be reconciled with the host implementation before the preference is
 worth turning on.** The protocol already has the mechanism to settle it: the
 `ConnListenerSetViewport` echo reports the rectangle the host actually applied, in host
-desktop pixels, which is enough to calibrate. That callback is **not** wired up here.
+desktop pixels, which is enough to calibrate. That callback is **not** wired up here — the
+client's `callbacks.c` does not implement `setViewport`, so the echo goes to the library's
+stub.
+
+**Aspect ratio is a second, independent mismatch, and on this hardware it is the common
+case.** Sunshine pads to preserve aspect ratio when the requested stream resolution's
+aspect does not match the desktop's, so a 5360x1440 desktop encoded at 1920x1080 arrives
+with black bars. "Fraction of the encoded frame" is then not "fraction of the desktop"
+under *any* single scale factor. What this client reports is a fraction of the **encoded
+frame**, because that is the only thing it can measure. The host half must either
+interpret the rectangle in its own encoded-frame space, or the two halves must exchange the
+desktop size — and the echo callback is how that exchange would happen. This is the single
+most important thing to settle with whoever writes the host crop.
 
 ### Known gap: cropping and local zoom compose wrongly
 

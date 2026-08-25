@@ -28,6 +28,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver {
 
     private final Rect scratchVisible = new Rect();
     private final Point scratchOffset = new Point();
+    private final float[] scratchWindow = new float[4];
 
     public StreamViewportBinder(View streamView, View parent, Handler handler) {
         this(streamView, parent,
@@ -43,10 +44,6 @@ public final class StreamViewportBinder implements ZoomTransformObserver {
         this.reporter = reporter;
     }
 
-    public ViewportReporter reporter() {
-        return reporter;
-    }
-
     public void setEnabled(boolean enabled) {
         reporter.setEnabled(enabled, now());
     }
@@ -57,6 +54,12 @@ public final class StreamViewportBinder implements ZoomTransformObserver {
      */
     public void onStreamStarted(int hostWidth, int hostHeight) {
         reporter.onStreamStarted(hostWidth, hostHeight, now());
+        // The reset above is unconditional, and the transform may already be zoomed: with
+        // rememberZoomPan on, setInitialZoomAndPan runs from a streamContainer.post() in
+        // onCreate, hundreds of milliseconds before the connection is up, so its notify was
+        // discarded by the isActive() guard. Read the live transform back now or the host
+        // stays uncropped until the user next touches the screen.
+        onZoomTransformChanged();
     }
 
     /** Must run while the connection is still up — the protocol forbids sending after stop. */
@@ -103,29 +106,53 @@ public final class StreamViewportBinder implements ZoomTransformObserver {
      * <p>Usually the whole parent, but not always: in FILL scale mode {@code StreamContainer}
      * measures itself <em>larger</em> than the screen so the video fills it, and the overflow
      * is off-screen. Treating the parent box as visible there would report a viewport wider
-     * than anything on screen, which is the opposite of what this feature is for. Falls back
-     * to the full parent box whenever the platform cannot answer.
+     * than anything on screen, which is the opposite of what this feature is for.
+     *
+     * <p>The platform call is separated from the arithmetic so the arithmetic can be tested:
+     * Robolectric has no real window, so {@code getGlobalVisibleRect} there reports the whole
+     * view and a test driven through it would pass without ever exercising the clipping.
      */
     private float[] windowInParentCoords(int parentWidth, int parentHeight) {
-        float[] whole = { 0f, 0f, parentWidth, parentHeight };
         scratchVisible.setEmpty();
         scratchOffset.set(0, 0);
-        if (!parent.getGlobalVisibleRect(scratchVisible, scratchOffset)) {
-            return whole;
+        boolean answered = parent.getGlobalVisibleRect(scratchVisible, scratchOffset);
+        return windowFromGlobalVisibleRect(answered, scratchVisible, scratchOffset,
+                parentWidth, parentHeight, scratchWindow);
+    }
+
+    /**
+     * Converts what {@link View#getGlobalVisibleRect(Rect, Point)} reported into a window in
+     * the parent's own coordinates, falling back to the whole parent box whenever the
+     * platform cannot answer or answers with something degenerate.
+     *
+     * <p>{@code globalOffset} is documented as the offset to subtract from the global
+     * rectangle to get view-local coordinates, which is the whole conversion.
+     *
+     * @param out a four-element buffer, filled with {left, top, right, bottom}
+     */
+    static float[] windowFromGlobalVisibleRect(boolean answered, Rect globalVisible,
+                                               Point globalOffset,
+                                               int parentWidth, int parentHeight,
+                                               float[] out) {
+        out[0] = 0f;
+        out[1] = 0f;
+        out[2] = parentWidth;
+        out[3] = parentHeight;
+        if (!answered) {
+            return out;
         }
-        float left = scratchVisible.left - scratchOffset.x;
-        float top = scratchVisible.top - scratchOffset.y;
-        float right = scratchVisible.right - scratchOffset.x;
-        float bottom = scratchVisible.bottom - scratchOffset.y;
+        float left = globalVisible.left - globalOffset.x;
+        float top = globalVisible.top - globalOffset.y;
+        float right = globalVisible.right - globalOffset.x;
+        float bottom = globalVisible.bottom - globalOffset.y;
         if (!(right > left) || !(bottom > top)) {
-            return whole;
+            return out;
         }
-        return new float[] {
-                Math.max(0f, left),
-                Math.max(0f, top),
-                Math.min(parentWidth, right),
-                Math.min(parentHeight, bottom)
-        };
+        out[0] = Math.max(0f, left);
+        out[1] = Math.max(0f, top);
+        out[2] = Math.min(parentWidth, right);
+        out[3] = Math.min(parentHeight, bottom);
+        return out;
     }
 
     private static long now() {

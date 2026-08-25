@@ -61,6 +61,31 @@ public class ViewportWiringTest {
     }
 
     @Test
+    public void theBinderIsNotBuiltForTheStereoRenderModes() throws IOException {
+        // ViewportGeometry assumes the stream view's box is the video frame. StreamContainer
+        // stops sizing itself to the stream aspect outside MODE_2D, and getSurfaceView() then
+        // returns a GLSurfaceView rendering a stereo composition, so the mapping is nonsense.
+        String source = read(GAME);
+        int guard = source.indexOf("ViewportPreference.isEnabled(this)");
+        assertTrue("Game must gate the binder on the preference", guard > 0);
+        int lineStart = source.lastIndexOf('\n', guard);
+        String guardLine = source.substring(lineStart, guard);
+        assertTrue("the binder must also be gated on the 2D render mode, got: " + guardLine.trim(),
+                guardLine.contains("prefConfig.renderMode == 0"));
+    }
+
+    @Test
+    public void theStreamStartAlsoReportsAZoomThatWasAlreadyRestored() throws IOException {
+        // setInitialZoomAndPan fires long before the connection is up, so its notify is
+        // discarded; the readback in onStreamStarted is what actually delivers it.
+        String source = read("app/src/main/java/com/limelight/meow/viewport/StreamViewportBinder.java");
+        int method = source.indexOf("public void onStreamStarted(");
+        int end = source.indexOf("public void onStreamStopped(", method);
+        assertTrue("onStreamStarted must read the live transform back",
+                source.substring(method, end).contains("onZoomTransformChanged()"));
+    }
+
+    @Test
     public void theStreamStartResetsTheHostToTheFullDesktop() throws IOException {
         String source = read(GAME);
         int started = source.indexOf("public void connectionStarted()");

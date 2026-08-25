@@ -1,5 +1,6 @@
 package com.limelight.meow.viewport;
 
+import static org.junit.Assert.assertArrayEquals;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
@@ -190,34 +191,94 @@ public class StreamViewportBinderTest {
         assertEquals(afterProbe, sender.sent.size());
     }
 
+    // --- the window the parent is seen through -----------------------------------------
+    //
+    // Driven through the extracted helper rather than through a laid-out hierarchy on
+    // purpose: Robolectric has no real window, so getGlobalVisibleRect reports the whole
+    // view there and a test routed through it would pass without the clipping ever running.
+
+    @Test
+    public void anUnclippedParentIsVisibleInFull() {
+        float[] out = new float[4];
+        StreamViewportBinder.windowFromGlobalVisibleRect(
+                true, new android.graphics.Rect(0, 0, VIEW_W, VIEW_H),
+                new android.graphics.Point(0, 0), VIEW_W, VIEW_H, out);
+        assertArrayEquals(new float[] { 0f, 0f, VIEW_W, VIEW_H }, out, 0.001f);
+    }
+
     @Test
     public void aParentLargerThanItsWindowReportsOnlyWhatIsOnScreen() {
-        // FILL scale mode: StreamContainer measures itself wider than the display, so part
-        // of the stream view is genuinely not on screen.
-        FrameLayout screen = new FrameLayout(context);
-        FrameLayout overflowing = new FrameLayout(context);
-        View surface = new View(context);
-        overflowing.addView(surface, new FrameLayout.LayoutParams(3000, VIEW_H));
-        screen.addView(overflowing, new FrameLayout.LayoutParams(3000, VIEW_H));
+        // FILL scale mode: StreamContainer measures itself 3000px wide inside a 2400px
+        // screen and is centred, so 300px hangs off each side. getGlobalVisibleRect answers
+        // with the on-screen slice in screen coordinates (0..2400) and an offset of -300,
+        // meaning the visible part starts 300px into the parent.
+        float[] out = new float[4];
+        StreamViewportBinder.windowFromGlobalVisibleRect(
+                true, new android.graphics.Rect(0, 0, VIEW_W, VIEW_H),
+                new android.graphics.Point(-300, 0), 3000, VIEW_H, out);
+        assertArrayEquals(new float[] { 300f, 0f, 2700f, VIEW_H }, out, 0.001f);
+    }
 
-        screen.layout(0, 0, VIEW_W, VIEW_H);
-        overflowing.layout(0, 0, 3000, VIEW_H);
-        surface.layout(0, 0, 3000, VIEW_H);
-        surface.setPivotX(0);
-        surface.setPivotY(0);
+    @Test
+    public void thatWindowIsWhatNarrowsTheReportedViewport() {
+        ViewportRect rect = ViewportGeometry.visibleHostRect(
+                0, 0, 3000, VIEW_H, 300f, 0f, 2700f, VIEW_H, HOST_W, HOST_H);
+        assertEquals(Math.round(0.1f * HOST_W), rect.x);
+        assertEquals(Math.round(0.8f * HOST_W), rect.width);
+    }
 
-        FakeSender localSender = new FakeSender();
-        ViewportReporter localReporter = new ViewportReporter(localSender, new CapturingScheduler());
-        StreamViewportBinder localBinder =
-                new StreamViewportBinder(surface, overflowing, localReporter);
-        localBinder.setEnabled(true);
-        localBinder.onStreamStarted(HOST_W, HOST_H);
+    @Test
+    public void aPlatformThatCannotAnswerFallsBackToTheWholeParent() {
+        float[] out = new float[4];
+        StreamViewportBinder.windowFromGlobalVisibleRect(
+                false, new android.graphics.Rect(10, 10, 20, 20),
+                new android.graphics.Point(5, 5), VIEW_W, VIEW_H, out);
+        assertArrayEquals(new float[] { 0f, 0f, VIEW_W, VIEW_H }, out, 0.001f);
+    }
 
-        ViewportRect rect = localBinder.computeVisibleHostRect();
-        assertNotNull(rect);
-        assertTrue("must not claim more of the desktop than is on screen: " + rect,
-                rect.width <= HOST_W);
-        assertEquals(0, rect.x);
+    @Test
+    public void aDegenerateAnswerFallsBackToTheWholeParent() {
+        float[] out = new float[4];
+        StreamViewportBinder.windowFromGlobalVisibleRect(
+                true, new android.graphics.Rect(0, 0, 0, 0),
+                new android.graphics.Point(0, 0), VIEW_W, VIEW_H, out);
+        assertArrayEquals(new float[] { 0f, 0f, VIEW_W, VIEW_H }, out, 0.001f);
+    }
+
+    @Test
+    public void aWindowReachingOutsideTheParentIsClampedToIt() {
+        float[] out = new float[4];
+        StreamViewportBinder.windowFromGlobalVisibleRect(
+                true, new android.graphics.Rect(0, 0, 9000, 9000),
+                new android.graphics.Point(100, 100), VIEW_W, VIEW_H, out);
+        assertArrayEquals(new float[] { 0f, 0f, VIEW_W, VIEW_H }, out, 0.001f);
+    }
+
+    // --- a session that starts already zoomed -------------------------------------------
+
+    @Test
+    public void aStreamStartingOnARestoredZoomReportsTheCropNotJustTheFullFrame() {
+        // rememberZoomPan restores the transform from a streamContainer.post() in onCreate,
+        // long before the connection is up, so that notify is discarded. Without a readback
+        // at stream start the host stays uncropped until the user next touches the screen.
+        streamView.setScaleX(4f);
+        streamView.setScaleY(4f);
+        streamView.setX(-VIEW_W * 3f);
+        streamView.setY(-VIEW_H * 3f);
+
+        start();
+
+        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.sent.get(0));
+        scheduler.fire();
+        assertEquals("the restored crop must reach the host", HOST_W / 4, sender.last().width);
+    }
+
+    @Test
+    public void aStreamStartingUnzoomedSendsOnlyTheFullFrame() {
+        start();
+        scheduler.fire();
+        assertEquals(1, sender.sent.size());
+        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.last());
     }
 
     @Test
