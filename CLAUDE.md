@@ -153,6 +153,33 @@ git log --oneline backup/sync-<date>..HEAD
 git grep -nE '^(<<<<<<<|=======|>>>>>>>)'
 ```
 
+### The submodule is part of the sync, and it is a fork
+
+This section used to stop at the app repo. Since 2026-08-25 that is a hole:
+`app/src/main/jni/moonlight-core/moonlight-common-c` tracks
+`meowerse/moonlight-common-c` branch `meow`, not upstream (§2 records why). A sync
+that merges only the app repo leaves the protocol core behind silently — the pin
+does not move on its own, and nothing warns you.
+
+After the app-repo merge:
+
+```bash
+cd app/src/main/jni/moonlight-core/moonlight-common-c
+git remote -v                      # origin = meowerse fork
+git fetch real                     # moonlight-stream/moonlight-common-c; add it if absent
+git log --oneline HEAD..real/master | wc -l
+git checkout meow
+git merge real/master              # NEVER rebase: it would move the pin under the parent
+```
+
+Then bump the pin in the parent repo and **rebuild before trusting it** — §1's JNI
+hazard applies to every change here, and `nm -D` alone does not prove it. Grep the
+slash-form `FindClass` strings too.
+
+Our own additions on `meow` are public API (`LiSendViewportEvent`,
+`LiSendViewportEventForced`, `ConnListenerSetViewport`), so a conflict there is a
+real API decision, not a formatting one. Read both sides.
+
 ### Upstream reality check — we track forks, verify against originals
 
 *Measured 2026-08-24. Re-measure before acting on it.*
@@ -212,13 +239,25 @@ the same fork at the same `c999436`, and sunmeow inherits that. It is the origin
 `moonlight-stream/moonlight-common-c`. Both meowerse repos therefore share one
 protocol core and one remedy.
 
-**TODO — not yet done.** Fork `moonlight-stream/moonlight-common-c` to
-`meowerse/moonlight-common-c`; rebase the two real patches (`84af637`, `c999436`)
-onto the original's HEAD; repoint `.gitmodules` at the meowerse fork and bump the
-pin. Net: 39 upstream commits including the RTSP hardening, while keeping the two
-functions we call. This is a protocol-core change — §2 says escalate before
-touching `moonlight-common-c`, and that still applies: this TODO is the escalation,
-not permission to skip it.
+**DONE, 2026-08-25 — and it grew a second purpose.** The submodule now points at
+`meowerse/moonlight-common-c` branch **`meow`**. It carries the two patches above
+*and* the client→host viewport message that foveated streaming is built on
+(`LiSendViewportEvent`, `LiSendViewportEventForced`, `ConnListenerSetViewport`,
+control packet `0x3003`).
+
+That second part was a §2 escalation, raised and approved: **no Java-layer route
+existed.** No message in the existing protocol can carry a rectangle from client to
+host, and the whole feature is a new host behaviour. §2's stated premise — *"nothing
+a user complains about is in the protocol"* — is simply false for this one feature.
+
+**This is not a general licence.** The rule stands for everything else and the bar
+for a second exception is unchanged: show that no Java-layer route exists, then ask.
+
+**The permanent cost, so nobody rediscovers it the hard way:** the pin no longer
+tracks anything upstream directly. Every sync now has two steps, not one — see the
+submodule procedure in §4 — and `LiSendViewportEventForced` is *public API on our
+fork alone*. If merging upstream into `meow` ever becomes expensive, the exit is to
+upstream the viewport message itself and retire the fork.
 
 ### Every sync check measures against the ORIGINAL, not the fork we branched from
 
