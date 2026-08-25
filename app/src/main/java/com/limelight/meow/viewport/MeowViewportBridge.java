@@ -88,11 +88,15 @@ public final class MeowViewportBridge implements ViewportReporter.Sender {
      * <p>May only be called between {@code LiStartConnection} and {@code LiStopConnection}.
      * Values outside the {@code uint16} wire range are clamped on the native side.
      *
+     * @param force skip the library's "the host already has this rectangle" check and its
+     *              rate limit. For the capability probe only — the retry probe carries the
+     *              same rectangle as the first, so without this it would be deduplicated
+     *              away and the retry would be theatre. Never pass true on a gesture path.
      * @return 0 on success, -1 for a zero-sized rectangle, -2 if the control stream is not
      *         connected, -3 if this host's generation has no viewport packet type at all.
      *         <b>0 does not mean the host understood the message</b>; only an echo does.
      */
-    public static native int sendViewport(int x, int y, int width, int height);
+    public static native int sendViewport(int x, int y, int width, int height, boolean force);
 
     /**
      * Called from native code when the host echoes an applied viewport.
@@ -139,12 +143,12 @@ public final class MeowViewportBridge implements ViewportReporter.Sender {
     }
 
     @Override
-    public int send(int x, int y, int width, int height) {
+    public int send(int x, int y, int width, int height, boolean force) {
         if (!NATIVE_READY) {
             return ViewportReporter.LI_LIBRARY_UNAVAILABLE;
         }
         try {
-            return sendViewport(x, y, width, height);
+            return sendViewport(x, y, width, height, force);
         } catch (UnsatisfiedLinkError | SecurityException e) {
             return ViewportReporter.LI_LIBRARY_UNAVAILABLE;
         }

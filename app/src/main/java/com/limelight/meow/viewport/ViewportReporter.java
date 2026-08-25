@@ -101,7 +101,13 @@ public final class ViewportReporter {
 
     /** The wire. Returns the {@code LiSendViewportEvent} result code. */
     public interface Sender {
-        int send(int x, int y, int width, int height);
+        /**
+         * @param force bypass the library's redundant-rectangle drop and rate limit. True
+         *              only for capability probes: a retry probe carries the same rectangle
+         *              as the first one, so without this the library would drop it and the
+         *              retry would never reach the host.
+         */
+        int send(int x, int y, int width, int height, boolean force);
     }
 
     /** A one-shot timer. Rescheduling replaces any outstanding task. */
@@ -313,7 +319,11 @@ public final class ViewportReporter {
     private void sendProbe() {
         probesSent++;
         probeRect = ViewportRect.full(streamWidth, streamHeight);
-        transmit(probeRect);
+        // Forced: the retry probe is the same rectangle as the first by construction, and
+        // the library drops a rectangle the host already has. Without the bypass the retry
+        // would return 0 having sent nothing, and the race it exists for -- a probe landing
+        // before the host published its capture geometry -- would be permanent.
+        transmit(probeRect, true);
         // Arm the deadline unless that send latched the feature off. Notably it is armed
         // even when the send failed transiently (LI_NOT_CONNECTED), because the retry this
         // deadline schedules is exactly what that case needs.
@@ -328,7 +338,7 @@ public final class ViewportReporter {
         ViewportRect full = referenceFrame != null
                 ? referenceFrame.fullContent()
                 : ViewportRect.full(streamWidth, streamHeight);
-        transmit(full);
+        transmit(full, false);
     }
 
     private void deliver(ViewportRect rect) {
@@ -341,11 +351,11 @@ public final class ViewportReporter {
                 toSend = referenceFrame.fullContent();
             }
         }
-        transmit(toSend);
+        transmit(toSend, false);
     }
 
-    private void transmit(ViewportRect rect) {
-        int result = sender.send(rect.x, rect.y, rect.width, rect.height);
+    private void transmit(ViewportRect rect, boolean force) {
+        int result = sender.send(rect.x, rect.y, rect.width, rect.height, force);
         if (result == LI_NO_PACKET_TYPE || result == LI_LIBRARY_UNAVAILABLE) {
             // Nothing to send to, or nothing to send with. Permanent for this session.
             markUnsupported();

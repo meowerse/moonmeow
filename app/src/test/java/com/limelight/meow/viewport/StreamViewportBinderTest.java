@@ -50,9 +50,12 @@ public class StreamViewportBinderTest {
         final List<ViewportRect> sent = new ArrayList<>();
         int result = ViewportReporter.LI_OK;
 
+        final List<Boolean> forced = new ArrayList<>();
+
         @Override
-        public int send(int x, int y, int width, int height) {
+        public int send(int x, int y, int width, int height, boolean force) {
             sent.add(new ViewportRect(x, y, width, height));
+            forced.add(force);
             return result;
         }
 

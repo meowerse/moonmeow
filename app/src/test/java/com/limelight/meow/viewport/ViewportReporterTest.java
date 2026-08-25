@@ -31,9 +31,12 @@ public class ViewportReporterTest {
         final List<ViewportRect> sent = new ArrayList<>();
         int result = ViewportReporter.LI_OK;
 
+        final List<Boolean> forced = new ArrayList<>();
+
         @Override
-        public int send(int x, int y, int width, int height) {
+        public int send(int x, int y, int width, int height, boolean force) {
             sent.add(new ViewportRect(x, y, width, height));
+            forced.add(force);
             return result;
         }
 
@@ -169,6 +172,41 @@ public class ViewportReporterTest {
         assertEquals("no third packet", ViewportReporter.PROBE_ATTEMPTS, sender.sent.size());
         assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
         assertFalse(reporter.isLive());
+    }
+
+    @Test
+    public void theRetryProbeIsForcedSoTheLibraryCannotDeduplicateItAway() {
+        // The retry carries the same rectangle as the first probe by construction, and
+        // LiSendViewportEvent drops a rectangle the host already has -- returning 0 having
+        // sent nothing. Without the bypass the retry would be theatre, and the race it
+        // exists for (a probe landing before the host published its capture geometry)
+        // would be permanent.
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        scheduler.fire();
+        assertEquals(2, sender.sent.size());
+        assertEquals("both probes must bypass the library's dedup",
+                java.util.Arrays.asList(true, true), sender.forced);
+    }
+
+    @Test
+    public void ordinaryRectanglesAreNotForced() {
+        // The rate limit and the redundant-rectangle drop are exactly what we want on a
+        // gesture path; only probes may bypass them.
+        startSupportedStream();
+        sender.forced.clear();
+        reporter.onVisibleRectChanged(new ViewportRect(100, 0, 400, 200));
+        assertEquals(java.util.Arrays.asList(false), sender.forced);
+    }
+
+    @Test
+    public void theTerminalUncropIsNotForcedBecauseTheLibraryFlushesItAtTeardown() {
+        // stopControlStream() calls flushFinalViewportEvent(), which ignores the rate limit,
+        // so the uncrop lands even if it was coalesced. Forcing here would only add a packet.
+        startSupportedStream();
+        sender.forced.clear();
+        reporter.onStreamStopped();
+        assertEquals(java.util.Arrays.asList(false), sender.forced);
     }
 
     @Test

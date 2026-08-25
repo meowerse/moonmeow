@@ -61,14 +61,16 @@ public class MeowViewportBridgeContractTest {
     public void theNativeSignatureMatchesTheJavaOne() throws IOException {
         // The name is only half of the binding. Adding a parameter or widening one to long
         // keeps the name identical and still fails to resolve at runtime, so pin the shape
-        // the Java declaration actually implies: four jints after the env/class pair.
+        // the Java declaration actually implies: four jints and the probe's force flag,
+        // after the env/class pair.
         String source = read(JNI_SOURCE);
         int start = source.indexOf(mangled("sendViewport"));
         assertTrue("symbol not found at all", start > 0);
         String signature = source.substring(start, source.indexOf('{', start))
                 .replaceAll("\\s+", " ");
-        assertTrue("expected four jint parameters, got: " + signature,
-                signature.contains("JNIEnv *env, jclass clazz, jint x, jint y, jint width, jint height"));
+        assertTrue("expected four jints and a jboolean, got: " + signature,
+                signature.contains("JNIEnv *env, jclass clazz, jint x, jint y, jint width, jint height, "
+                        + "jboolean force"));
     }
 
     @Test

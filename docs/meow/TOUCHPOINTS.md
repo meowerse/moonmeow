@@ -395,6 +395,32 @@ silence until `ConnListenerSetViewport` answers. No echo inside `ECHO_DEADLINE_M
 retries once; no echo after that latches the feature off for the session. A non-supporting
 host sees two packets in total. The user-facing preference summary says exactly this.
 
+**Silence is the host's own contract, not just an absence.** `meow::viewport::apply_request()`
+(`sunmeow/src/meow/viewport_runtime.h`) answers *every* understood request, including one it
+refuses — it echoes the full content area — so "no echo" is unambiguous. It stays silent in
+exactly three cases, and the client is right to latch off in all three: the host has
+`meow_viewport_following` off, so `map_request_handler()` installs nothing; the host's
+encoder never takes the software scaling path, so it could not crop anyway; or the host is
+not sunmeow.
+
+The one false negative the retry exists for: a probe that lands before the host's scaler has
+published its geometry is dropped with no state stored, because the host does not yet know
+the coordinate system an answer would be in. The retry at 2 s covers that race. Shortening
+`ECHO_DEADLINE_MS` trades that margin for nothing — the cost of waiting is that following
+engages a moment late; the cost of impatience is losing the feature against a host that
+supports it.
+
+**The retry has to bypass the library's deduplication, and this is easy to get wrong.**
+`LiSendViewportEvent` drops a rectangle the host already has and returns `0` — and the retry
+probe carries the *same* rectangle as the first by construction. Sent through the ordinary
+path it would be swallowed, the caller would be told "accepted", nothing would go on the
+wire, and the race above would be permanent rather than covered. Probes therefore go through
+`LiSendViewportEventForced`, which exists for this and nothing else.
+`ViewportReporterTest.theRetryProbeIsForcedSoTheLibraryCannotDeduplicateItAway` pins it, and
+two sibling tests pin that ordinary rectangles and the terminal uncrop are **not** forced —
+the rate limit is wanted on a gesture path, and the uncrop is already covered by
+`flushFinalViewportEvent()` at teardown.
+
 ### The coordinate space is settled: the stream frame
 
 `Limelight.h` used to say the rectangle was in *host desktop pixels*. **The client cannot
@@ -474,6 +500,9 @@ Findings 1, 5 and 6 could not be fixed in the Java layer alone, so
   window was accepted (`0` returned to the caller), left in `viewportPending`, and then
   discarded when the loss-stats thread that would have flushed it was joined — leaving the
   host cropped with no session left to correct it.
+- `LiSendViewportEventForced()` was added for capability probing. `LiSendViewportEvent()`
+  is unchanged in behaviour; both now share one internal implementation with a `force` flag
+  that skips the redundant-rectangle drop and the rate limit.
 - The `Limelight.h` and `ControlStream.c` comments that described the wire as host desktop
   pixels, and the `-3` return as "any non-Apollo host", were corrected. Both were wrong in
   ways that produced wrong code.

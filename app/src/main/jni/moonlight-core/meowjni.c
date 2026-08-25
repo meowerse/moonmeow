@@ -61,9 +61,16 @@ Java_com_limelight_meow_viewport_MeowViewportBridge_nativeInit(JNIEnv *env, jcla
 JNIEXPORT jint JNICALL
 Java_com_limelight_meow_viewport_MeowViewportBridge_sendViewport(JNIEnv *env, jclass clazz,
                                                                  jint x, jint y,
-                                                                 jint width, jint height) {
+                                                                 jint width, jint height,
+                                                                 jboolean force) {
     (void)env;
     (void)clazz;
+    // `force` is for the capability probe only: it skips the library's "the host
+    // already has this rectangle" check, without which the retry probe -- the same
+    // rectangle by definition -- would be deduplicated away and never sent.
+    if (force) {
+        return LiSendViewportEventForced(clampU16(x), clampU16(y), clampU16(width), clampU16(height));
+    }
     return LiSendViewportEvent(clampU16(x), clampU16(y), clampU16(width), clampU16(height));
 }
 
