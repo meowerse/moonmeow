@@ -18,8 +18,15 @@ import android.view.ViewConfiguration;
  *   <li>fewer than two fingers &rarr; not our business, pass through</li>
  *   <li>three or more fingers &rarr; one of the existing multi-finger gestures, pass through
  *       and stay out of the way for the rest of the gesture. A third finger arriving
- *       <em>during</em> a zoom instead pauses it, and the zoom resumes from wherever the
- *       fingers are once we are back to two.</li>
+ *       <em>during</em> a zoom <b>ends</b> the zoom: the recognisers run first (see the
+ *       ordering precondition below) and every one of their exits dispatches a synthetic
+ *       {@code ACTION_CANCEL}, which reaches {@link #handle} and clears the latch. Three
+ *       fingers during a zoom therefore open the keyboard, which is what a user pressing
+ *       three fingers down is asking for.
+ *       <p>The pause-and-rebaseline path below (see {@code needsRebaseline}) survives only
+ *       where the multi-finger recognisers are skipped -- mouse mode 4, "touch mouse
+ *       disabled", where the touch contexts do not exist. It is kept because that mode is
+ *       precisely where zooming the local view is the only thing touch is still for.</li>
  *   <li>two fingers &rarr; ask {@link TwoFingerGestureArbiter}. SCROLL passes through to the
  *       existing trackpad handling; ZOOM is consumed and drives the {@link ZoomTarget}.</li>
  * </ul>
@@ -33,7 +40,10 @@ import android.view.ViewConfiguration;
  * that point on every {@code ACTION_POINTER_DOWN} is swallowed, so anything downstream of
  * this hook never sees a third finger land. The caller must therefore offer every
  * {@code pointerCount > 2} event to the 3/4/5 finger recognisers <em>before</em> this
- * controller, which is exactly what {@code Game.handleMotionEvent} does. That is safe for
+ * controller, which is exactly what {@code Game.handleMotionEvent} does <em>in every mode
+ * where the touch contexts exist</em>. The one exception is mouse mode 4, where the
+ * recognisers are skipped entirely and this hook does get first refusal again -- harmless,
+ * because 3/4/5 finger gestures have never worked in that mode, upstream included. That is safe for
  * zoom because those recognisers only act on {@code ACTION_POINTER_DOWN} /
  * {@code ACTION_POINTER_UP} / {@code ACTION_UP}, and zoom is driven entirely by
  * {@code ACTION_MOVE}, which they never handle. Reversing the two is the bug this

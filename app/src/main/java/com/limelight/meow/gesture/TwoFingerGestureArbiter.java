@@ -154,8 +154,9 @@ public final class TwoFingerGestureArbiter {
      * here at all: {@code InlinePinchZoomController} swallows the pointer-down. What
      * actually protects those gestures is dispatch order — {@code Game.handleMotionEvent}
      * offers every {@code pointerCount > 2} event to {@code handleMultiTouchGesture}
-     * <em>before</em> the inline-pinch hook — and no amount of extra caution in here can
-     * substitute for it. See {@code docs/meow/TOUCHPOINTS.md}.
+     * <em>before</em> the inline-pinch hook, in every mode where the touch contexts exist —
+     * and no amount of extra caution in here can substitute for it. (Mouse mode 4 skips the
+     * recognisers altogether, so there is nothing there to protect.) See {@code docs/meow/TOUCHPOINTS.md}.
      */
     public void disqualify() {
         decision = Decision.INACTIVE;

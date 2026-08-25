@@ -120,7 +120,17 @@ Tested by `app/src/test/java/com/limelight/meow/gesture/`.
 
 The inline-pinch hook sits **below** the `pointerCount > 2` multi-finger block in
 `handleMotionEvent`, so `handleMultiTouchGesture` gets first refusal on every event that
-could be a 3/4/5 finger gesture. Do not move it back up.
+could be a 3/4/5 finger gesture — in every mouse mode where the touch contexts exist. Do
+not move it back up.
+
+The exception is **mouse mode 4** ("touch mouse disabled"), where `touchContextMap[0]` is
+null, the multi-finger block is skipped, and the hook gets first refusal again. That is
+harmless rather than a hole: 3/4/5 finger gestures have never worked in that mode, upstream
+included, because the `touchContextMap[0] == null` return has always sat above the block.
+Two consequences are worth stating rather than leaving to be rediscovered: while a zoom is
+latched in mode 4 the multi-finger gestures stay unavailable, and mode 4 is the only place
+the controller's pause-and-rebaseline path (`needsRebaseline`) is still reachable — a third
+finger there pauses the zoom instead of ending it.
 
 The reason is that latching ZOOM is a **consuming** decision: `InlinePinchZoomController`
 cancels the in-flight touch contexts and swallows every later `ACTION_POINTER_DOWN` for

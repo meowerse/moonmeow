@@ -343,11 +343,22 @@ public class InlinePinchZoomDispatchOrderTest {
     @Test
     public void gameOffersMultiFingerGesturesTheEventBeforeTheInlinePinchHook() throws IOException {
         String game = readGameSource();
-        int multiFinger = game.indexOf("handleMultiTouchGesture(event, eventAction, pointerCount, view)");
-        int pinchHook = game.indexOf("inlinePinchZoom.onTouchEvent(event)");
+        String multiFingerCall = "handleMultiTouchGesture(event, eventAction, pointerCount, view)";
+        String pinchHookCall = "inlinePinchZoom.onTouchEvent(event)";
+        int multiFinger = game.indexOf(multiFingerCall);
+        int pinchHook = game.indexOf(pinchHookCall);
 
         assertTrue("handleMultiTouchGesture call site not found in Game.java", multiFinger > 0);
         assertTrue("inline pinch hook not found in Game.java", pinchHook > 0);
+
+        // Guard the guard. indexOf() takes the FIRST occurrence anywhere in the file, so
+        // without this a copy of either line in a comment -- or a second call site added
+        // later -- would let the ordering regress while this test still passed. A test
+        // that cannot fail is worse than no test, because it is counted as coverage.
+        assertEquals("expected exactly one handleMultiTouchGesture call site in Game.java",
+                multiFinger, game.lastIndexOf(multiFingerCall));
+        assertEquals("expected exactly one inline pinch hook call site in Game.java",
+                pinchHook, game.lastIndexOf(pinchHookCall));
         assertTrue("Game.handleMotionEvent must offer pointerCount > 2 events to "
                         + "handleMultiTouchGesture BEFORE the inline pinch hook, or a third "
                         + "finger landing after a ZOOM latch is swallowed and the soft "

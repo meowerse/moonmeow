@@ -192,6 +192,14 @@ public class InlinePinchZoomControllerTest {
         assertEquals(1, zoomEndCount);
     }
 
+    /**
+     * Scoped to the controller. In production this describes mouse mode 4 only ("touch
+     * mouse disabled"), where the multi-finger recognisers are skipped. In every other
+     * mode {@code Game.handleMotionEvent} offers the third finger to
+     * {@code handleMultiTouchGesture} first, and its synthetic {@code ACTION_CANCEL} ends
+     * the zoom rather than pausing it -- so do not read this test as a claim that a third
+     * finger mid-zoom resumes on a default install. See {@code docs/meow/TOUCHPOINTS.md}.
+     */
     @Test
     public void aThirdFingerMidZoomHoldsStillAndResumesWithoutJumping() {
         down(100f, 100f);
