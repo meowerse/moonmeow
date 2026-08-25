@@ -232,18 +232,20 @@ cannot close it; do not try.
 
 ## `MEOW-TOUCH(viewport-follow)`
 
-**Feature:** tell the host which rectangle of its desktop the client is currently
-displaying, so it can crop before scaling into the encoder.
+**Feature:** tell the host which rectangle of the *stream frame* the client is currently
+displaying, so it can map that back into its desktop and crop before scaling into the
+encoder.
 
 **Why it exists:** a 5360x1440 two-monitor desktop scaled into a 5-8 Mbps encoder is
 unreadable. The user pinches in to read something; every bit spent on the other 90% of
 the desktop is wasted. Reporting the visible rectangle lets a host that understands it
 spend the same bitrate on a fraction of the pixels. **This branch is the client half
-only** — it reports the rectangle and changes nothing about what the client renders.
+only** — it reports the rectangle and consumes the host's answer, and changes nothing
+about what the client renders.
 
-**Off by default.** See `ViewportPreference` for the argument; the short version is that
-no released host implements the extension, and this is the least reversible thing a
-client preference can do.
+**Off by default.** See `ViewportPreference` for the argument. The preference is read once
+in `Game.onCreate`, so toggling it takes effect on the **next** stream, not the running
+one.
 
 ### `app/src/main/jni/moonlight-core/Android.mk` — 1 site
 
@@ -251,30 +253,73 @@ client preference can do.
 | --- | --- | --- |
 | 48 | after the `LOCAL_SRC_FILES` block | a three-line stanza appending `meowjni.c` |
 
-`meowjni.c` is a new file, not an edit to `simplejni.c`, so an upstream sync can never
-conflict on it. **Read the JNI hazard section of `CLAUDE.md` before touching it.** The
-symbol `Java_com_limelight_meow_viewport_MeowViewportBridge_sendViewport` binds by static
-mangled name; moving or renaming `MeowViewportBridge` without renaming the symbol produces
-a build that succeeds and dies at first call with `UnsatisfiedLinkError`.
-`MeowViewportBridgeContractTest` derives the expected symbol from the class object and
-asserts it is present in the C source and that the C source is actually compiled in, so
-the mistake fails a test rather than a user's stream. There is deliberately **no**
-`FindClass` in that file — nothing calls back into Java from it — and the same test fails
-if one appears, because a slash-form class string does not move when the package does.
-
-### `app/src/main/java/com/limelight/utils/PanZoomHandler.java` — 3 sites
+### `app/src/main/jni/moonlight-core/callbacks.c` — 2 sites
 
 | Line | Site | Edit |
 | --- | --- | --- |
-| 31 | field declaration | `private ZoomTransformObserver zoomTransformObserver;` plus a setter and a two-line `notifyZoomTransformChanged()` helper |
-| 95 | end of `constrainToBounds()` | one `notifyZoomTransformChanged()` call |
-| 203 | end of `setInitialZoomAndPan(...)` | one `notifyZoomTransformChanged()` call |
+| 416 | above `BridgeConnListenerCallbacks` | an `extern` declaration of `MeowBridgeClSetViewport` |
+| 436 | inside `BridgeConnListenerCallbacks` | `.setViewport = MeowBridgeClSetViewport,` |
+
+The callback body itself lives in `meowjni.c`, not here, so this upstream file gains a
+declaration and a struct member and nothing else. It is inert until
+`MeowViewportBridge` is class-initialised — which only happens when the preference is on —
+so an install that has not opted in reaches a `NULL` check and returns.
+
+**Read the JNI hazard section of `CLAUDE.md` before touching `meowjni.c`.** Two symbols
+bind by static mangled name:
+`Java_com_limelight_meow_viewport_MeowViewportBridge_sendViewport` and
+`..._nativeInit`. Moving or renaming `MeowViewportBridge` without renaming them produces a
+build that succeeds and dies at first call with `UnsatisfiedLinkError`.
+
+There is deliberately **no `FindClass`** in that file even though it now calls back into
+Java. `nativeInit` is handed its `jclass` by the JNI calling convention, so the class
+identity travels with the mangled name and there is no slash-form string that a package
+move would leave stale — which is the half `nm -D` cannot see, and the half that already
+shipped broken in this repo once. `MeowViewportBridgeContractTest` derives both mangled
+names and the `(IIIIII)V` method descriptor from the class object, checks the struct member
+is wired, checks `meowjni.c` is on an **uncommented** `LOCAL_SRC_FILES` line, and fails if a
+`FindClass` or a slash-form class string ever appears.
+
+`meowjni.c` reaches `GetThreadEnv()`, which `callbacks.c` exports, rather than caching a
+`JNIEnv`: the echo arrives on moonlight-common-c's async callback thread, which is not a
+Java thread.
+
+### `app/proguard-rules.pro` — 1 site, deliberately untokenised
+
+`MeowViewportBridge.onViewportEcho()` is called only from `meowjni.c`. R8 sees no Java
+caller and **strips it from the release dex** — verified against `dexdump` on the built
+APK, not assumed. `GetStaticMethodID()` then returns `NULL`, the host's echo is silently
+dropped, and capability detection never succeeds: a build that passes every other check
+while the feature quietly never engages. A `-keepclassmembers` rule names the method and
+its exact parameter list, and `MeowViewportBridgeContractTest.theEchoEntryPointSurvivesR8`
+fails if it is removed or its signature drifts.
+
+This file lives outside `app/src`, so `git grep -n 'MEOW-TOUCH' -- app/src` (CLAUDE.md §3)
+cannot see it. The token is therefore deliberately **not** written there — putting it in
+would make the registry claim a site the audit command cannot verify. The site is recorded
+here instead, and the rule carries a comment pointing back at this file.
+
+### `app/src/main/java/com/limelight/utils/PanZoomHandler.java` — 4 sites
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 31 | field declaration | `private ZoomTransformObserver zoomTransformObserver;` |
+| 50 | `setZoomTransformObserver(...)` | the setter, plus a two-line `notifyZoomTransformChanged()` helper below it |
+| 105 | end of `constrainToBounds()` | one `notifyZoomTransformChanged()` call |
+| 213 | end of `setInitialZoomAndPan(...)` | one `notifyZoomTransformChanged()` call |
 
 `constrainToBounds` is the single choke point for the transform — `pinchBy`, `panBy` and
 `handleSurfaceChange` all end there — which is why one call site covers pinch, pan,
-rotation and PiP resize alike. `setInitialZoomAndPan` is the one transform that bypasses
-it; without the second call a zoom restored by `rememberZoomPan` would leave the host
-uncropped until the user next moved. Both are pinned by `ViewportWiringTest`.
+rotation, PiP resize and external-display attach alike, in explicit Pan/Zoom mode and
+inline pinch equally. `setInitialZoomAndPan` is the one transform that bypasses it; without
+the second call a zoom restored by `rememberZoomPan` would leave the host uncropped until
+the user next moved. Both are pinned by `ViewportWiringTest`.
+
+**There is exactly one observer slot, and it is single-ownership.** Calling
+`setZoomTransformObserver` again silently displaces whatever was there. That is fine with
+one caller (`Game.onCreate`, once per activity) and is documented on the setter; if a second
+feature ever needs the transform, make it a list *then* rather than adding a second call and
+assuming both survive.
 
 The observer interface lives in `meow/` rather than here so this class only gains a field,
 a setter and two calls.
@@ -284,7 +329,7 @@ a setter and two calls.
 | Line | Site | Edit |
 | --- | --- | --- |
 | 157 | field declaration | `private StreamViewportBinder viewportBinder;` |
-| 500 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **only when the preference is on and `renderMode == 0`** and attaches it to `panZoomHandler` |
+| 500 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **only when the preference is on and the render mode is `MODE_2D`** and attaches it to `panZoomHandler` |
 | 3502 | top of `stopConnection()` | one guarded `viewportBinder.onStreamStopped()` |
 | 3740 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
 
@@ -292,26 +337,25 @@ The construction is inside the preference guard on purpose: an install that has 
 in leaves `viewportBinder` null, so not one line of this feature executes and behaviour is
 bit-for-bit what it was before.
 
-The guard also requires `renderMode == 0` (`StreamContainer.StreamMode.MODE_2D`). The
-stereo modes are the one configuration where `ViewportGeometry`'s premise fails:
-`StreamContainer.onMeasure` short-circuits to `super.onMeasure` for them, `getSurfaceView()`
-returns a `GLSurfaceView` rendering a stereo composition rather than the stream frame, and
-the frame-to-host mapping is meaningless. Excluding them is cheaper and more honest than
-teaching the geometry about a stereo layout nobody has asked to zoom into.
+The guard also requires `StreamContainer.StreamMode.MODE_2D`, obtained from the public
+`streamContainer.mapIntToStreamMode(prefConfig.renderMode)` rather than compared against a
+bare `0`. The stereo modes are the one configuration where `ViewportGeometry`'s premise
+fails: `StreamContainer.onMeasure` short-circuits to `super.onMeasure` for them,
+`getSurfaceView()` returns a `GLSurfaceView` rendering a stereo composition rather than the
+stream frame, and the frame-to-host mapping is meaningless.
 
-`onStreamStarted` is the *only* place the restored-zoom rectangle can be reported.
+`onStreamStarted` is the *only* place a restored-zoom rectangle can be reported.
 `setInitialZoomAndPan` runs from a `streamContainer.post(...)` in `onCreate`, hundreds of
-milliseconds before the connection is up, so its notify is discarded by the reporter's
-`isActive()` guard. `StreamViewportBinder.onStreamStarted` therefore reads the live
-transform back immediately after the full-frame reset; without it, a session started with
-`rememberZoomPan` and a saved zoom runs cropped-to-nothing until the user next touches the
-screen. `StreamViewportBinderTest.aStreamStartingOnARestoredZoomReportsTheCropNotJustTheFullFrame`
-pins it, and goes red when the readback is removed (verified by mutation).
+milliseconds before the connection is up, so its notify is discarded. `StreamViewportBinder`
+therefore reads the live transform back immediately after the probe and posts it behind the
+probe on the same queue.
+`StreamViewportBinderTest.aStreamStartingOnARestoredZoomReportsTheCropNotJustTheFullFrame`
+pins it.
 
 `stopConnection()` is the correct place for the uncrop rather than `onDestroy`:
 `LiSendViewportEvent` may only be called between `LiStartConnection` and
-`LiStopConnection`, and this site runs on the UI thread before `conn.stop()` is handed to
-its worker thread. `ViewportWiringTest` asserts that ordering.
+`LiStopConnection`, and calling it after the peer is destroyed is a use-after-free rather
+than merely a lost packet. `ViewportWiringTest` asserts the uncrop sits above `conn.stop()`.
 
 `connectionStarted()` passes `displayWidth`/`displayHeight` — the resolution actually
 negotiated in `StreamConfiguration`, which is inverted from `prefConfig` in portrait, so
@@ -322,52 +366,77 @@ reading `prefConfig.width` here would be wrong.
 | File | Android? | What it is |
 | --- | --- | --- |
 | `ViewportRect.java` | no | immutable rectangle, clamped to the `uint16` wire range |
-| `ViewportGeometry.java` | no | view transform &rarr; visible host rectangle |
-| `ViewportThrottle.java` | no | which updates reach the wire; time comes in as a parameter |
-| `ViewportReporter.java` | no | the state machine: lifecycle, host support, settle |
+| `ViewportGeometry.java` | no | view transform &rarr; visible stream-frame rectangle |
+| `ViewportReferenceFrame.java` | no | the host's letterbox transform, mirrored from the echoed desktop size |
+| `ViewportReporter.java` | no | the state machine: lifecycle, capability probing, clamping |
 | `ZoomTransformObserver.java` | no | the one-method seam `PanZoomHandler` gained |
-| `MeowViewportBridge.java` | JNI | the native call |
-| `HandlerSettleScheduler.java` | yes | `Scheduler` over a `Handler` |
-| `StreamViewportBinder.java` | yes | reads the views, nothing else |
+| `MeowViewportBridge.java` | JNI | the native call out and the echo back in |
+| `HandlerDeadlineScheduler.java` | yes | `Scheduler` over a `Handler` |
+| `StreamViewportBinder.java` | yes | reads the views, owns the reporter's thread |
 | `ViewportPreference.java` | yes | reads the preference, and documents why it defaults off |
 
 Tested by `app/src/test/java/com/limelight/meow/viewport/`.
 
-`ViewportThrottle` is deliberately a second layer: `LiSendViewportEvent` already coalesces
-at 50ms, drops redundant rectangles and flushes a trailing one from the loss-stats thread.
-Ours exists to keep a 240Hz pinch from crossing the JNI boundary 240 times a second, not to
-protect the wire — the library already does that. One consequence worth knowing: our 120ms
-settle *delays* a below-threshold final rectangle that the library would have delivered at
-50ms. That is the price of not making the JNI call per frame, and 120ms after the fingers
-stop is well under the time it takes the host to re-encode anyway.
+### Capability detection is the echo, and only the echo
 
-### The coordinate space is an open interop question
+`LiSendViewportEvent` returning `0` proves nothing about the host. `packetTypes` is selected
+from the advertised app version alone (`ControlStream.c`, `initializeControlStream`), and
+stock Sunshine advertises `7.1.431.-1`, which selects `packetTypesGen7Enc` — whose
+`IDX_VIEWPORT` entry is `0x3003`, not `-1`. So against a host that has never heard of this
+extension the call succeeds **and a reliable control packet really goes out**. `-3` is
+returned only for GFE Gen 3/4/5 and unencrypted Gen 7.
 
-`Limelight.h` says the rectangle is in *host desktop pixels*. **The client cannot know the
-host's desktop size.** Sunshine's `serverinfo` does not report it and nothing else in the
-handshake carries it, so what this sends is the rectangle expressed against the
-**negotiated stream resolution** — the `displayWidth`/`displayHeight` passed to
-`StreamConfiguration`, which the host also knows exactly. That is the same reference-space
-convention `LiSendMousePositionEvent` already uses for absolute mouse positioning.
+An earlier revision of this branch gated on that return value. The consequence, confirmed
+by reading the table rather than assumed, was up to ~20 unknown reliable packets a second at
+stock Sunshine for an entire session.
 
-If the host implements the crop in true desktop pixels and the user's stream resolution is
-not their desktop resolution, the two halves disagree and the crop lands in the wrong
-place. **This must be reconciled with the host implementation before the preference is
-worth turning on.** The protocol already has the mechanism to settle it: the
-`ConnListenerSetViewport` echo reports the rectangle the host actually applied, in host
-desktop pixels, which is enough to calibrate. That callback is **not** wired up here — the
-client's `callbacks.c` does not implement `setViewport`, so the echo goes to the library's
-stub.
+`ViewportReporter` therefore **probes**: one full-frame rectangle at stream start, then
+silence until `ConnListenerSetViewport` answers. No echo inside `ECHO_DEADLINE_MS` (2 s)
+retries once; no echo after that latches the feature off for the session. A non-supporting
+host sees two packets in total. The user-facing preference summary says exactly this.
 
-**Aspect ratio is a second, independent mismatch, and on this hardware it is the common
-case.** Sunshine pads to preserve aspect ratio when the requested stream resolution's
-aspect does not match the desktop's, so a 5360x1440 desktop encoded at 1920x1080 arrives
-with black bars. "Fraction of the encoded frame" is then not "fraction of the desktop"
-under *any* single scale factor. What this client reports is a fraction of the **encoded
-frame**, because that is the only thing it can measure. The host half must either
-interpret the rectangle in its own encoded-frame space, or the two halves must exchange the
-desktop size — and the echo callback is how that exchange would happen. This is the single
-most important thing to settle with whoever writes the host crop.
+### The coordinate space is settled: the stream frame
+
+`Limelight.h` used to say the rectangle was in *host desktop pixels*. **The client cannot
+know the host's desktop size** — `serverinfo` does not report it and nothing else in the
+handshake carries it — so that was never implementable. Both halves independently reached
+the same convention, and the header has been corrected to match: the wire carries the
+rectangle in the **negotiated stream resolution**, uncropped, which is the same reference
+space `LiSendMousePositionEvent` already uses. The host (`meow::viewport::to_desktop()` in
+`sunmeow/src/meow/viewport.h`) maps it into desktop pixels and answers in the same space.
+
+**Aspect ratio is handled by the echo.** Sunshine pads to preserve aspect ratio, so a
+5360x1440 desktop at 1920x1080 occupies only 1920x515 of the frame with ~282 rows of black
+above and below. The echo carries `capture_width`/`capture_height` behind
+`flag_desktop_extent`, and `ViewportReferenceFrame` reproduces the host's
+`full_frame_plan()` arithmetic exactly — `float` scalar, truncating multiply, integer
+halving — to recover the content box. Rectangles are then clamped into it, so the client
+never asks for a region that is pure padding (which the host refuses, falling back to the
+whole desktop). Until the first echo arrives there is no reference frame and rectangles go
+out unclamped; the host clamps them itself, so that is less precise rather than unsafe.
+
+### Threading: the send is not on the UI thread
+
+`PanZoomHandler.constrainToBounds()` runs inside touch dispatch. The JNI call it causes
+reaches `sendMessageEnet`, which takes the ENet mutex and sleeps `PltSleepMs(1)` up to ten
+times on reliable-packet backpressure — and backpressure is the *expected* case on the
+5-8 Mbps link this feature exists for. Doing that synchronously meant up to ~200 ms of
+blocked UI thread per second during a pinch, i.e. jank in exactly the gesture that drives
+the feature.
+
+`StreamViewportBinder` therefore owns a private `HandlerThread`. The UI thread reads the
+transform and posts an immutable `ViewportRect`; the reporter, the JNI call and the probe
+deadline all run on that thread, which makes the reporter single-threaded and lock-free.
+The host's echo is posted onto the same handler.
+
+`onStreamStopped()` is the one place that blocks, bounded at
+`STOP_DRAIN_TIMEOUT_MS` (250 ms): the terminal uncrop must reach the wire before
+`LiStopConnection`, because sending after that races the ENet peer's destruction.
+
+An earlier revision carried a `ViewportThrottle` and a 120 ms settle timer of its own. Both
+are **gone**: `LiSendViewportEvent` already rate limits to 50 ms, drops redundant
+rectangles, retries failed sends and flushes the trailing one from the loss-stats thread.
+The second layer only delayed a below-threshold final rectangle from 50 ms to 120 ms.
 
 ### Known gap: cropping and local zoom compose wrongly
 
@@ -377,9 +446,29 @@ still displaying that frame under the user's local zoom — so the user sees the
 asked for magnified *again*, and absolute mouse coordinates (`getNormalizedCoordinates`
 &rarr; `LiSendMousePositionEvent`) now address the crop rather than the desktop.
 
-Resolving that means the client resetting its local transform to 1:1 when the host confirms
-a crop, and composing later zooms on top of the applied rectangle rather than on the raw
-frame — which is a different feature from "report the rectangle", needs the echo callback,
-and contradicts "reset the viewport to full-desktop when zoom returns to 1:1" (under
-composition, zoom is *always* back at 1:1). It is deliberately not attempted here, and it
-is the reason the preference ships off.
+Wiring the echo did not make this fall out: the echo tells the client *what* was applied,
+but resolving the composition means the client resetting its local transform to 1:1 when the
+host confirms a crop and composing later zooms on top of the applied rectangle rather than on
+the raw frame — and that contradicts "reset the viewport to full-frame when zoom returns to
+1:1", because under composition zoom is *always* back at 1:1. `ViewportReporter.appliedRect()`
+and `referenceFrame()` are the inputs that work would need, and are exposed for it. It is a
+different feature from "report the rectangle", and it is the reason the preference ships off.
+
+### The submodule changed, and it is under separate review
+
+Findings 1, 5 and 6 could not be fixed in the Java layer alone, so
+`app/src/main/jni/moonlight-core/moonlight-common-c` moved on branch `meow` of
+`meowerse/moonlight-common-c`:
+
+- `ConnListenerSetViewport` gained `desktopWidth`/`desktopHeight` (0 when the host did not
+  report them), and the receive path parses them defensively — flag bit present, bytes
+  actually there, extents non-zero — falling back to "unknown" rather than reading past the
+  payload or discarding an otherwise valid rectangle.
+- `stopControlStream()` now calls `flushFinalViewportEvent()`, which ignores the rate limit,
+  before the threads are interrupted. Without it a terminal uncrop sent inside the 50 ms
+  window was accepted (`0` returned to the caller), left in `viewportPending`, and then
+  discarded when the loss-stats thread that would have flushed it was joined — leaving the
+  host cropped with no session left to correct it.
+- The `Limelight.h` and `ControlStream.c` comments that described the wire as host desktop
+  pixels, and the `-3` return as "any non-Apollo host", were corrected. Both were wrong in
+  ways that produced wrong code.

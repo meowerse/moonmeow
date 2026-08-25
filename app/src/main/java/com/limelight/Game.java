@@ -499,13 +499,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // MEOW-TOUCH(viewport-follow): only built when the preference is on and the renderer
         // is plain 2D, so an install that has not opted in runs exactly the code it ran
-        // before. renderMode 0 is StreamContainer.StreamMode.MODE_2D; the stereo modes put a
-        // GLSurfaceView in place of the stream surface and its box is not the video frame, so
-        // the geometry this feature depends on does not hold there.
-        // See docs/meow/TOUCHPOINTS.md
-        if (prefConfig.renderMode == 0 && ViewportPreference.isEnabled(this)) {
+        // before. The stereo modes put a GLSurfaceView in place of the stream surface and
+        // its box is not the video frame, so the geometry this feature depends on does not
+        // hold there. See docs/meow/TOUCHPOINTS.md
+        if (streamContainer.mapIntToStreamMode(prefConfig.renderMode) == StreamContainer.StreamMode.MODE_2D
+                && ViewportPreference.isEnabled(this)) {
             viewportBinder = new StreamViewportBinder(
-                    streamContainer.getSurfaceView(), streamContainer, timerHandler);
+                    streamContainer.getSurfaceView(), streamContainer);
             viewportBinder.setEnabled(true);
             panZoomHandler.setZoomTransformObserver(viewportBinder);
         }

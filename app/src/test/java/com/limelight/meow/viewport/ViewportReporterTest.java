@@ -2,6 +2,8 @@ package com.limelight.meow.viewport;
 
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertNotNull;
+import static org.junit.Assert.assertNull;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
@@ -10,10 +12,19 @@ import org.junit.Test;
 import java.util.ArrayList;
 import java.util.List;
 
+/**
+ * The state machine, exercised without Android or a connection.
+ *
+ * <p>The scenario throughout is the one the feature exists for: a 5360x1440 two-monitor
+ * desktop negotiated at 1920x516. Sunshine letterboxes that into 1920x515 with one row of
+ * padding, which is what {@link ViewportReferenceFrame} reconstructs from the echo.
+ */
 public class ViewportReporterTest {
 
-    private static final int HOST_W = 5360;
-    private static final int HOST_H = 1440;
+    private static final int STREAM_W = 1920;
+    private static final int STREAM_H = 516;
+    private static final int DESKTOP_W = 5360;
+    private static final int DESKTOP_H = 1440;
 
     /** Records every rectangle handed to the wire and answers with a scripted result code. */
     private static final class FakeSender implements ViewportReporter.Sender {
@@ -37,15 +48,19 @@ public class ViewportReporterTest {
         int cancels;
 
         @Override
-        public void scheduleSettle(long delayMs, Runnable task) {
+        public void schedule(long delayMs, Runnable task) {
             this.delayMs = delayMs;
             this.task = task;
         }
 
         @Override
-        public void cancelSettle() {
+        public void cancel() {
             cancels++;
             task = null;
+        }
+
+        boolean armed() {
+            return task != null;
         }
 
         void fire() {
@@ -68,203 +83,369 @@ public class ViewportReporterTest {
         reporter = new ViewportReporter(sender, scheduler);
     }
 
-    private static ViewportRect zoomed() {
-        return new ViewportRect(1000, 200, 1340, 360);
+    private void startSupportedStream() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        echoFullContent();
     }
 
-    // --- disabled by default ------------------------------------------------------------
+    /** The echo a sunmeow host sends for an uncropped 5360x1440 desktop at 1920x516. */
+    private void echoFullContent() {
+        ViewportReferenceFrame frame =
+                ViewportReferenceFrame.of(DESKTOP_W, DESKTOP_H, STREAM_W, STREAM_H);
+        assertNotNull(frame);
+        ViewportRect full = frame.fullContent();
+        reporter.onViewportApplied(full.x, full.y, full.width, full.height,
+                DESKTOP_W, DESKTOP_H);
+    }
+
+    // ---- construction -------------------------------------------------------------
+
+    @Test(expected = IllegalArgumentException.class)
+    public void aSenderIsRequired() {
+        new ViewportReporter(null, scheduler);
+    }
+
+    @Test(expected = IllegalArgumentException.class)
+    public void aSchedulerIsRequired() {
+        new ViewportReporter(sender, null);
+    }
+
+    // ---- the preference -----------------------------------------------------------
 
     @Test
-    public void aDisabledReporterNeverTouchesTheWire() {
-        reporter.onStreamStarted(HOST_W, HOST_H, 0L);
-        reporter.onVisibleRectChanged(zoomed(), 100L);
-        reporter.settleNow();
-        reporter.onStreamStopped(200L);
+    public void nothingIsSentWhileThePreferenceIsOff() {
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onVisibleRectChanged(new ViewportRect(100, 100, 400, 200));
         assertTrue(sender.sent.isEmpty());
-        assertFalse(reporter.isActive());
+        assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
     }
 
-    // --- lifecycle ----------------------------------------------------------------------
+    @Test
+    public void enablingDoesNotProbeUntilTheNextStreamStarts() {
+        // The preference is read once in Game.onCreate and there is no route back to
+        // Settings mid-stream, so this is documentation of an intentional limit, not a bug.
+        reporter.setEnabled(true);
+        assertTrue(sender.sent.isEmpty());
+    }
+
+    // ---- capability probing -------------------------------------------------------
 
     @Test
-    public void startingAStreamUncropsTheHostBeforeAnythingElse() {
-        reporter.setEnabled(true, 0L);
-        reporter.onStreamStarted(HOST_W, HOST_H, 0L);
+    public void aStreamStartProbesWithTheFullFrameAndArmsTheDeadline() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
         assertEquals(1, sender.sent.size());
-        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.last());
+        assertEquals(new ViewportRect(0, 0, STREAM_W, STREAM_H), sender.last());
+        assertTrue(scheduler.armed());
+        assertEquals(ViewportReporter.ECHO_DEADLINE_MS, scheduler.delayMs);
+        assertEquals(ViewportReporter.HostSupport.PROBING, reporter.hostSupport());
     }
 
     @Test
-    public void stoppingWhileCroppedRestoresTheFullDesktop() {
-        // A client that disconnects zoomed must not leave the next session cropped.
-        startEnabled();
-        reporter.onVisibleRectChanged(zoomed(), 1000L);
-        assertEquals(zoomed(), sender.last());
-
-        reporter.onStreamStopped(2000L);
-        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.last());
-    }
-
-    @Test
-    public void stoppingWhileAlreadyUncroppedSendsNothingExtra() {
-        startEnabled();
-        int afterStart = sender.sent.size();
-        reporter.onStreamStopped(2000L);
-        assertEquals(afterStart, sender.sent.size());
-    }
-
-    @Test
-    public void nothingIsSentAfterTheStreamStops() {
-        startEnabled();
-        reporter.onStreamStopped(1000L);
-        int afterStop = sender.sent.size();
-        reporter.onVisibleRectChanged(zoomed(), 2000L);
-        reporter.settleNow();
-        assertEquals(afterStop, sender.sent.size());
-    }
-
-    @Test
-    public void aSecondSessionStartsFromTheFullDesktop() {
-        startEnabled();
-        reporter.onVisibleRectChanged(zoomed(), 1000L);
-        reporter.onStreamStopped(2000L);
-        sender.sent.clear();
-
-        reporter.onStreamStarted(HOST_W, HOST_H, 3000L);
-        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.last());
-    }
-
-    // --- zooming back out ---------------------------------------------------------------
-
-    @Test
-    public void returningToOneToOneUncropsTheHost() {
-        startEnabled();
-        reporter.onVisibleRectChanged(zoomed(), 1000L);
-        reporter.onVisibleRectChanged(ViewportRect.full(HOST_W, HOST_H), 2000L);
-        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.last());
-    }
-
-    @Test
-    public void turningThePreferenceOffMidSessionUncropsTheHost() {
-        startEnabled();
-        reporter.onVisibleRectChanged(zoomed(), 1000L);
-        reporter.setEnabled(false, 2000L);
-        assertEquals(ViewportRect.full(HOST_W, HOST_H), sender.last());
-        assertFalse(reporter.isActive());
-    }
-
-    // --- host that does not implement the extension --------------------------------------
-
-    @Test
-    public void anUnsupportedHostSilencesTheFeatureForTheWholeSession() {
-        // Stock Sunshine, an older sunmeow, anything else: -3 is not an error, it means the
-        // stream behaves exactly as it does today.
-        sender.result = ViewportReporter.LI_UNSUPPORTED;
-        reporter.setEnabled(true, 0L);
-        reporter.onStreamStarted(HOST_W, HOST_H, 0L);
-        assertEquals(1, sender.sent.size());
-        assertFalse(reporter.isHostSupported());
-        assertFalse(reporter.isActive());
-
-        sender.result = ViewportReporter.LI_OK;
-        reporter.onVisibleRectChanged(zoomed(), 1000L);
-        reporter.settleNow();
-        assertEquals("no further probing after -3", 1, sender.sent.size());
-    }
-
-    @Test
-    public void anUnsupportedHostIsNotUncroppedOnStopBecauseItWasNeverCropped() {
-        sender.result = ViewportReporter.LI_UNSUPPORTED;
-        startEnabled();
-        int afterStart = sender.sent.size();
-        reporter.onStreamStopped(1000L);
-        assertEquals(afterStart, sender.sent.size());
-    }
-
-    @Test
-    public void aTransientFailureIsRetriedRatherThanAssumedDelivered() {
-        // -2 means the control stream was not up yet. The rectangle was never queued, so it
-        // must not be recorded as the host's current state.
-        reporter.setEnabled(true, 0L);
-        sender.result = ViewportReporter.LI_NOT_CONNECTED;
-        reporter.onStreamStarted(HOST_W, HOST_H, 0L);
-        assertTrue(reporter.isActive());
-
-        sender.result = ViewportReporter.LI_OK;
-        reporter.onVisibleRectChanged(zoomed(), 10L);
-        assertEquals(zoomed(), sender.last());
-    }
-
-    // --- throttling and the settle -------------------------------------------------------
-
-    @Test
-    public void rapidUpdatesAreCoalescedAndTheLastOneStillLands() {
-        startEnabled();
-        sender.sent.clear();
-
-        for (int frame = 0; frame < 10; frame++) {
-            reporter.onVisibleRectChanged(new ViewportRect(frame * 100, 0, 1340, HOST_H), 1000L + frame * 5L);
+    public void nothingElseGoesOnTheWireWhileTheProbeIsOutstanding() {
+        // This is the whole point of probing: against a host that has never heard of the
+        // extension, LiSendViewportEvent returns 0 and really does transmit. A client that
+        // trusted that would talk to stock Sunshine 20 times a second for the session.
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        for (int i = 0; i < 50; i++) {
+            reporter.onVisibleRectChanged(new ViewportRect(i, 0, 400, 200));
         }
-        assertTrue("coalesced", sender.sent.size() < 10);
-        assertTrue("a settle is pending", scheduler.task != null);
-        assertEquals(ViewportReporter.SETTLE_DELAY_MS, scheduler.delayMs);
+        assertEquals("only the probe", 1, sender.sent.size());
+    }
+
+    @Test
+    public void anUnansweredProbeIsRetriedOnceAndThenTheHostIsWrittenOff() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        assertEquals(1, sender.sent.size());
 
         scheduler.fire();
-        assertEquals(new ViewportRect(900, 0, 1340, HOST_H), sender.last());
+        assertEquals("the retry", 2, sender.sent.size());
+        assertEquals(ViewportReporter.HostSupport.PROBING, reporter.hostSupport());
+
+        scheduler.fire();
+        assertEquals("no third packet", ViewportReporter.PROBE_ATTEMPTS, sender.sent.size());
+        assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
+        assertFalse(reporter.isLive());
     }
 
     @Test
-    public void theSettleIsCancelledWhenTheStreamStops() {
-        startEnabled();
-        reporter.onVisibleRectChanged(new ViewportRect(0, 0, 1340, HOST_H), 1000L);
-        reporter.onVisibleRectChanged(new ViewportRect(50, 0, 1340, HOST_H), 1002L);
-        int before = scheduler.cancels;
-        reporter.onStreamStopped(1003L);
-        assertTrue(scheduler.cancels > before);
+    public void aHostThatIsWrittenOffNeverHearsFromUsAgainThisSession() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        scheduler.fire();
+        scheduler.fire();
+        int afterProbes = sender.sent.size();
+
+        for (int i = 0; i < 100; i++) {
+            reporter.onVisibleRectChanged(new ViewportRect(i, 0, 400, 200));
+        }
+        reporter.onStreamStopped();
+        assertEquals(afterProbes, sender.sent.size());
     }
 
     @Test
-    public void aSettleThatFiresWithNothingOutstandingSendsNothing() {
-        startEnabled();
-        int afterStart = sender.sent.size();
-        reporter.settleNow();
-        assertEquals(afterStart, sender.sent.size());
+    public void aLateEchoAfterTheHostWasWrittenOffIsIgnored() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        scheduler.fire();
+        scheduler.fire();
+        echoFullContent();
+        assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
+        assertFalse(reporter.isActive());
+    }
+
+    @Test
+    public void anEchoMakesTheHostSupportedAndCancelsTheDeadline() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        echoFullContent();
+        assertEquals(ViewportReporter.HostSupport.SUPPORTED, reporter.hostSupport());
+        assertFalse(scheduler.armed());
+        assertTrue(reporter.isActive());
+    }
+
+    @Test
+    public void aRectangleDeferredDuringProbingIsSentAsSoonAsTheHostAnswers() {
+        // Otherwise a user who is already zoomed in when the stream starts sees nothing
+        // happen until they next move a finger.
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onVisibleRectChanged(new ViewportRect(960, 0, 480, 300));
+        assertEquals(1, sender.sent.size());
+
+        echoFullContent();
+        assertEquals(2, sender.sent.size());
+        assertEquals(new ViewportRect(960, 0, 480, 300), sender.last());
+    }
+
+    @Test
+    public void onlyTheLastDeferredRectangleSurvivesTheProbeWindow() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onVisibleRectChanged(new ViewportRect(10, 0, 400, 200));
+        reporter.onVisibleRectChanged(new ViewportRect(20, 0, 400, 200));
+        reporter.onVisibleRectChanged(new ViewportRect(30, 0, 400, 200));
+        echoFullContent();
+        assertEquals(2, sender.sent.size());
+        assertEquals(new ViewportRect(30, 0, 400, 200), sender.last());
+    }
+
+    // ---- library refusals ---------------------------------------------------------
+
+    @Test
+    public void aHostGenerationWithNoViewportPacketTypeLatchesTheFeatureOff() {
+        sender.result = ViewportReporter.LI_NO_PACKET_TYPE;
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
+        assertFalse(scheduler.armed());
+        assertEquals("one probe, then silence", 1, sender.sent.size());
+    }
+
+    @Test
+    public void aMissingNativeSymbolLatchesTheFeatureOff() {
+        sender.result = ViewportReporter.LI_LIBRARY_UNAVAILABLE;
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
+        assertEquals(1, sender.sent.size());
+    }
+
+    @Test
+    public void aTransientSendFailureStillArmsTheDeadlineSoTheProbeIsRetried() {
+        // LI_NOT_CONNECTED at stream start means the control stream lost a race with the
+        // connectionStarted callback. Retrying is exactly right; giving up is not.
+        sender.result = ViewportReporter.LI_NOT_CONNECTED;
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        assertEquals(ViewportReporter.HostSupport.PROBING, reporter.hostSupport());
+        assertTrue(scheduler.armed());
+
+        sender.result = ViewportReporter.LI_OK;
+        scheduler.fire();
+        assertEquals(2, sender.sent.size());
+        echoFullContent();
+        assertEquals(ViewportReporter.HostSupport.SUPPORTED, reporter.hostSupport());
+    }
+
+    // ---- reporting ----------------------------------------------------------------
+
+    @Test
+    public void everyRectangleIsOfferedToTheLibraryOnceTheHostIsSupported() {
+        // No throttle of our own: LiSendViewportEvent already rate limits to 50ms, drops
+        // duplicates and flushes the trailing rectangle. Adding a second layer here only
+        // delayed the final rectangle.
+        startSupportedStream();
+        int before = sender.sent.size();
+        for (int i = 0; i < 10; i++) {
+            reporter.onVisibleRectChanged(new ViewportRect(100 + i, 0, 400, 200));
+        }
+        assertEquals(before + 10, sender.sent.size());
     }
 
     @Test
     public void aNullRectangleIsIgnored() {
-        startEnabled();
-        int afterStart = sender.sent.size();
-        reporter.onVisibleRectChanged(null, 1000L);
-        assertEquals(afterStart, sender.sent.size());
+        startSupportedStream();
+        int before = sender.sent.size();
+        reporter.onVisibleRectChanged(null);
+        assertEquals(before, sender.sent.size());
+    }
+
+    // ---- the echo's desktop extent ------------------------------------------------
+
+    @Test
+    public void theHostsDesktopSizeIsAdoptedFromTheEcho() {
+        startSupportedStream();
+        assertEquals(DESKTOP_W, reporter.desktopWidth());
+        assertEquals(DESKTOP_H, reporter.desktopHeight());
+        assertNotNull(reporter.referenceFrame());
     }
 
     @Test
-    public void hostDimensionsAreClampedSoTheyCanNeverBeZero() {
-        reporter.setEnabled(true, 0L);
-        reporter.onStreamStarted(0, -4, 0L);
-        assertEquals(1, reporter.hostWidth());
-        assertEquals(1, reporter.hostHeight());
+    public void anEchoWithoutADesktopExtentLeavesTheReferenceFrameUnknown() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0);
+        assertEquals(ViewportReporter.HostSupport.SUPPORTED, reporter.hostSupport());
+        assertEquals(0, reporter.desktopWidth());
+        assertNull(reporter.referenceFrame());
     }
 
     @Test
-    public void aSenderAndSchedulerAreRequired() {
-        try {
-            new ViewportReporter(null, scheduler);
-            org.junit.Assert.fail("expected IllegalArgumentException");
-        } catch (IllegalArgumentException expected) {
-            // ok
-        }
-        try {
-            new ViewportReporter(sender, null);
-            org.junit.Assert.fail("expected IllegalArgumentException");
-        } catch (IllegalArgumentException expected) {
-            // ok
-        }
+    public void withoutAReferenceFrameRectanglesGoOutUnclamped() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0);
+        reporter.onVisibleRectChanged(new ViewportRect(0, 0, STREAM_W, STREAM_H));
+        assertEquals(new ViewportRect(0, 0, STREAM_W, STREAM_H), sender.last());
     }
 
-    private void startEnabled() {
-        reporter.setEnabled(true, 0L);
-        reporter.onStreamStarted(HOST_W, HOST_H, 0L);
+    @Test
+    public void onceTheReferenceFrameIsKnownRectanglesAreClampedIntoTheContentArea() {
+        // The padding rows map to no desktop at all. Asking for them makes the host refuse
+        // the request and stream the whole desktop -- the opposite of what was wanted.
+        startSupportedStream();
+        ViewportReferenceFrame frame = reporter.referenceFrame();
+        assertNotNull(frame);
+
+        reporter.onVisibleRectChanged(new ViewportRect(0, 0, STREAM_W, STREAM_H));
+        assertEquals(frame.fullContent(), sender.last());
+    }
+
+    @Test
+    public void aRectangleEntirelyInThePaddingBecomesTheFullContentArea() {
+        startSupportedStream();
+        ViewportReferenceFrame frame = reporter.referenceFrame();
+        assertNotNull(frame);
+        int belowContent = frame.contentY + frame.contentHeight;
+        if (belowContent >= STREAM_H) {
+            // This negotiation has no padding to test with; the 1920x1080 case does.
+            return;
+        }
+        reporter.onVisibleRectChanged(
+                new ViewportRect(0, belowContent, STREAM_W, STREAM_H - belowContent));
+        assertEquals(frame.fullContent(), sender.last());
+    }
+
+    @Test
+    public void aNonsensicalEchoedRectangleIsNotRecordedButStillProvesSupport() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        // Wider than the stream frame: a host bug, or a hostile peer. Either way it is not
+        // evidence about where the crop is.
+        reporter.onViewportApplied(0, 0, STREAM_W * 4, STREAM_H, DESKTOP_W, DESKTOP_H);
+        assertEquals(ViewportReporter.HostSupport.SUPPORTED, reporter.hostSupport());
+        assertNull(reporter.appliedRect());
+    }
+
+    @Test
+    public void anAbsurdDesktopExtentIsDiscardedRatherThanUsed() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onViewportApplied(0, 0, STREAM_W, STREAM_H, -5, 999999);
+        assertEquals(0, reporter.desktopWidth());
+        assertNull(reporter.referenceFrame());
+    }
+
+    // ---- never leave the host cropped ---------------------------------------------
+
+    @Test
+    public void stoppingWhileZoomedUncropsTheHost() {
+        startSupportedStream();
+        reporter.onVisibleRectChanged(new ViewportRect(960, 100, 400, 200));
+        reporter.onStreamStopped();
+        assertEquals(reporter.referenceFrame().fullContent(), sender.last());
+    }
+
+    @Test
+    public void theUncropIsUnconditionalRatherThanGuessedFromAsynchronousEchoes() {
+        // Being wrong about "am I cropped?" once is unrecoverable: there is no session left
+        // to correct it. The library drops a redundant rectangle anyway.
+        startSupportedStream();
+        int before = sender.sent.size();
+        reporter.onStreamStopped();
+        assertEquals(before + 1, sender.sent.size());
+    }
+
+    @Test
+    public void stoppingAnUnsupportedStreamSendsNothing() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        scheduler.fire();
+        scheduler.fire();
+        int before = sender.sent.size();
+        reporter.onStreamStopped();
+        assertEquals(before, sender.sent.size());
+    }
+
+    @Test
+    public void nothingIsSentAfterTheStreamStops() {
+        startSupportedStream();
+        reporter.onStreamStopped();
+        int after = sender.sent.size();
+        reporter.onVisibleRectChanged(new ViewportRect(10, 10, 100, 100));
+        reporter.onViewportApplied(0, 0, 100, 100, DESKTOP_W, DESKTOP_H);
+        assertEquals(after, sender.sent.size());
+        assertFalse(reporter.isActive());
+    }
+
+    @Test
+    public void turningThePreferenceOffMidStreamUncropsFirst() {
+        startSupportedStream();
+        reporter.onVisibleRectChanged(new ViewportRect(960, 100, 400, 200));
+        reporter.setEnabled(false);
+        assertEquals(reporter.referenceFrame().fullContent(), sender.last());
+        assertFalse(reporter.isActive());
+    }
+
+    // ---- session isolation --------------------------------------------------------
+
+    @Test
+    public void aNewStreamNeverInheritsThePreviousOnesHostState() {
+        startSupportedStream();
+        reporter.onVisibleRectChanged(new ViewportRect(960, 100, 400, 200));
+        reporter.onStreamStopped();
+
+        sender.sent.clear();
+        reporter.onStreamStarted(1280, 720);
+        assertEquals(ViewportReporter.HostSupport.PROBING, reporter.hostSupport());
+        assertEquals(0, reporter.desktopWidth());
+        assertNull(reporter.referenceFrame());
+        assertNull(reporter.appliedRect());
+        assertEquals(new ViewportRect(0, 0, 1280, 720), sender.last());
+        assertEquals(1280, reporter.streamWidth());
+        assertEquals(720, reporter.streamHeight());
+    }
+
+    @Test
+    public void aDegenerateStreamSizeIsClampedRatherThanDividedBy() {
+        reporter.setEnabled(true);
+        reporter.onStreamStarted(0, -4);
+        assertEquals(1, reporter.streamWidth());
+        assertEquals(1, reporter.streamHeight());
+        assertEquals(new ViewportRect(0, 0, 1, 1), sender.last());
     }
 }

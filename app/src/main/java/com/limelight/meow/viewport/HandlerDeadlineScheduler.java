@@ -6,16 +6,16 @@ import android.os.Handler;
  * {@link ViewportReporter.Scheduler} over an Android {@link Handler}.
  *
  * <p>One outstanding task at a time: scheduling again replaces the previous one, which is
- * what "settle {@code N}ms after the last movement" needs. All calls happen on the thread
- * the handler is bound to (the UI thread), which is also the only thread the zoom transform
- * is touched from.
+ * what an "answer by this deadline or the host does not support it" timer needs. All calls
+ * happen on the thread the handler is bound to, which is the same thread the reporter runs
+ * on -- {@link StreamViewportBinder} owns both.
  */
-public final class HandlerSettleScheduler implements ViewportReporter.Scheduler {
+public final class HandlerDeadlineScheduler implements ViewportReporter.Scheduler {
 
     private final Handler handler;
     private Runnable outstanding;
 
-    public HandlerSettleScheduler(Handler handler) {
+    public HandlerDeadlineScheduler(Handler handler) {
         if (handler == null) {
             throw new IllegalArgumentException("handler is required");
         }
@@ -23,14 +23,14 @@ public final class HandlerSettleScheduler implements ViewportReporter.Scheduler 
     }
 
     @Override
-    public void scheduleSettle(long delayMs, Runnable task) {
-        cancelSettle();
+    public void schedule(long delayMs, Runnable task) {
+        cancel();
         outstanding = task;
         handler.postDelayed(task, delayMs);
     }
 
     @Override
-    public void cancelSettle() {
+    public void cancel() {
         if (outstanding != null) {
             handler.removeCallbacks(outstanding);
             outstanding = null;

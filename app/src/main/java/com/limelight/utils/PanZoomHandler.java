@@ -46,6 +46,16 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
         streamView.setPivotY(0);
     }
 
+    /**
+     * MEOW-TOUCH(viewport-follow): install the single zoom-transform observer.
+     *
+     * <p><b>Single ownership.</b> There is exactly one slot, and calling this again silently
+     * displaces whatever was there. That is deliberate rather than an oversight — the one
+     * caller is {@code Game.onCreate}, once per activity — but it means this must not become
+     * a general-purpose listener registry by accident. If a second feature ever needs the
+     * transform, make this a list <em>then</em>; do not add a second call and assume both
+     * survive. Pass null to detach.
+     */
     public void setZoomTransformObserver(ZoomTransformObserver observer) {
         this.zoomTransformObserver = observer;
     }

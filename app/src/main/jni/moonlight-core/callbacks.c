@@ -413,6 +413,13 @@ static AUDIO_RENDERER_CALLBACKS BridgeAudioRendererCallbacks = {
         .capabilities = CAPABILITY_SUPPORTS_ARBITRARY_AUDIO_DURATION
 };
 
+// MEOW-TOUCH(viewport-follow): the host's viewport echo. Implemented in meowjni.c
+// so this upstream file gains only the declaration and the struct member below,
+// and is inert until MeowViewportBridge is initialised.
+// See docs/meow/TOUCHPOINTS.md
+extern void MeowBridgeClSetViewport(uint16_t x, uint16_t y, uint16_t width, uint16_t height,
+                                    uint16_t desktopWidth, uint16_t desktopHeight);
+
 static CONNECTION_LISTENER_CALLBACKS BridgeConnListenerCallbacks = {
         .stageStarting = BridgeClStageStarting,
         .stageComplete = BridgeClStageComplete,
@@ -426,6 +433,7 @@ static CONNECTION_LISTENER_CALLBACKS BridgeConnListenerCallbacks = {
         .rumbleTriggers = BridgeClRumbleTriggers,
         .setMotionEventState = BridgeClSetMotionEventState,
         .setControllerLED = BridgeClSetControllerLED,
+        .setViewport = MeowBridgeClSetViewport,  // MEOW-TOUCH(viewport-follow)
 };
 
 static bool
