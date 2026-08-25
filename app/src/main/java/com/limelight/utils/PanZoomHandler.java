@@ -9,6 +9,7 @@ import android.view.View;
 import com.limelight.Game;
 import com.limelight.LimeLog;
 import com.limelight.meow.gesture.InlinePinchZoomController;
+import com.limelight.meow.viewport.ZoomTransformObserver;
 import com.limelight.preferences.PreferenceConfiguration;
 
 // MEOW-TOUCH(inline-pinch-zoom): implement the meow ZoomTarget seam so the inline
@@ -27,6 +28,9 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
     private float childX, childY = 0;
     private float parentWidth, parentHeight = 0;
     private float childWidth, childHeight = 0;
+    // MEOW-TOUCH(viewport-follow): one observer seam so the visible host rectangle can be
+    // reported without duplicating the transform. Null unless the feature is wired up.
+    private ZoomTransformObserver zoomTransformObserver;
 
     public PanZoomHandler(Context context, Game game, View streamView, View parent, PreferenceConfiguration prefConfig) {
         this.game = game;
@@ -40,6 +44,16 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
         // Everything gets easier with 0,0 as the pivot point
         streamView.setPivotX(0);
         streamView.setPivotY(0);
+    }
+
+    public void setZoomTransformObserver(ZoomTransformObserver observer) {
+        this.zoomTransformObserver = observer;
+    }
+
+    private void notifyZoomTransformChanged() {
+        if (zoomTransformObserver != null) {
+            zoomTransformObserver.onZoomTransformChanged();
+        }
     }
 
     public void handleTouchEvent(MotionEvent motionEvent) {
@@ -77,6 +91,11 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
 
         streamView.setX(childX);
         streamView.setY(childY);
+
+        // MEOW-TOUCH(viewport-follow): every transform ends here -- pinchBy, panBy and
+        // handleSurfaceChange all funnel through constrainToBounds -- so this is the one
+        // place the visible rectangle can change. See docs/meow/TOUCHPOINTS.md
+        notifyZoomTransformChanged();
     }
 
     public void handleSurfaceChange() {
@@ -180,6 +199,11 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
         this.childY = offsetY;
         streamView.setX(childX);
         streamView.setY(childY);
+
+        // MEOW-TOUCH(viewport-follow): the one transform that does not go through
+        // constrainToBounds. Without this a restored zoom (rememberZoomPan) would leave the
+        // host uncropped until the user next moved.
+        notifyZoomTransformChanged();
     }
 
     public float getScaleFactor() { return scaleFactor; }

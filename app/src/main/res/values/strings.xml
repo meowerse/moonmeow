@@ -696,6 +696,8 @@
     <string name="summary_enable_commit_text">Forward multi-character text from soft keyboards (gesture typing, predictions, voice dictation). May break games that rely on key-by-key input.</string>
     <string name="title_checkbox_remember_zoom_pan">Remember Zoom&amp;Pan</string>
     <string name="summary_checkbox_remember_zoom_pan">Save changes to zoom and pan position between sessions</string>
+    <string name="title_checkbox_enable_viewport_follow">Viewport-following quality</string>
+    <string name="summary_checkbox_enable_viewport_follow">Tell the host which part of the desktop you are looking at, so it spends the whole bitrate on that region instead of the entire desktop. Needs a host that supports it; with any other host the stream is unchanged.</string>
     <string name="title_checkbox_enable_perf_overlay_bottom">Move overlay to bottom</string>
     <string name="summary_checkbox_enable_perf_overlay_bottom">Useful when Display in Top Center and Lite mode are enabled during non-native resolution streaming.</string>
     <string name="title_edit_profile">Edit Profile</string>

@@ -29,6 +29,8 @@ import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.meow.gesture.InlinePinchZoomController;
+import com.limelight.meow.viewport.StreamViewportBinder;
+import com.limelight.meow.viewport.ViewportPreference;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
 import com.limelight.nvstream.StreamConfiguration;
@@ -152,6 +154,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private PanZoomHandler panZoomHandler;
     // MEOW-TOUCH(inline-pinch-zoom): modeless pinch-to-zoom, see docs/meow/TOUCHPOINTS.md
     private InlinePinchZoomController inlinePinchZoom;
+    // MEOW-TOUCH(viewport-follow): tells the host which slice of the desktop we display
+    private StreamViewportBinder viewportBinder;
     private long threeFingerDownTime = 0;
     private long fourFingerDownTime = 0;
     private long fiveFingerDownTime = 0;
@@ -492,6 +496,15 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         // MEOW-TOUCH(inline-pinch-zoom): drive the same handler from a modeless pinch
         inlinePinchZoom = new InlinePinchZoomController(
                 this, panZoomHandler, this::cancelInFlightTouchContexts, this::updatePipAutoEnter);
+
+        // MEOW-TOUCH(viewport-follow): only built when the preference is on, so an install
+        // that has not opted in runs exactly the code it ran before. See docs/meow/TOUCHPOINTS.md
+        if (ViewportPreference.isEnabled(this)) {
+            viewportBinder = new StreamViewportBinder(
+                    streamContainer.getSurfaceView(), streamContainer, timerHandler);
+            viewportBinder.setEnabled(true);
+            panZoomHandler.setZoomTransformObserver(viewportBinder);
+        }
 
         // Restore previous zoom & pan if enabled and saved
         if (prefConfig.rememberZoomPan) {
@@ -3482,6 +3495,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             connecting = connected = false;
             updatePipAutoEnter();
 
+            // MEOW-TOUCH(viewport-follow): uncrop while the connection is still up. The
+            // protocol forbids sending a viewport after LiStopConnection, and a session that
+            // ended cropped would otherwise be the host's last word on the subject.
+            if (viewportBinder != null) {
+                viewportBinder.onStreamStopped();
+            }
+
             controllerHandler.stop();
 
             // Update GameManager state to indicate we're no longer in game
@@ -3712,6 +3732,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 connected = true;
                 connecting = false;
                 updatePipAutoEnter();
+
+                // MEOW-TOUCH(viewport-follow): the control stream is up, so reset the host to
+                // the full desktop before any zoom is reported against it.
+                if (viewportBinder != null) {
+                    viewportBinder.onStreamStarted(displayWidth, displayHeight);
+                }
 
                 // Hide the mouse cursor now after a short delay.
                 // Doing it before dismissing the spinner seems to be undone
