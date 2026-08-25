@@ -2,37 +2,23 @@ package com.limelight.binding.input.capture;
 
 import android.app.Activity;
 
-import com.limelight.BuildConfig;
 import com.limelight.LimeLog;
 import com.limelight.R;
-import com.limelight.binding.input.evdev.EvdevCaptureProviderShim;
 import com.limelight.binding.input.evdev.EvdevListener;
 
 public class InputCaptureManager {
+    // At minSdk 26 the Android O native pointer capture API is always available, so the
+    // old fallback cascade (NVIDIA Shield capture extension -> rooted evdev reader ->
+    // Android N pointer hiding -> no capture at all) is unreachable and has been removed
+    // along with the `root` product flavor.
+    // AndroidNativePointerCaptureProvider.isCaptureProviderSupported() was literally
+    // `SDK_INT >= O`, so it won every time.
+    //
+    // rootListener is retained in the signature: Game still implements EvdevListener and
+    // passes itself, and dropping the parameter would be an unrelated edit to an upstream
+    // file (CLAUDE.md §2).
     public static InputCaptureProvider getInputCaptureProvider(Activity activity, EvdevListener rootListener) {
-        if (AndroidNativePointerCaptureProvider.isCaptureProviderSupported()) {
-            LimeLog.info("Using Android O+ native mouse capture");
-            return new AndroidNativePointerCaptureProvider(activity, activity.findViewById(R.id.streamContainer));
-        }
-        // LineageOS implemented broken NVIDIA capture extensions, so avoid using them on root builds.
-        // See https://github.com/LineageOS/android_frameworks_base/commit/d304f478a023430f4712dbdc3ee69d9ad02cebd3
-        else if (!BuildConfig.ROOT_BUILD && ShieldCaptureProvider.isCaptureProviderSupported()) {
-            LimeLog.info("Using NVIDIA mouse capture extension");
-            return new ShieldCaptureProvider(activity);
-        }
-        else if (EvdevCaptureProviderShim.isCaptureProviderSupported()) {
-            LimeLog.info("Using Evdev mouse capture");
-            return EvdevCaptureProviderShim.createEvdevCaptureProvider(activity, rootListener);
-        }
-        else if (AndroidPointerIconCaptureProvider.isCaptureProviderSupported()) {
-            // Android N's native capture can't capture over system UI elements
-            // so we want to only use it if there's no other option.
-            LimeLog.info("Using Android N+ pointer hiding");
-            return new AndroidPointerIconCaptureProvider(activity, activity.findViewById(R.id.streamContainer));
-        }
-        else {
-            LimeLog.info("Mouse capture not available");
-            return new NullCaptureProvider();
-        }
+        LimeLog.info("Using Android O+ native mouse capture");
+        return new AndroidNativePointerCaptureProvider(activity, activity.findViewById(R.id.streamContainer));
     }
 }

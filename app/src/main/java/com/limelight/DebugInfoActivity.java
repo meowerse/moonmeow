@@ -5,7 +5,6 @@ import android.app.AlertDialog;
 import android.content.Context;
 import android.content.DialogInterface;
 import android.hardware.Sensor;
-import android.media.AudioAttributes;
 import android.os.Build;
 import android.os.Bundle;
 import android.os.VibrationEffect;
@@ -180,17 +179,7 @@ public class DebugInfoActivity extends AppCompatActivity implements View.OnClick
     }
 
     private void rumble(Vibrator vibrator) {
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            vibrator.vibrate(VibrationEffect.createWaveform(new long[]{1000}, new int[]{simulatedAmplitude}, 0));
-        } else {
-            long pwmPeriod = 20;
-            long onTime = (long) ((simulatedAmplitude / 255.0) * pwmPeriod);
-            long offTime = pwmPeriod - onTime;
-            AudioAttributes audioAttributes = new AudioAttributes.Builder()
-                    .setUsage(AudioAttributes.USAGE_GAME)
-                    .build();
-            vibrator.vibrate(new long[]{0, onTime, offTime}, 0, audioAttributes);
-        }
+        vibrator.vibrate(VibrationEffect.createWaveform(new long[]{1000}, new int[]{simulatedAmplitude}, 0));
     }
 
     @Override

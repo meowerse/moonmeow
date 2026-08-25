@@ -97,7 +97,7 @@ There are no prebuilt releases. Moonmeow is built from source — see below.
 
 Requirements:
 
-* Android SDK (`compileSdk 36`, `minSdk 21`)
+* Android SDK (`compileSdk 36`, `minSdk 26` — Android 8.0 Oreo)
 * Android NDK **27.0.12077973** — the version is pinned in `app/build.gradle`;
   install it through the SDK Manager so Gradle can find it under `$ANDROID_HOME/ndk/`
 * JDK 17 or newer

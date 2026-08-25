@@ -27,7 +27,7 @@ Note `master` and `next` in that repo are **stale** (2024) and 573 commits behin
 ### Branding: applicationId only, never the namespace
 
 Shipped:
-- `applicationId` → `meow.alxnko.moonmeow` (`.root`, `.debug` variants)
+- `applicationId` → `meow.alxnko.moonmeow` (`.debug` variant)
 - App label → "Moonmeow", UI strings rebranded in the 6 locales that carried the
   Artemis name (en, fr, ru, vi, zh-rCN, zh-rTW). There are 33 `values-*` dirs and 29
   `strings.xml` files, but the rest never mentioned it — "all 33 locales" was wrong.

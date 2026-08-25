@@ -2,17 +2,11 @@
 <resources>
 
     <!--
-        Base application theme, dependent on API level. This theme is replaced
-        by AppBaseTheme from res/values-vXX/styles.xml on newer devices.
-
+        Base application theme. Still replaced by AppBaseTheme from
+        res/values-v29/styles.xml on API 29+ devices. The identical -v14 and -v21
+        copies were dropped when minSdk rose to 26.
     -->
-    <style name="AppBaseTheme" parent="Theme.MaterialComponents.NoActionBar">
-        <!--
-            Theme customizations available in newer API levels can go in
-            res/values-vXX/styles.xml, while customizations related to
-            backward-compatibility can go here.
-        -->
-    </style>
+    <style name="AppBaseTheme" parent="Theme.MaterialComponents.NoActionBar" />
 
     <!-- Application theme. -->
     <style name="AppTheme" parent="AppBaseTheme">
@@ -25,9 +19,16 @@
         <item name="android:windowBackground">#1A1A1A</item>
     </style>
 
+    <!--
+      Use a black background to avoid the transparent background when switching apps.
+      android:windowBackgroundFallback is supposed to do this, but it wasn't working for
+      me as of Android 7.1
+
+      Was res/values-v24/styles.xml; folded in here when minSdk rose to 26, at which
+      point the -v24 qualifier always matched and this was already the effective value.
+    -->
     <style name="StreamBaseTheme" parent="AppBaseTheme">
-        <!-- Transparent streaming background to avoid extra overdraw -->
-        <item name="android:windowBackground">@android:color/transparent</item>
+        <item name="android:windowBackground">@android:color/black</item>
     </style>
 
     <!-- Stream activity theme -->
