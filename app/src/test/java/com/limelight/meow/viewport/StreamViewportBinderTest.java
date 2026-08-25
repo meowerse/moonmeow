@@ -254,6 +254,15 @@ public class StreamViewportBinderTest {
         assertArrayEquals(new float[] { 0f, 0f, VIEW_W, VIEW_H }, out, 0.001f);
     }
 
+    @Test
+    public void aWindowEntirelyOutsideTheParentFallsBackRatherThanInverting() {
+        float[] out = new float[4];
+        StreamViewportBinder.windowFromGlobalVisibleRect(
+                true, new android.graphics.Rect(3000, 0, 4000, VIEW_H),
+                new android.graphics.Point(0, 0), VIEW_W, VIEW_H, out);
+        assertArrayEquals(new float[] { 0f, 0f, VIEW_W, VIEW_H }, out, 0.001f);
+    }
+
     // --- a session that starts already zoomed -------------------------------------------
 
     @Test

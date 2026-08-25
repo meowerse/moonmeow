@@ -148,10 +148,20 @@ public final class StreamViewportBinder implements ZoomTransformObserver {
         if (!(right > left) || !(bottom > top)) {
             return out;
         }
-        out[0] = Math.max(0f, left);
-        out[1] = Math.max(0f, top);
-        out[2] = Math.min(parentWidth, right);
-        out[3] = Math.min(parentHeight, bottom);
+        float clampedLeft = Math.max(0f, left);
+        float clampedTop = Math.max(0f, top);
+        float clampedRight = Math.min(parentWidth, right);
+        float clampedBottom = Math.min(parentHeight, bottom);
+        if (!(clampedRight > clampedLeft) || !(clampedBottom > clampedTop)) {
+            // The reported region lies entirely outside the parent box, which means the two
+            // coordinate spaces disagree about something. Claim the whole parent rather than
+            // an inverted window.
+            return out;
+        }
+        out[0] = clampedLeft;
+        out[1] = clampedTop;
+        out[2] = clampedRight;
+        out[3] = clampedBottom;
         return out;
     }
 
