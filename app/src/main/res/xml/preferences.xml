@@ -9,11 +9,13 @@
         android:title="@string/category_video_settings"
         app:initialExpandedChildrenCount="3"
         app:iconSpaceReserved="false">
-        <!-- MEOW-TOUCH(native-res): no android:defaultValue here on purpose. PcView calls
-             PreferenceManager.setDefaultValues() at startup, which would materialise a fixed
-             16:9 string before PreferenceConfiguration.seedResolutionDefault() ever runs, and
-             the panel-derived default would never apply. That method owns this key's default. -->
+        <!-- MEOW-TOUCH(defaults): this stays 16:9 on purpose. It is what a brand-new store
+             gets from setDefaultValues(), and keeping it means ListPreference.getValue() is
+             never null for the profile editor, whose sparse in-memory store has no such key.
+             PreferenceConfiguration.applyDefaultsMigration() then replaces it with the
+             panel-derived resolution, so ordering between the two no longer matters. -->
         <ListPreference
+            android:defaultValue="1280x720"
             android:entries="@array/resolution_names"
             android:entryValues="@array/resolution_values"
             android:key="list_resolution"
@@ -87,6 +89,8 @@
             android:title="@string/title_checkbox_use_virtual_display"
             app:iconSpaceReserved="false" />
 
+        <!-- MEOW-TOUCH(defaults): was false. Existing installs get it via
+             PreferenceConfiguration.applyDefaultsMigration(). -->
         <CheckBoxPreference
             android:defaultValue="true"
             android:key="checkbox_auto_orientation"
@@ -636,6 +640,8 @@
             android:summary="@string/summary_checkbox_remember_zoom_pan"
             android:title="@string/title_checkbox_remember_zoom_pan"
             app:iconSpaceReserved="false" />
+        <!-- MEOW-TOUCH(defaults): was false. Must match ViewportPreference.DEFAULT;
+             existing installs get it via applyDefaultsMigration(). -->
         <CheckBoxPreference
             android:defaultValue="true"
             android:key="checkbox_enable_viewport_follow"

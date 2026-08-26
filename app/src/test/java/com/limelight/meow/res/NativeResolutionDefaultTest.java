@@ -55,6 +55,28 @@ public class NativeResolutionDefaultTest {
     }
 
     @Test
+    public void anOddDimensionIsRoundedDownToTheChromaFloor() {
+        // Odd dimensions cannot be expressed in YUV420 and configure to a black stream
+        // rather than throwing.
+        assertEquals("1918x1078", NativeResolutionDefault.resolve(1919, 1079, false));
+    }
+
+    @Test
+    public void aStandardSixteenByNineHeightIsNotClampedAway() {
+        // Regression guard: an earlier revision aligned to 16, which silently turned
+        // 1920x1080 -- the most widely decoded size there is, and already a shipped preset --
+        // into 1920x1072. Alignment is 2 for exactly this reason.
+        assertEquals("1920x1080", NativeResolutionDefault.resolve(1920, 1080, false));
+        assertEquals("1280x720", NativeResolutionDefault.resolve(1280, 720, false));
+    }
+
+    @Test
+    public void theReportingDevicePanelIsAlreadyAligned() {
+        // 1220x2712 is even on both axes, so alignment must not perturb it.
+        assertEquals("2712x1220", NativeResolutionDefault.resolve(1220, 2712, false));
+    }
+
+    @Test
     public void theResultIsAlwaysParsableAsAResolutionString() {
         // PreferenceConfiguration splits on 'x' and parses both halves; a default it cannot
         // parse would crash at startup rather than degrade.

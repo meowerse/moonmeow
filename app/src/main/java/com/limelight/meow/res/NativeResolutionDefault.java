@@ -28,6 +28,18 @@ public final class NativeResolutionDefault {
     /** Tallest default we will pick on our own. */
     static final int MAX_HEIGHT = 2160;
 
+    /**
+     * Width/height multiple every YUV420 decoder requires.
+     *
+     * <p>Deliberately 2, not 16. Some hardware reports a 16 alignment, but clamping to it
+     * unconditionally would turn 1920x1080 into 1920x1072 -- and 1080 is the most widely
+     * decoded height there is, already shipped as a preset. Whether a specific size is
+     * actually decodable is a decoder question, answered by
+     * {@code PreferenceConfiguration.isResolutionDecodable()} against real
+     * {@code VideoCapabilities}; this only guarantees the chroma-subsampling floor.
+     */
+    static final int ALIGNMENT = 2;
+
     private NativeResolutionDefault() {
     }
 
@@ -62,6 +74,20 @@ public final class NativeResolutionDefault {
             return FALLBACK;
         }
 
-        return width + "x" + height;
+        // An odd dimension cannot be expressed in YUV420 and configures to a black stream
+        // rather than throwing -- indistinguishable from the bug this change exists to fix.
+        // Rounding down costs at most one pixel per axis.
+        final int alignedWidth = align(width);
+        final int alignedHeight = align(height);
+        if (alignedWidth <= 0 || alignedHeight <= 0) {
+            return FALLBACK;
+        }
+
+        return alignedWidth + "x" + alignedHeight;
+    }
+
+    /** Round down to the nearest multiple of {@link #ALIGNMENT}. */
+    private static int align(int value) {
+        return value - (value % ALIGNMENT);
     }
 }

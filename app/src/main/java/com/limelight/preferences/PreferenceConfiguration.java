@@ -3,12 +3,15 @@ package com.limelight.preferences;
 import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
+import android.media.MediaCodecInfo;
+import android.media.MediaCodecList;
 import android.os.Build;
 import android.util.DisplayMetrics;
 import android.view.Display;
 import android.view.WindowManager;
 
 import com.limelight.meow.res.NativeResolutionDefault;
+import com.limelight.meow.viewport.ViewportPreference;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.profiles.ProfilesManager;
 
@@ -737,25 +740,120 @@ private static int getFramePacingValue(Context context) {
         }
     }
 
+    /** MEOW-TOUCH(defaults): schema version of the one-shot default migration below. */
+    static final String DEFAULTS_MIGRATION_PREF_STRING = "meow_defaults_migration";
+
+    /** MEOW-TOUCH(defaults): bump to re-run the migration after changing a default again. */
+    static final int DEFAULTS_MIGRATION_VERSION = 1;
+
     /**
-     * MEOW-TOUCH(native-res): write the panel-derived default into the store the first time
-     * we are asked, before anything can read it.
+     * MEOW-TOUCH(defaults): carry three changed defaults onto installs that already exist.
      *
-     * <p>This has to be a stored value rather than only a {@code getString} fallback:
-     * {@code PcView} calls {@code PreferenceManager.setDefaultValues()} at startup, which
-     * materialises every {@code android:defaultValue} from {@code preferences.xml}. If the
-     * resolution ListPreference still declared one, that fixed 16:9 string would be written
-     * first and this default would never be reached. The declaration is removed there for
-     * exactly this reason -- the two must not both claim to set it.
+     * <p>Changing an {@code android:defaultValue} alone reaches nobody. {@code PcView} calls
+     * {@code PreferenceManager.setDefaultValues(..., false)}, which short-circuits on the
+     * {@code _has_set_default_values} flag, so on any install that has launched once no XML
+     * default is ever materialised again -- and the old value is already persisted. Without
+     * this, the person who reported black bars would have had to clear app data to receive
+     * the fix, which is not a fix.
      *
-     * <p>Only ever fills an absent key, so an existing install and any explicit choice the
-     * user has made are left untouched.
+     * <p>Runs once, gated on {@link #DEFAULTS_MIGRATION_VERSION}, and is deliberately
+     * conservative about the resolution: it only re-seeds when the stored value is still
+     * *the exact string the old default wrote*. Anyone who picked a resolution themselves
+     * keeps it. The bitrate is only rewritten when it too still matches what the old
+     * resolution derived, so a hand-tuned bitrate survives.
+     *
+     * <p>The two booleans cannot be told apart this way -- a stored {@code false} is
+     * identical whether it was inherited or chosen -- so they are set once. That is the
+     * accepted cost of changing a boolean default; the switch still works and the migration
+     * will not run again.
+     *
+     * <p>Writes only to the canonical store. {@code getOverlayingSharedPreferences()} returns
+     * an {@code OverlaySharedPreferences} while a profile is active, and
+     * {@code EditProfileActivity} passes an in-memory map built from a profile's sparse
+     * option set; writing into either would silently bake these keys into that profile as
+     * overrides the user never set.
      */
-    private static void seedResolutionDefault(Context context, SharedPreferences prefs) {
-        if (prefs.contains(RESOLUTION_PREF_STRING) || prefs.contains(LEGACY_RES_FPS_PREF_STRING)) {
+    /**
+     * MEOW-TOUCH(defaults): can any decoder on this device actually handle this size?
+     *
+     * <p>The panel-derived default skips {@code StreamSettings}' decoder pruning and its
+     * native-resolution warning, so it has to answer this itself. {@code isSizeSupported}
+     * accounts for both the supported ranges and the reported alignment, which is why this
+     * asks the decoder instead of clamping to a guessed multiple.
+     *
+     * <p>Fails open: when nothing can be determined -- no AVC decoder enumerated, a throwing
+     * codec list, anything unexpected -- the answer is yes. A probe must never be the reason
+     * a user does not get the default.
+     */
+    private static boolean isResolutionDecodable(String resolution) {
+        try {
+            final int width = getWidthFromResolutionString(resolution);
+            final int height = getHeightFromResolutionString(resolution);
+            boolean sawAvcDecoder = false;
+
+            for (MediaCodecInfo info : new MediaCodecList(MediaCodecList.REGULAR_CODECS).getCodecInfos()) {
+                if (info.isEncoder()) {
+                    continue;
+                }
+                for (String type : info.getSupportedTypes()) {
+                    if (!"video/avc".equalsIgnoreCase(type)) {
+                        continue;
+                    }
+                    MediaCodecInfo.VideoCapabilities caps =
+                            info.getCapabilitiesForType(type).getVideoCapabilities();
+                    if (caps == null) {
+                        continue;
+                    }
+                    sawAvcDecoder = true;
+                    if (caps.isSizeSupported(width, height)) {
+                        return true;
+                    }
+                }
+            }
+            return !sawAvcDecoder;
+        } catch (Throwable t) {
+            return true;
+        }
+    }
+
+    private static void applyDefaultsMigration(Context context) {
+        if (context == null) {
             return;
         }
-        prefs.edit().putString(RESOLUTION_PREF_STRING, getDefaultResolution(context)).apply();
+        final SharedPreferences canonical =
+                androidx.preference.PreferenceManager.getDefaultSharedPreferences(context);
+        if (canonical.getInt(DEFAULTS_MIGRATION_PREF_STRING, 0) >= DEFAULTS_MIGRATION_VERSION) {
+            return;
+        }
+
+        final SharedPreferences.Editor editor = canonical.edit();
+
+        final String storedRes = canonical.getString(RESOLUTION_PREF_STRING, null);
+        if (storedRes == null || DEFAULT_RESOLUTION.equals(storedRes)) {
+            final String panelRes = getDefaultResolution(context);
+            if (!panelRes.equals(storedRes) && isResolutionDecodable(panelRes)) {
+                editor.putString(RESOLUTION_PREF_STRING, panelRes);
+
+                // Bitrate is derived from resolution, so a stale one sizes bandwidth for a
+                // resolution we are no longer streaming. Only touch it when it is still the
+                // value the old resolution derived -- 0/absent means "never set", which
+                // already derives on read.
+                final String fps = canonical.getString(FPS_PREF_STRING, DEFAULT_FPS);
+                final int storedBitrate = canonical.getInt(BITRATE_PREF_STRING, 0);
+                if (storedBitrate == getDefaultBitrate(DEFAULT_RESOLUTION, fps)) {
+                    editor.putInt(BITRATE_PREF_STRING, getDefaultBitrate(panelRes, fps));
+                }
+            }
+        }
+
+        if (!canonical.getBoolean(CHECKBOX_AUTO_ORIENTATION, false)) {
+            editor.putBoolean(CHECKBOX_AUTO_ORIENTATION, true);
+        }
+        if (!canonical.getBoolean(ViewportPreference.KEY, false)) {
+            editor.putBoolean(ViewportPreference.KEY, true);
+        }
+
+        editor.putInt(DEFAULTS_MIGRATION_PREF_STRING, DEFAULTS_MIGRATION_VERSION).apply();
     }
 
     public static PreferenceConfiguration readPreferences(Context context) {
@@ -767,8 +865,9 @@ private static int getFramePacingValue(Context context) {
             prefs = ProfilesManager.getInstance().getOverlayingSharedPreferences(context);
         }
 
-        // MEOW-TOUCH(native-res): before any read below can fall back to a 16:9 constant.
-        seedResolutionDefault(context, prefs);
+        // MEOW-TOUCH(defaults): before any read below, and always against the canonical
+        // store rather than the caller's, which may be a profile overlay.
+        applyDefaultsMigration(context);
 
         PreferenceConfiguration config = new PreferenceConfiguration();
 
@@ -839,7 +938,7 @@ private static int getFramePacingValue(Context context) {
         }
         else {
             // Use the new preference location
-            // MEOW-TOUCH(native-res): seedResolutionDefault() has normally filled this in
+            // MEOW-TOUCH(native-res): applyDefaultsMigration() has normally filled this in
             // already; the fallback stays panel-derived so the two cannot disagree.
             String resStr = prefs.getString(RESOLUTION_PREF_STRING, getDefaultResolution(context));
 
@@ -993,7 +1092,7 @@ private static int getFramePacingValue(Context context) {
         config.enableBackMenu = prefs.getBoolean(CHECKBOX_ENABLE_QUIT_DIALOG,true);
         config.enableFloatingButton = prefs.getBoolean(CHECKBOX_ENABLE_FLOATING_BUTTON,DEFAULT_ENABLE_FLOATING_BUTTON);
         config.showOverlayZoomToggleButton = prefs.getBoolean(CHECKBOX_SHOW_OVERLAY_ZOOM_TOGGLE_BUTTON, DEFAULT_SHOW_OVERLAY_TOGGLE_BUTTON);
-        // MEOW-DEFAULT(auto-orientation): follow the device's own rotation by default, so a
+        // MEOW-TOUCH(defaults): follow the device's own rotation by default, so a
         // phone held upright streams portrait instead of being pinned to landscape. Must stay
         // in step with the android:defaultValue of checkbox_auto_orientation in preferences.xml.
         config.autoOrientation = prefs.getBoolean(CHECKBOX_AUTO_ORIENTATION,true);

@@ -626,50 +626,94 @@ than that.
 
 ---
 
-## `MEOW-TOUCH(native-res)`
+## `MEOW-TOUCH(defaults)` and `MEOW-TOUCH(native-res)`
 
-**Feature:** a fresh install streams at the device's own panel geometry instead of a
-fixed 16:9 `1280x720`.
+**Feature:** three preference defaults changed — viewport-following on, auto-orientation on,
+and the stream resolution derived from the device's own panel instead of a fixed 16:9
+`1280x720`.
 
-**Why upstream had to be touched at all:** every entry in `res/values/arrays.xml` is
-16:9. A 16:9 stream surface on a phone that is not 16:9 cannot fill the screen — it is
-letterboxed against the display, and the resulting bars are *outside* the video surface,
-so zooming never reaches them. On a 20:9 phone that is a black bar down each side for
-the entire session. The decision itself is additive and pure
-(`com.limelight.meow.res.NativeResolutionDefault`, unit tested with no Android types);
-only the supply of the default had to move, and a preference default can only be changed
-where the preference is read.
+**Sites are named, not numbered.** An earlier revision of this entry gave line numbers; every
+one of them was wrong by the time it was committed, and they would have rotted on the first
+upstream merge regardless. A conflict resolver searches for the enclosing element.
 
-**The XML declaration had to go, not just change.** `PcView` calls
-`PreferenceManager.setDefaultValues()` at startup, which materialises every
-`android:defaultValue` into the store. Had the resolution `ListPreference` kept one, that
-fixed string would be written before `seedResolutionDefault()` ever ran, and the
-panel-derived default would be permanently unreachable. Exactly one of the two may own
-this key's default; the XML gives it up.
+**Why upstream had to be touched at all:** a preference default can only be changed where the
+preference is read. The decision content is additive and pure —
+`com.limelight.meow.res.NativeResolutionDefault`, no Android types, unit tested — so only the
+supply of the value lives in upstream files.
 
-### `app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java` — 5 sites
+**Why the resolution default changed:** every entry in `res/values/arrays.xml` is 16:9. A 16:9
+stream surface on a phone that is not 16:9 cannot fill the screen; it is letterboxed against
+the display, and those bars sit *outside* the video surface, so client zoom never reaches
+them. On a 20:9 phone that is a black bar down each side for the whole session.
 
-| Line | Site | Edit |
-| --- | --- | --- |
-| 3–10 | imports | `DisplayMetrics`, `WindowManager`, `NativeResolutionDefault` |
-| 707 | before `readPreferences` | `getDefaultResolution(Context)` — reads panel geometry and the TV feature flag, delegates the decision, never throws |
-| 745 | before `readPreferences` | `seedResolutionDefault(Context, SharedPreferences)` — fills the key only when absent, so existing installs and explicit choices are untouched |
-| 762 | top of `readPreferences(Context, SharedPreferences)` | one call to `seedResolutionDefault`, before any read below can reach a fallback |
-| 576, 784 | the two `getString(RESOLUTION_PREF_STRING, …)` fallbacks | now `getDefaultResolution(context)` so they cannot disagree with the seeded value |
+**Why a migration exists at all — the part that is easy to get wrong.** Changing an
+`android:defaultValue` reaches nobody who already has the app. `PcView` calls
+`PreferenceManager.setDefaultValues(..., false)`, which short-circuits on the
+`_has_set_default_values` flag, so on any install that has launched once no XML default is
+ever materialised again — and the old value is already persisted. Without the migration, the
+person who reported the black bars would have had to clear app data to receive the fix.
 
-### `app/src/main/java/com/limelight/preferences/StreamSettings.java` — 1 site
+### `app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java`
 
-| Line | Site | Edit |
-| --- | --- | --- |
-| 300 | `resetBitrateToDefault` | same fallback alignment — a 16:9 constant here would reset the bitrate for a resolution that is not being streamed |
+| Element | Edit |
+| --- | --- |
+| imports | `DisplayMetrics`, `WindowManager`, `MediaCodecInfo`, `MediaCodecList`, `NativeResolutionDefault`, `ViewportPreference` |
+| `getDefaultResolution(Context)` | new — supplies panel geometry and the TV flag to the pure decision. Never throws; a default that crashes is worse than a stale one |
+| `isResolutionDecodable(String)` | new — asks real `VideoCapabilities.isSizeSupported()`, because the panel-derived default bypasses `StreamSettings`' decoder pruning and its native-resolution warning. **Fails open**: undeterminable means yes |
+| `applyDefaultsMigration(Context)` | new — one-shot, version-gated on `DEFAULTS_MIGRATION_VERSION` |
+| `readPreferences(Context, SharedPreferences)` | one call to `applyDefaultsMigration`, before any read below |
+| `getDefaultBitrate(Context)` and the `resStr` read | fallbacks aligned to `getDefaultResolution(context)` so they cannot disagree with the migrated value |
+| `readPreferences`'s `autoOrientation` line | `false` → `true` |
 
-### `app/src/main/res/xml/preferences.xml` — 1 site
+**The migration writes only to the canonical store.** `getOverlayingSharedPreferences()`
+returns an `OverlaySharedPreferences` while a profile is active, and `EditProfileActivity`
+passes an in-memory map built from a profile's *sparse* option set. Writing into either would
+silently bake these keys into that profile as overrides the user never set — and
+`saveProfile()` would persist them, undetected, because `diff()` compares against a store
+holding the same value. `DefaultsMigrationTest.aCallerSuppliedStoreIsNeverWrittenTo` guards
+this.
 
-| Line | Site | Edit |
-| --- | --- | --- |
-| 12 | resolution `ListPreference` | `android:defaultValue` **removed**, with a comment saying which method owns it instead |
+**What the migration will and will not overwrite.** The resolution is only re-seeded when the
+stored string is still exactly what the old default wrote, and the bitrate only when it too
+still matches what that resolution derived — so a chosen resolution or a hand-tuned bitrate
+survives. The two booleans cannot be told apart this way: a stored `false` is identical
+whether inherited or chosen, so they are set once. That is the accepted cost of changing a
+boolean default, and the reason the migration is version-gated rather than run every launch.
 
-**Deliberately left alone:** `PreferenceConfiguration.DEFAULT_RESOLUTION` still exists and
-still reads `"1280x720"`. It is now unreferenced, but deleting an upstream constant is a
-rename by another name and buys nothing a user can see; `NativeResolutionDefault.FALLBACK`
-mirrors its value and is what the code actually consults.
+### `app/src/main/java/com/limelight/meow/viewport/ViewportPreference.java`
+
+`DEFAULT` `false` → `true`. The class comment argued the case for off; it is rewritten to
+state why two of its three reasons no longer hold and why the third was accepted, rather than
+being left contradicting the constant beneath it.
+
+### `app/src/main/res/xml/preferences.xml`
+
+| Element | Edit |
+| --- | --- |
+| `checkbox_auto_orientation` | `android:defaultValue` `false` → `true` |
+| `checkbox_enable_viewport_follow` | `android:defaultValue` `false` → `true`; must match `ViewportPreference.DEFAULT` |
+| `list_resolution` | **unchanged, deliberately.** Keeping `1280x720` means `ListPreference.getValue()` is never null for the profile editor, whose sparse store has no such key; the migration replaces the value afterwards, so ordering between the two does not matter. An earlier revision removed it and introduced exactly that null |
+
+### Not touched, on purpose
+
+`StreamSettings.java` — an earlier revision aligned a `getString` fallback there. Reverted:
+the migration guarantees the key exists before that code runs, so the edit bought nothing, and
+the file is CRLF. Rewriting it LF would have turned a 4-line change into 1061 and made the
+next upstream merge conflict on every line of it.
+
+`PreferenceConfiguration.DEFAULT_RESOLUTION` still reads `"1280x720"`. It is no longer a
+fallback but the migration compares against it to recognise the old inherited value, so it is
+load-bearing again rather than dead.
+
+### Known consequences, stated rather than discovered later
+
+- **Default bitrate rises** on fresh installs, because it derives from resolution — roughly
+  3.5x for a 2712x1220 panel versus 720p. Intended; the alternative is a large stream at a
+  bitrate sized for a small one.
+- **Cutout behaviour changes.** `Game.shouldIgnoreInsetsForResolution` returns true for native
+  resolutions, so fresh installs get `LAYOUT_IN_DISPLAY_CUTOUT_MODE_ALWAYS` — content under
+  the notch. Consistent with removing black bars.
+- **`LocalCursorScaler` is now constructed by default**, because it lives inside the same
+  `if` as the viewport binder in `Game`. Its own preference,
+  `checkbox_enlarge_cursor_at_low_zoom`, still defaults off, so nothing changes visually until
+  the user opts in — but the object is live where it previously was not.
