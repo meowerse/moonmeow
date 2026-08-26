@@ -29,6 +29,8 @@ import com.limelight.binding.video.MediaCodecDecoderRenderer;
 import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.meow.gesture.InlinePinchZoomController;
+import com.limelight.meow.cursor.LocalCursorScaler;
+import com.limelight.meow.ui.QuickBarView;
 import com.limelight.meow.viewport.StreamViewportBinder;
 import com.limelight.meow.viewport.ViewportPreference;
 import com.limelight.nvstream.NvConnection;
@@ -50,6 +52,7 @@ import com.limelight.utils.Dialog;
 import com.limelight.utils.ExternalDisplayControlActivity;
 import com.limelight.utils.MouseModeOption;
 import com.limelight.utils.PanZoomHandler;
+import com.limelight.meow.viewport.ViewportGeometry;
 import com.limelight.utils.PerformanceDataTracker;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
@@ -207,6 +210,11 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private int modifierFlags = 0;
     private boolean grabbedInput = true;
     private boolean cursorVisible = false;
+    // MEOW-TOUCH(viewport-follow): tracked absolute cursor in host pixels for the captured-mouse (relative) path.
+    // Updated from relative deltas and from absolute positions; used to drive edge-scroll when the
+    // system cursor approaches the crop border.
+    private int trackedCursorHostX = -1;
+    private int trackedCursorHostY = -1;
     private boolean isPanZoomMode = false;
     private boolean synthClickPending = false;
     private boolean pointerSwiping = false;
@@ -305,6 +313,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private boolean onExternelDisplay = false;
     private ImageButton floatingMenuButton;
     private ImageButton overlayToggleButton;
+    private QuickBarView quickBarView;
+    private LocalCursorScaler localCursorScaler;
     private float floatingButtonDX, floatingButtonDY;
     private boolean isButtonMoving = false;
     private static final float CLICK_ACTION_THRESHOLD = 5;
@@ -504,6 +514,13 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                     streamContainer.getSurfaceView(), streamContainer);
             viewportBinder.setEnabled(true);
             panZoomHandler.setZoomTransformObserver(viewportBinder);
+            // MEOW-CURSOR: enlarge local cursor at low zoom (overview)
+            try {
+                localCursorScaler = new LocalCursorScaler(streamContainer.getSurfaceView(), inputCaptureProvider);
+                panZoomHandler.addZoomTransformObserver(localCursorScaler);
+                inputCaptureProvider.setEnlargeAtLowZoomEnabled(prefConfig.enableEnlargeCursorAtLowZoom);
+                localCursorScaler.refresh();
+            } catch (Throwable e) { e.printStackTrace(); }
         }
 
         // Restore previous zoom & pan if enabled and saved
@@ -900,6 +917,26 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         overlayToggleButton = findViewById(R.id.overlayToggleZoomButton);
         setupOverlayToggleButton();
 
+        // MEOW-UX(quick-bar): translucent control bar outside streamContainer transform.
+        // Keeps Game.java small — all view logic lives in QuickBarView.
+        try {
+            ViewGroup rootContent = findViewById(android.R.id.content);
+            quickBarView = new QuickBarView(this, new QuickBarView.Listener() {
+                @Override public void onKeyboard() { toggleKeyboard(); }
+                @Override public void onToggleLocalCursor() { toggleLocalCursor(); }
+                @Override public void onCycleMouseMode() { cycleMouseMode(); }
+                @Override public void onTogglePerfOverlay() { toggleHUD(); }
+                @Override public void onOpenMenu() { showGameMenu(null); }
+            });
+            rootContent.addView(quickBarView);
+            // Replace floating button with bar — bar's Menu covers the same action
+            if (floatingMenuButton != null) {
+                floatingMenuButton.setVisibility(View.GONE);
+            }
+        } catch (Throwable e) {
+            e.printStackTrace();
+        }
+
         //fixed size + pacing without back-pressure on MTK
         try {
             View root = findViewById(android.R.id.content);
@@ -1211,6 +1248,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         if(keyBoardLayoutController != null){
             keyBoardLayoutController.refreshLayout();
+        }
+
+        if (quickBarView != null) {
+            quickBarView.onConfigurationChanged(newConfig);
         }
 
         // Hide on-screen overlays in PiP mode
@@ -1698,6 +1739,15 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         // registration holding this Activity. See docs/meow/TOUCHPOINTS.md
         if (viewportBinder != null) {
             viewportBinder.release();
+        }
+        if (localCursorScaler != null) {
+            try { panZoomHandler.removeZoomTransformObserver(localCursorScaler); } catch (Throwable ignored) {}
+            localCursorScaler = null;
+        }
+
+        if (quickBarView != null) {
+            quickBarView.destroy();
+            quickBarView = null;
         }
 
         // Destroy the capture provider
@@ -2782,9 +2832,63 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                             // NB: view may be null, but we can unconditionally use streamView because we don't need to adjust
                             // relative axis deltas for the position of the streamView within the parent's coordinate system.
                             conn.sendMouseMoveAsMousePosition(deltaX, deltaY, (short) streamContainer.getWidth(), (short) streamContainer.getHeight());
+                            // Track host cursor for viewport follow (absolute mode sends deltas as position)
+                            if (viewportBinder != null && panZoomHandler != null) {
+                                // Update tracked position from deltas scaled to host
+                                if (trackedCursorHostX < 0) {
+                                    trackedCursorHostX = streamContainer.getWidth() / 2;
+                                    trackedCursorHostY = streamContainer.getHeight() / 2;
+                                    // Convert view centre to host
+                                    float cx = streamContainer.getWidth() * streamContainer.getScaleX();
+                                    float cy = streamContainer.getHeight() * streamContainer.getScaleY();
+                                    // Use geometry helper if available, else approximate
+                                    int[] pt = ViewportGeometry.hostPointFromView(streamContainer.getWidth()/2f, streamContainer.getHeight()/2f,
+                                            streamContainer.getSurfaceView().getX(), streamContainer.getSurfaceView().getY(),
+                                            cx, cy, displayWidth, displayHeight);
+                                    trackedCursorHostX = pt[0];
+                                    trackedCursorHostY = pt[1];
+                                }
+                                trackedCursorHostX = Math.max(0, Math.min(trackedCursorHostX + deltaX, displayWidth));
+                                trackedCursorHostY = Math.max(0, Math.min(trackedCursorHostY + deltaY, displayHeight));
+                                // For edge-scroll we also need view position of cursor; synthesize from host
+                                // Use the tracked host point mapped back to view is complex, so instead use
+                                // visible rect to estimate view position near edge.
+                                // Simpler: call handleCursorViewPosition with view point derived from host
+                                ViewportGeometry.hostPointFromView(0,0,0,0,0,0,0,0); // keep class loaded
+                                if (viewportBinder != null) {
+                                    // Recompute view position from host for the binder helper:
+                                    // host -> view: viewX = childX + (hostX/hostW)*childW
+                                    float childX = streamContainer.getSurfaceView().getX();
+                                    float childY = streamContainer.getSurfaceView().getY();
+                                    float childW = streamContainer.getSurfaceView().getWidth() * streamContainer.getSurfaceView().getScaleX();
+                                    float childH = streamContainer.getSurfaceView().getHeight() * streamContainer.getSurfaceView().getScaleY();
+                                    float viewX = childX + (trackedCursorHostX / (float) displayWidth) * childW;
+                                    float viewY = childY + (trackedCursorHostY / (float) displayHeight) * childH;
+                                    viewX = Math.max(0, Math.min(viewX, streamContainer.getWidth()));
+                                    viewY = Math.max(0, Math.min(viewY, streamContainer.getHeight()));
+                                    viewportBinder.handleCursorViewPosition(viewX, viewY, panZoomHandler);
+                                }
+                            }
                         }
                         else {
                             conn.sendMouseMove(deltaX, deltaY);
+                            if (viewportBinder != null && panZoomHandler != null) {
+                                if (trackedCursorHostX < 0) {
+                                    trackedCursorHostX = displayWidth / 2;
+                                    trackedCursorHostY = displayHeight / 2;
+                                }
+                                trackedCursorHostX = Math.max(0, Math.min(trackedCursorHostX + deltaX, displayWidth));
+                                trackedCursorHostY = Math.max(0, Math.min(trackedCursorHostY + deltaY, displayHeight));
+                                float childX = streamContainer.getSurfaceView().getX();
+                                float childY = streamContainer.getSurfaceView().getY();
+                                float childW = streamContainer.getSurfaceView().getWidth() * streamContainer.getSurfaceView().getScaleX();
+                                float childH = streamContainer.getSurfaceView().getHeight() * streamContainer.getSurfaceView().getScaleY();
+                                float viewX = childX + (trackedCursorHostX / (float) displayWidth) * childW;
+                                float viewY = childY + (trackedCursorHostY / (float) displayHeight) * childH;
+                                viewX = Math.max(0, Math.min(viewX, streamContainer.getWidth()));
+                                viewY = Math.max(0, Math.min(viewY, streamContainer.getHeight()));
+                                viewportBinder.handleCursorViewPosition(viewX, viewY, panZoomHandler);
+                            }
                         }
                     }
                 }
@@ -3251,6 +3355,60 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 return false;
         }
 
+        // MEOW-TOUCH(viewport-follow): absolute-touch (finger) path. The touch contexts
+        // already received the normalized coordinates, but for viewport following we need the
+        // parent (streamContainer) pixels to map back into host space.
+        if (isTouchScreen && viewportBinder != null && panZoomHandler != null) {
+            // Use the action pointer's raw parent position. For multi-pointer moves this
+            // is called per-pointer above (historical + current), but a single call on the
+            // latest position is sufficient to keep the crop following the primary finger.
+            try {
+                float viewX;
+                float viewY;
+                if (eventAction == MotionEvent.ACTION_MOVE) {
+                    // Primary pointer for moves (actionIndex is always 0 for MOVE)
+                    viewX = event.getX(0);
+                    viewY = event.getY(0);
+                    // If the event is from backgroundTouchView, its coordinates are in that
+                    // view's system; convert to streamContainer coords by subtracting the
+                    // container's offset within its parent. getX() of streamContainer is the
+                    // SurfaceView offset, not the container offset, so use location diff.
+                    if (streamContainer != null) {
+                        int[] containerLoc = new int[2];
+                        int[] rootLoc = new int[2];
+                        // Approximate conversion via raw vs container location when needed
+                        // For the common case where the event is already from streamContainer,
+                        // this is identity (loc diff zero).
+                        // We use getLocationOnScreen if available, fallback to direct.
+                        try {
+                            streamContainer.getLocationOnScreen(containerLoc);
+                            // event.getRawX/Y available from API 12
+                            viewX = event.getRawX() - containerLoc[0];
+                            viewY = event.getRawY() - containerLoc[1];
+                        } catch (Exception ignored) {
+                        }
+                    }
+                    // Clamp to container bounds like updateMousePosition does
+                    viewX = Math.max(0, Math.min(viewX, streamContainer.getWidth()));
+                    viewY = Math.max(0, Math.min(viewY, streamContainer.getHeight()));
+                } else {
+                    viewX = event.getX(actualActionIndex);
+                    viewY = event.getY(actualActionIndex);
+                    try {
+                        int[] containerLoc = new int[2];
+                        streamContainer.getLocationOnScreen(containerLoc);
+                        viewX = event.getRawX() - containerLoc[0];
+                        viewY = event.getRawY() - containerLoc[1];
+                    } catch (Exception ignored) {
+                    }
+                    viewX = Math.max(0, Math.min(viewX, streamContainer.getWidth()));
+                    viewY = Math.max(0, Math.min(viewY, streamContainer.getHeight()));
+                }
+                viewportBinder.handleCursorViewPosition(viewX, viewY, panZoomHandler);
+            } catch (Exception ignored) {
+            }
+        }
+
         return true;
     }
 
@@ -3381,6 +3539,14 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         eventY = Math.min(Math.max(eventY, 0), streamContainer.getHeight());
 
         conn.sendMousePosition((short)eventX, (short)eventY, (short) streamContainer.getWidth(), (short) streamContainer.getHeight());
+
+        // MEOW-TOUCH(viewport-follow): edge-scroll and catch-up. Same planner handles both;
+        // call on every position update so the cursor stays pinned to the margin while content
+        // scrolls under it. Goes through StreamViewportBinder's HandlerThread via PanZoomHandler.
+        if (viewportBinder != null && panZoomHandler != null) {
+            // eventX/Y are already in streamContainer (parent) pixels after the clamping above
+            viewportBinder.handleCursorViewPosition(eventX, eventY, panZoomHandler);
+        }
     }
 
     @Override
@@ -3443,6 +3609,11 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                     if (viewportBinder != null) {
                         viewportBinder.onStreamStopped();
                     }
+
+                    // Must be before conn.stop() barrier too — mirrors viewportBinder docs
+                    runOnUiThread(() -> {
+                        if (quickBarView != null) quickBarView.onStreamStopped();
+                    });
 
                     conn.stop();
                     if (httpConn != null && quitOnStop) {
@@ -3667,6 +3838,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 // the full desktop before any zoom is reported against it.
                 if (viewportBinder != null) {
                     viewportBinder.onStreamStarted(displayWidth, displayHeight);
+                }
+
+                if (quickBarView != null) {
+                    quickBarView.onStreamStarted();
                 }
 
                 // Hide the mouse cursor now after a short delay.
@@ -4132,6 +4307,11 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     }
 
     //本地鼠标光标切换
+    // MEOW-UX(quick-bar): exposed for bar — keeps cursor toggle in one place
+    public void toggleLocalCursor(){
+        toggleMouseLocalCursor();
+    }
+
     private void toggleMouseLocalCursor(){
         if (!grabbedInput) {
             inputCaptureProvider.enableCapture();
@@ -4143,6 +4323,32 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         } else {
             inputCaptureProvider.hideCursor();
         }
+    }
+
+    /** Cycle through mouse modes 0..5 (filtered for external display). Used by QuickBar. */
+    public void cycleMouseMode(){
+        String[] modes = getResources().getStringArray(R.array.mouse_mode_names);
+        SharedPreferences prefs = ProfilesManager.getInstance().getOverlayingSharedPreferences(this);
+        int cur;
+        try { cur = Integer.parseInt(prefs.getString("mouse_mode_list", "0")); } catch (NumberFormatException e) { cur = 0; }
+        java.util.Set<String> allowed = null;
+        if (isOnExternalDisplay()) {
+            allowed = new java.util.HashSet<>(java.util.Arrays.asList(
+                    getString(R.string.mouse_mode_track_pad_natural),
+                    getString(R.string.mouse_mode_track_pad_gaming),
+                    getString(R.string.mouse_mode_disabled)));
+        }
+        int next = cur;
+        for (int step = 1; step <= modes.length; step++) {
+            int cand = (cur + step) % modes.length;
+            String label = modes[cand];
+            if (allowed == null || allowed.contains(label)) { next = cand; break; }
+        }
+        applyMouseMode(next);
+        if (prefConfig.rememberMouseMode) {
+            prefs.edit().putString("mouse_mode_list", String.valueOf(next)).apply();
+        }
+        Toast.makeText(this, modes[next], Toast.LENGTH_SHORT).show();
     }
 
     private void applyMouseMode(int mode) {

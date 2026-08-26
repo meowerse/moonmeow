@@ -444,6 +444,8 @@
     <string name="summary_touchscreen_mode">Select between MultiTouch/SingleTouch/Trackpad/Disabled mode.\nPen/Stylus are still usable when Disabled is selected.\nForced to Track Pad(Natural) mode when useing external display.</string>
     <string name="title_checkbox_mouse_local_cursor">Use local mouse cursor</string>
     <string name="summary_checkbox_mouse_local_cursor">Default external physical mouse cursor will be captured, this option can display Android system cursor</string>
+    <string name="title_checkbox_enlarge_cursor_at_low_zoom">Enlarge cursor when not zoomed</string>
+    <string name="summary_checkbox_enlarge_cursor_at_low_zoom">Show a slightly larger system cursor when the stream fills the screen (low zoom). Only applies when local cursor is enabled.</string>
     <string name="title_checkbox_multi_touch_gestures">Enable multi-touch gestures</string>
     <string name="summary_checkbox_multi_touch_gestures">Enable 3 finger tap for keyboard, 4 finger tap for full keyboard, 5 finger tap for quick menu when using multi-touch mode.</string>
     <string name="title_checkbox_onscreen_style_official">Official Virtual Gamepad Skin</string>
