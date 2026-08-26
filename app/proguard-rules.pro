@@ -1,7 +1,12 @@
 # Don't obfuscate code
 -dontobfuscate
 
-# Our code
+# Our code.
+# Since the root flavour was removed at minSdk 26 this package holds exactly one type:
+# EvdevListener, an interface of five key-event constants. It is NOT dead -- Game implements
+# it and KeyBoardController/KeyBoardLayoutController call through it for the on-screen
+# keyboard, so deleting it would break that path. The rule is kept rather than dropped
+# because the constants are read across the JNI/input boundary.
 -keep class com.limelight.binding.input.evdev.* {*;}
 
 # KeyMapper - keep all VK_* fields for reflection
