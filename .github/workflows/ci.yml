@@ -56,7 +56,9 @@ jobs:
           submodules: recursive
           filter: blob:none
 
-      # AGP 8.13 requires JDK 17. `cache: gradle` caches ~/.gradle/caches and
+      # AGP 9.3.2 and Gradle 9.7.1 both require JDK 17 (AGP's own bytecode is
+      # class-file major 61), so 17 remains correct after the toolchain bump.
+      # `cache: gradle` caches ~/.gradle/caches and
       # wrapper dists keyed on the build files, which is the single biggest
       # win available here -- a cold Gradle resolves the whole dependency
       # graph from the network.
@@ -67,7 +69,8 @@ jobs:
           java-version: '17'
           cache: gradle
 
-      # app/build.gradle pins `ndkVersion "27.0.12077973"`. The runner image
+      # app/build.gradle pins `ndkVersion "28.2.13676358"`; the step greps the
+      # value out rather than hard-coding it, so a bump needs no CI edit. The runner image
       # ships some NDK, but not necessarily that one, and a mismatch fails the
       # externalNativeBuild rather than silently using another version.
       - name: Install the pinned NDK
