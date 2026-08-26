@@ -4,8 +4,11 @@ import android.content.Context;
 import android.content.SharedPreferences;
 import android.content.pm.PackageManager;
 import android.os.Build;
+import android.util.DisplayMetrics;
 import android.view.Display;
+import android.view.WindowManager;
 
+import com.limelight.meow.res.NativeResolutionDefault;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.profiles.ProfilesManager;
 
@@ -573,7 +576,10 @@ public class PreferenceConfiguration {
     public static int getDefaultBitrate(Context context) {
         SharedPreferences prefs = ProfilesManager.getInstance().getOverlayingSharedPreferences(context);
         return getDefaultBitrate(
-                prefs.getString(RESOLUTION_PREF_STRING, DEFAULT_RESOLUTION),
+                // MEOW-TOUCH(native-res): bitrate is derived from the resolution, so this
+                // fallback must agree with the seeded default or a fresh install computes
+                // its bandwidth for a resolution it is not going to stream at.
+                prefs.getString(RESOLUTION_PREF_STRING, getDefaultResolution(context)),
                 prefs.getString(FPS_PREF_STRING, DEFAULT_FPS));
     }
 
@@ -704,6 +710,54 @@ private static int getFramePacingValue(Context context) {
                 Build.FINGERPRINT.contains("PPR1.180610.011/4079208_2235.1395");
     }
 
+    /**
+     * MEOW-TOUCH(native-res): the resolution a fresh install starts at, derived from the
+     * device's own panel instead of upstream's fixed 16:9 {@code 1280x720}. Every entry in
+     * {@code arrays.xml} is 16:9, so on a phone that is not 16:9 the stream surface cannot
+     * fill the screen and leaves black bars the user cannot zoom away. The decision itself
+     * is {@link NativeResolutionDefault}, which is pure and unit tested; this only supplies
+     * the panel geometry. Never throws: a default that crashes is worse than a stale one.
+     */
+    public static String getDefaultResolution(Context context) {
+        if (context == null) {
+            return NativeResolutionDefault.FALLBACK;
+        }
+        try {
+            WindowManager wm = (WindowManager) context.getSystemService(Context.WINDOW_SERVICE);
+            if (wm == null || wm.getDefaultDisplay() == null) {
+                return NativeResolutionDefault.FALLBACK;
+            }
+            DisplayMetrics metrics = new DisplayMetrics();
+            wm.getDefaultDisplay().getRealMetrics(metrics);
+            boolean isTelevision = context.getPackageManager()
+                    .hasSystemFeature(PackageManager.FEATURE_TELEVISION);
+            return NativeResolutionDefault.resolve(metrics.widthPixels, metrics.heightPixels, isTelevision);
+        } catch (RuntimeException e) {
+            return NativeResolutionDefault.FALLBACK;
+        }
+    }
+
+    /**
+     * MEOW-TOUCH(native-res): write the panel-derived default into the store the first time
+     * we are asked, before anything can read it.
+     *
+     * <p>This has to be a stored value rather than only a {@code getString} fallback:
+     * {@code PcView} calls {@code PreferenceManager.setDefaultValues()} at startup, which
+     * materialises every {@code android:defaultValue} from {@code preferences.xml}. If the
+     * resolution ListPreference still declared one, that fixed 16:9 string would be written
+     * first and this default would never be reached. The declaration is removed there for
+     * exactly this reason -- the two must not both claim to set it.
+     *
+     * <p>Only ever fills an absent key, so an existing install and any explicit choice the
+     * user has made are left untouched.
+     */
+    private static void seedResolutionDefault(Context context, SharedPreferences prefs) {
+        if (prefs.contains(RESOLUTION_PREF_STRING) || prefs.contains(LEGACY_RES_FPS_PREF_STRING)) {
+            return;
+        }
+        prefs.edit().putString(RESOLUTION_PREF_STRING, getDefaultResolution(context)).apply();
+    }
+
     public static PreferenceConfiguration readPreferences(Context context) {
         return readPreferences(context, null);
     }
@@ -712,6 +766,10 @@ private static int getFramePacingValue(Context context) {
         if (prefs == null) {
             prefs = ProfilesManager.getInstance().getOverlayingSharedPreferences(context);
         }
+
+        // MEOW-TOUCH(native-res): before any read below can fall back to a 16:9 constant.
+        seedResolutionDefault(context, prefs);
+
         PreferenceConfiguration config = new PreferenceConfiguration();
 
         // Migrate legacy preferences to the new locations
@@ -781,7 +839,9 @@ private static int getFramePacingValue(Context context) {
         }
         else {
             // Use the new preference location
-            String resStr = prefs.getString(RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
+            // MEOW-TOUCH(native-res): seedResolutionDefault() has normally filled this in
+            // already; the fallback stays panel-derived so the two cannot disagree.
+            String resStr = prefs.getString(RESOLUTION_PREF_STRING, getDefaultResolution(context));
 
             // Convert legacy resolution strings to the new style
             if (!resStr.contains("x")) {

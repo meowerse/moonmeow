@@ -9,8 +9,11 @@
         android:title="@string/category_video_settings"
         app:initialExpandedChildrenCount="3"
         app:iconSpaceReserved="false">
+        <!-- MEOW-TOUCH(native-res): no android:defaultValue here on purpose. PcView calls
+             PreferenceManager.setDefaultValues() at startup, which would materialise a fixed
+             16:9 string before PreferenceConfiguration.seedResolutionDefault() ever runs, and
+             the panel-derived default would never apply. That method owns this key's default. -->
         <ListPreference
-            android:defaultValue="1280x720"
             android:entries="@array/resolution_names"
             android:entryValues="@array/resolution_values"
             android:key="list_resolution"

@@ -623,3 +623,53 @@ rename every Gradle task and every APK output path — `.github/workflows/ci.yml
 `apkFilterRegEx: "nonRoot"` matches the flavour-derived filename, so **every existing user's
 update check would silently stop matching**. A cosmetically odd dimension name is much cheaper
 than that.
+
+---
+
+## `MEOW-TOUCH(native-res)`
+
+**Feature:** a fresh install streams at the device's own panel geometry instead of a
+fixed 16:9 `1280x720`.
+
+**Why upstream had to be touched at all:** every entry in `res/values/arrays.xml` is
+16:9. A 16:9 stream surface on a phone that is not 16:9 cannot fill the screen — it is
+letterboxed against the display, and the resulting bars are *outside* the video surface,
+so zooming never reaches them. On a 20:9 phone that is a black bar down each side for
+the entire session. The decision itself is additive and pure
+(`com.limelight.meow.res.NativeResolutionDefault`, unit tested with no Android types);
+only the supply of the default had to move, and a preference default can only be changed
+where the preference is read.
+
+**The XML declaration had to go, not just change.** `PcView` calls
+`PreferenceManager.setDefaultValues()` at startup, which materialises every
+`android:defaultValue` into the store. Had the resolution `ListPreference` kept one, that
+fixed string would be written before `seedResolutionDefault()` ever ran, and the
+panel-derived default would be permanently unreachable. Exactly one of the two may own
+this key's default; the XML gives it up.
+
+### `app/src/main/java/com/limelight/preferences/PreferenceConfiguration.java` — 5 sites
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 3–10 | imports | `DisplayMetrics`, `WindowManager`, `NativeResolutionDefault` |
+| 707 | before `readPreferences` | `getDefaultResolution(Context)` — reads panel geometry and the TV feature flag, delegates the decision, never throws |
+| 745 | before `readPreferences` | `seedResolutionDefault(Context, SharedPreferences)` — fills the key only when absent, so existing installs and explicit choices are untouched |
+| 762 | top of `readPreferences(Context, SharedPreferences)` | one call to `seedResolutionDefault`, before any read below can reach a fallback |
+| 576, 784 | the two `getString(RESOLUTION_PREF_STRING, …)` fallbacks | now `getDefaultResolution(context)` so they cannot disagree with the seeded value |
+
+### `app/src/main/java/com/limelight/preferences/StreamSettings.java` — 1 site
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 300 | `resetBitrateToDefault` | same fallback alignment — a 16:9 constant here would reset the bitrate for a resolution that is not being streamed |
+
+### `app/src/main/res/xml/preferences.xml` — 1 site
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 12 | resolution `ListPreference` | `android:defaultValue` **removed**, with a comment saying which method owns it instead |
+
+**Deliberately left alone:** `PreferenceConfiguration.DEFAULT_RESOLUTION` still exists and
+still reads `"1280x720"`. It is now unreferenced, but deleting an upstream constant is a
+rename by another name and buys nothing a user can see; `NativeResolutionDefault.FALLBACK`
+mirrors its value and is what the code actually consults.

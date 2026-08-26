@@ -299,7 +299,10 @@ public class StreamSettings extends AppCompatActivity {
 
         private void resetBitrateToDefault(SharedPreferences prefs, String res, String fps) {
             if (res == null) {
-                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, PreferenceConfiguration.DEFAULT_RESOLUTION);
+                // MEOW-TOUCH(native-res): panel-derived, matching the seeded default. A 16:9
+                // constant here would reset the bitrate for a resolution we do not stream at.
+                res = prefs.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING,
+                        PreferenceConfiguration.getDefaultResolution(getContext()));
             }
             if (fps == null) {
                 fps = prefs.getString(PreferenceConfiguration.FPS_PREF_STRING, PreferenceConfiguration.DEFAULT_FPS);
