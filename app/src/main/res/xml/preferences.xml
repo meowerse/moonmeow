@@ -9,6 +9,11 @@
         android:title="@string/category_video_settings"
         app:initialExpandedChildrenCount="3"
         app:iconSpaceReserved="false">
+        <!-- MEOW-TOUCH(defaults): this stays 16:9 on purpose. It is what a brand-new store
+             gets from setDefaultValues(), and keeping it means ListPreference.getValue() is
+             never null for the profile editor, whose sparse in-memory store has no such key.
+             PreferenceConfiguration.applyDefaultsMigration() then replaces it with the
+             panel-derived resolution, so ordering between the two no longer matters. -->
         <ListPreference
             android:defaultValue="1280x720"
             android:entries="@array/resolution_names"
@@ -84,8 +89,10 @@
             android:title="@string/title_checkbox_use_virtual_display"
             app:iconSpaceReserved="false" />
 
+        <!-- MEOW-TOUCH(defaults): was false. Existing installs get it via
+             PreferenceConfiguration.applyDefaultsMigration(). -->
         <CheckBoxPreference
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:key="checkbox_auto_orientation"
             android:summary="@string/summary_auto_orientation"
             android:title="@string/title_auto_orientation"
@@ -633,8 +640,10 @@
             android:summary="@string/summary_checkbox_remember_zoom_pan"
             android:title="@string/title_checkbox_remember_zoom_pan"
             app:iconSpaceReserved="false" />
+        <!-- MEOW-TOUCH(defaults): was false. Must match ViewportPreference.DEFAULT;
+             existing installs get it via applyDefaultsMigration(). -->
         <CheckBoxPreference
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:key="checkbox_enable_viewport_follow"
             android:summary="@string/summary_checkbox_enable_viewport_follow"
             android:title="@string/title_checkbox_enable_viewport_follow"

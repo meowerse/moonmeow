@@ -18,30 +18,38 @@ import com.limelight.profiles.ProfilesManager;
  * rather than the running one. {@link ViewportReporter#setEnabled} exists and works, but
  * nothing currently calls it mid-session.
  *
- * <h2>Why the default is off</h2>
- * Three reasons, in order of weight:
+ * <h2>Why the default is on, and what that cost</h2>
+ * It was off for three reasons. Two no longer hold; the third was accepted deliberately.
  * <ol>
- *   <li><b>Upgrade safety.</b> An install that works today must keep behaving identically
- *       until the user asks for something different. This feature changes what the host
- *       encodes, which is the least reversible thing a client preference can do.</li>
- *   <li><b>Almost no host implements it.</b> Only sunmeow does, and only with
- *       {@code meow_viewport_following} turned on. Stock Sunshine does not — and it does
- *       not <em>refuse</em> either: the library puts the packet on the wire happily and
- *       stock Sunshine ignores it. That is why {@link ViewportReporter} probes for the
- *       host's echo and latches the feature off when none arrives, rather than trusting a
- *       return code. A default-on preference would, today, mean two wasted control packets
- *       at the start of nearly every stream.</li>
- *   <li><b>Cropping is a visible, opinionated change.</b> When a host does honour it, the
- *       user gets detail in the region they zoomed into and nothing outside it. That is
- *       exactly what was asked for on a metered link, and exactly wrong for someone who
- *       zooms in to read one thing while watching another. It is a choice, so it is a
- *       setting.</li>
+ *   <li><b>Upgrade safety — now handled, not ignored.</b> The original objection was that an
+ *       install which works today must keep behaving identically. That is still right, which
+ *       is why flipping this constant is not the whole change:
+ *       {@code PreferenceConfiguration.applyDefaultsMigration()} turns it on exactly once,
+ *       version-gated, and the switch keeps working afterwards. A stored {@code false} is
+ *       indistinguishable from an inherited one, so a user who had deliberately turned it
+ *       off is flipped once and must turn it off again. That is the accepted cost of
+ *       changing a boolean default, and it is the reason the migration is version-gated
+ *       rather than run on every launch.</li>
+ *   <li><b>No longer true that almost no host implements it.</b> sunmeow does, and it is the
+ *       host this fork exists to talk to. The probe described above is what makes default-on
+ *       safe anyway: {@link ViewportReporter} latches the feature off for the session when no
+ *       echo arrives, so a stock-Sunshine user pays two control packets at stream start and
+ *       nothing else.</li>
+ *   <li><b>Cropping is still opinionated — this is still a setting.</b> The user gets detail
+ *       in the region they zoomed into and nothing outside it, which is wrong for someone who
+ *       zooms in to read one thing while watching another. Defaulting it on says the common
+ *       case is worth more than the uncommon one; it does not say the preference should go
+ *       away, and it has not.</li>
  * </ol>
  */
 public final class ViewportPreference {
 
     public static final String KEY = "checkbox_enable_viewport_follow";
-    public static final boolean DEFAULT = false;
+    // MEOW-TOUCH(defaults): on by default -- see the class comment for why, and
+    // PreferenceConfiguration.applyDefaultsMigration() for how existing installs get it.
+    // Must stay in step with the android:defaultValue of checkbox_enable_viewport_follow
+    // in res/xml/preferences.xml.
+    public static final boolean DEFAULT = true;
 
     private ViewportPreference() {
     }
