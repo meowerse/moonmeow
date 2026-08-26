@@ -50,3 +50,4 @@ AGENTS.md
 keystore.properties
 *.jks
 local.properties
+.claude/worktrees/
