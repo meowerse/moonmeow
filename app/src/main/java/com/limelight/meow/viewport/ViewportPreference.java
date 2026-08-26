@@ -41,7 +41,11 @@ import com.limelight.profiles.ProfilesManager;
 public final class ViewportPreference {
 
     public static final String KEY = "checkbox_enable_viewport_follow";
-    public static final boolean DEFAULT = false;
+    // MEOW-DEFAULT(viewport): on by default. The reporter probes the host at the start of
+    // every stream and disables itself for the session when the host does not answer, so a
+    // host without the feature is unaffected. Must stay in step with the
+    // android:defaultValue of checkbox_enable_viewport_follow in res/xml/preferences.xml.
+    public static final boolean DEFAULT = true;
 
     private ViewportPreference() {
     }

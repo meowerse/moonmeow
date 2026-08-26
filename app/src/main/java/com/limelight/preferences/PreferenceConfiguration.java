@@ -933,7 +933,10 @@ private static int getFramePacingValue(Context context) {
         config.enableBackMenu = prefs.getBoolean(CHECKBOX_ENABLE_QUIT_DIALOG,true);
         config.enableFloatingButton = prefs.getBoolean(CHECKBOX_ENABLE_FLOATING_BUTTON,DEFAULT_ENABLE_FLOATING_BUTTON);
         config.showOverlayZoomToggleButton = prefs.getBoolean(CHECKBOX_SHOW_OVERLAY_ZOOM_TOGGLE_BUTTON, DEFAULT_SHOW_OVERLAY_TOGGLE_BUTTON);
-        config.autoOrientation = prefs.getBoolean(CHECKBOX_AUTO_ORIENTATION,false);
+        // MEOW-DEFAULT(auto-orientation): follow the device's own rotation by default, so a
+        // phone held upright streams portrait instead of being pinned to landscape. Must stay
+        // in step with the android:defaultValue of checkbox_auto_orientation in preferences.xml.
+        config.autoOrientation = prefs.getBoolean(CHECKBOX_AUTO_ORIENTATION,true);
         config.autoInvertVideoResolution = prefs.getBoolean(AUTO_INVERT_VIDEO_RESOLUTION_PREF_STRING, DEFAULT_AUTO_INVERT_VIDEO_RESOLUTION);
         config.resolutionScaleFactor = prefs.getInt(RESOLUTION_SCALE_FACTOR_PREF_STRING, DEFAULT_RESOLUTION_SCALE_FACTOR);
 

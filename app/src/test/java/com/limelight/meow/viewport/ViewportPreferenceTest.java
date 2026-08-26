@@ -1,5 +1,6 @@
 package com.limelight.meow.viewport;
 
+import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 
@@ -35,9 +36,18 @@ public class ViewportPreferenceTest {
     }
 
     @Test
-    public void aFreshInstallHasTheFeatureOff() {
-        // Upgrade safety: nothing about an existing working setup may change without the
-        // user asking for it, and this preference changes what the host encodes.
+    public void aFreshInstallHasTheFeatureOn() {
+        // The feature is on out of the box. It is safe to default on because the reporter
+        // probes the host at the start of every stream and disables itself for the session
+        // when the host does not answer, so a host without support is unaffected.
+        assertTrue(ViewportPreference.isEnabled(context));
+    }
+
+    @Test
+    public void turningItOffIsRead() {
+        // The off switch must still work -- a default is not a lock.
+        PreferenceManager.getDefaultSharedPreferences(context)
+                .edit().putBoolean(ViewportPreference.KEY, false).commit();
         assertFalse(ViewportPreference.isEnabled(context));
     }
 
@@ -50,7 +60,7 @@ public class ViewportPreferenceTest {
 
     @Test
     public void aNullContextFallsBackToTheDefaultRatherThanThrowing() {
-        assertFalse(ViewportPreference.isEnabled(null));
+        assertEquals(ViewportPreference.DEFAULT, ViewportPreference.isEnabled(null));
     }
 
     @Test

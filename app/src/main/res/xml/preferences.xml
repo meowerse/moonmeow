@@ -85,7 +85,7 @@
             app:iconSpaceReserved="false" />
 
         <CheckBoxPreference
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:key="checkbox_auto_orientation"
             android:summary="@string/summary_auto_orientation"
             android:title="@string/title_auto_orientation"
@@ -634,7 +634,7 @@
             android:title="@string/title_checkbox_remember_zoom_pan"
             app:iconSpaceReserved="false" />
         <CheckBoxPreference
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:key="checkbox_enable_viewport_follow"
             android:summary="@string/summary_checkbox_enable_viewport_follow"
             android:title="@string/title_checkbox_enable_viewport_follow"
