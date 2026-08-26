@@ -54,7 +54,7 @@
     <string name="pair_pc_ingame">Computer is currently in a game. You must close the game before pairing.</string>
     <string name="pair_pairing_title">Pairing</string>
     <string name="pair_pairing_msg">Please enter the following PIN on the target PC:</string>
-    <string name="pair_pairing_help">If your host PC is running Sunshine, navigate to the Sunshine web UI to enter the PIN.</string>
+    <string name="pair_pairing_help">If your host PC is running Sunmeow, navigate to the Sunmeow web UI to enter the PIN.</string>
     <string name="pair_otp_pairing_msg">Pairing, please wait…</string>
     <string name="pair_otp_pairing_help">OTP pairing is only available with Apollo, enter the PIN you just provided on the web UI manually if you\'re using other host software.</string>
     <string name="pair_incorrect_pin">Incorrect PIN or Passphrase</string>
@@ -689,8 +689,8 @@
     <!-- AppView Toast Messages -->
     <string name="file_export_cancelled">File export cancelled.</string>
     <string name="app_removed_from_pc">App removed from PC</string>
-    <string name="title_export_sunshine_launcher_file">Export Launcher File for Sunshine</string>
-    <string name="message_export_sunshine_launcher_file">Exporting launcher file for Sunshine is unstable, and may break at any moment. You\'ll need to export again every time if you changed the app name or image.\nUse Apollo for a more stable experience.</string>
+    <string name="title_export_sunshine_launcher_file">Export Launcher File for Sunmeow</string>
+    <string name="message_export_sunshine_launcher_file">Exporting launcher file for Sunmeow is unstable, and may break at any moment. You\'ll need to export again every time if you changed the app name or image.\nUse Apollo for a more stable experience.</string>
 
     <string name="title_enable_commit_text">Enable commit-text input (swipe/voice)</string>
     <string name="summary_enable_commit_text">Forward multi-character text from soft keyboards (gesture typing, predictions, voice dictation). May break games that rely on key-by-key input.</string>
