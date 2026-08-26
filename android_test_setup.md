@@ -4,14 +4,21 @@ Quick-start guide: writing JVM/Robolectric unit tests for this repo
 0.  Where tests live  
     • Path: `app/src/test/java/com/limelight/...` (plain JVM tests, *not* instrumented).  
     • There is no `app/src/androidTest` — this repo has zero instrumented tests.  
-    • Build task (all four exist; verify with `./gradlew :app:tasks --all`):  
-      – Default flavour: `./gradlew :app:testNonRoot_gameDebugUnitTest`  ← the gate task  
-      – Release variant: `./gradlew :app:testNonRoot_gameReleaseUnitTest`  
-      – Root flavour:    `./gradlew :app:testRootDebugUnitTest`  
+    • Build task (verify with `./gradlew :app:tasks --all`):  
+      – The gate task:   `./gradlew :app:testNonRoot_gameReleaseUnitTest`  
       – Every variant:   `./gradlew :app:test`  
+      There is no longer a root flavour: it was removed with minSdk 26, so
+      `:app:testRootReleaseUnitTest` no longer exists. `testNonRoot_gameReleaseUnitTest`
+      is now the only unit-test task in the project — verified against
+      `./gradlew :app:tasks --all`.  
       There is **no** `:app:testDebugUnitTest` task — the product flavours mean every
       unit-test task name carries a flavour.  
-    • HTML report: `app/build/reports/tests/testNonRoot_gameDebugUnitTest/index.html`
+      There are also **no `*DebugUnitTest` tasks at all** any more. AGP 9 generates
+      unit-test tasks only for `testBuildType`, and `app/build.gradle` pins that to
+      `release` so the gate keeps testing the variant that actually ships (CLAUDE.md
+      §6). `./gradlew :app:testNonRoot_gameDebugUnitTest` now fails with "task not
+      found" — that is the expected state, not a broken checkout.  
+    • HTML report: `app/build/reports/tests/testNonRoot_gameReleaseUnitTest/index.html`
 
 1.  Dependencies & Gradle switches  
     `app/build.gradle` already contains everything you need:  
