@@ -64,6 +64,56 @@ public final class ViewportGeometry {
     }
 
     /**
+     * Maps a point in the parent (streamContainer) coordinates into host (stream-frame) pixels.
+     * Used by cursor-follow: the cursor arrives in parent pixels, the planner needs host pixels.
+     * Pure arithmetic, no Android types.
+     *
+     * @param viewX      cursor X in parent pixels (0 .. parentWidth)
+     * @param viewY      cursor Y in parent pixels
+     * @param childX     streamView.getX() in parent pixels
+     * @param childY     streamView.getY()
+     * @param childWidth streamView.getWidth() * getScaleX() (scaled width in parent pixels)
+     * @param childHeight scaled height
+     * @param hostWidth  stream width in host pixels
+     * @param hostHeight stream height
+     * @return int[2] {hostX, hostY} clamped into 0..hostSize
+     */
+    public static int[] hostPointFromView(float viewX, float viewY,
+                                          float childX, float childY,
+                                          float childWidth, float childHeight,
+                                          int hostWidth, int hostHeight) {
+        int safeHostWidth = Math.max(1, hostWidth);
+        int safeHostHeight = Math.max(1, hostHeight);
+        if (!(childWidth > 0f) || !(childHeight > 0f)) {
+            return new int[] { safeHostWidth / 2, safeHostHeight / 2 };
+        }
+        float fx = (viewX - childX) / childWidth;
+        float fy = (viewY - childY) / childHeight;
+        int hx = Math.round(fx * safeHostWidth);
+        int hy = Math.round(fy * safeHostHeight);
+        hx = Math.max(0, Math.min(hx, safeHostWidth));
+        hy = Math.max(0, Math.min(hy, safeHostHeight));
+        return new int[] { hx, hy };
+    }
+
+    /**
+     * How many parent pixels the streamView must move to shift the visible crop by
+     * {@code hostDelta} host pixels along one axis. Sign is already inverted: a positive
+     * hostDelta (crop moves right/down) needs a negative view move.
+     *
+     * @param hostDelta host pixels to move the crop (from {@link com.limelight.meow.cursor.CursorFollowPlan})
+     * @param childSize scaled child size on that axis (width or height in parent pixels)
+     * @param hostSize  host size on that axis
+     * @return view pixels to pass to {@code PanZoomHandler.panBy} (negative when hostDelta is positive)
+     */
+    public static float viewDeltaForHostDelta(int hostDelta, float childSize, int hostSize) {
+        if (hostDelta == 0 || !(childSize > 0f) || hostSize <= 0) {
+            return 0f;
+        }
+        return - (hostDelta * childSize / (float) hostSize);
+    }
+
+    /**
      * One axis of the intersection, as {@code {start, end}} in host pixels with
      * {@code end > start}, or null when the frame and the window do not overlap on this axis.
      */

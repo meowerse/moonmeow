@@ -8,6 +8,9 @@ import android.os.Looper;
 import android.view.View;
 
 import com.limelight.LimeLog;
+import com.limelight.meow.cursor.CursorFollowPlan;
+import com.limelight.meow.cursor.CursorFollowPlanner;
+import com.limelight.utils.PanZoomHandler;
 
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
@@ -77,6 +80,8 @@ public final class StreamViewportBinder
     /** Negotiated stream size, written on the UI thread before any rectangle is computed. */
     private volatile int streamWidth = 1;
     private volatile int streamHeight = 1;
+
+    private final CursorFollowPlanner cursorPlanner = new CursorFollowPlanner();
 
     public StreamViewportBinder(View streamView, View parent) {
         this(streamView, parent, null, null);
@@ -282,16 +287,34 @@ public final class StreamViewportBinder
      * is off-screen. Treating the parent box as visible there would report a viewport wider
      * than anything on screen, which is the opposite of what this feature is for.
      *
-     * <p>The platform call is separated from the arithmetic so the arithmetic can be tested:
-     * Robolectric has no real window, so {@code getGlobalVisibleRect} there reports the whole
-     * view and a test driven through it would pass without ever exercising the clipping.
+     * <p>Uses {@code getLocationInWindow} + decor size rather than {@code getGlobalVisibleRect}:
+     * the latter is unreliable under Robolectric (always reports whole view) and can leave
+     * 1-pixel slivers after zoom due to rounding when the decor viewport clips the parent.
+     * The decor viewport is the window (0,0) .. (decorWidth,decorHeight) in window coords;
+     * intersecting it with the parent's window rect gives the visible window in parent coords.
+     * Works in both landscape and portrait: when parent height > width (portrait phone) the
+     * same intersection allows a tall narrow crop.
+     *
+     * <p>The platform calls are separated from the arithmetic so the arithmetic can be tested.
      */
     private float[] windowInParentCoords(int parentWidth, int parentHeight) {
-        scratchVisible.setEmpty();
-        scratchOffset.set(0, 0);
-        boolean answered = parent.getGlobalVisibleRect(scratchVisible, scratchOffset);
-        return windowFromGlobalVisibleRect(answered, scratchVisible, scratchOffset,
-                parentWidth, parentHeight, scratchWindow);
+        int[] loc = new int[2];
+        parent.getLocationInWindow(loc);
+        View decor = parent.getRootView();
+        int decorWidth = decor != null ? decor.getWidth() : 0;
+        int decorHeight = decor != null ? decor.getHeight() : 0;
+        if (decorWidth <= 0 || decorHeight <= 0) {
+            // Decor not laid out yet (early onCreate or Robolectric fallback): fall back to
+            // globalVisibleRect path which at least yields full parent, matching previous
+            // fail-open behaviour.
+            scratchVisible.setEmpty();
+            scratchOffset.set(0, 0);
+            boolean answered = parent.getGlobalVisibleRect(scratchVisible, scratchOffset);
+            return windowFromGlobalVisibleRect(answered, scratchVisible, scratchOffset,
+                    parentWidth, parentHeight, scratchWindow);
+        }
+        return windowFromLocationInWindow(loc[0], loc[1], parentWidth, parentHeight,
+                decorWidth, decorHeight, scratchWindow);
     }
 
     /**
@@ -304,6 +327,48 @@ public final class StreamViewportBinder
      *
      * @param out a four-element buffer, filled with {left, top, right, bottom}
      */
+    static float[] windowFromLocationInWindow(int locX, int locY,
+                                                int parentWidth, int parentHeight,
+                                                int decorWidth, int decorHeight,
+                                                float[] out) {
+        out[0] = 0f;
+        out[1] = 0f;
+        out[2] = parentWidth;
+        out[3] = parentHeight;
+        if (decorWidth <= 0 || decorHeight <= 0 || parentWidth <= 0 || parentHeight <= 0) {
+            return out;
+        }
+        // Decor viewport in window coords is (0,0)-(decorWidth,decorHeight).
+        // Parent rect in window coords is (locX,locY)-(locX+parentWidth, locY+parentHeight).
+        // Intersection gives visible parent rect in window coords; convert to parent coords by subtracting loc.
+        float winLeft = Math.max((float) locX, 0f);
+        float winTop = Math.max((float) locY, 0f);
+        float winRight = Math.min((float) locX + parentWidth, (float) decorWidth);
+        float winBottom = Math.min((float) locY + parentHeight, (float) decorHeight);
+        if (!(winRight > winLeft) || !(winBottom > winTop)) {
+            return out;
+        }
+        float left = winLeft - locX;
+        float top = winTop - locY;
+        float right = winRight - locX;
+        float bottom = winBottom - locY;
+        if (!(right > left) || !(bottom > top)) {
+            return out;
+        }
+        float clampedLeft = Math.max(0f, left);
+        float clampedTop = Math.max(0f, top);
+        float clampedRight = Math.min(parentWidth, right);
+        float clampedBottom = Math.min(parentHeight, bottom);
+        if (!(clampedRight > clampedLeft) || !(clampedBottom > clampedTop)) {
+            return out;
+        }
+        out[0] = clampedLeft;
+        out[1] = clampedTop;
+        out[2] = clampedRight;
+        out[3] = clampedBottom;
+        return out;
+    }
+
     static float[] windowFromGlobalVisibleRect(boolean answered, Rect globalVisible,
                                                Point globalOffset,
                                                int parentWidth, int parentHeight,
@@ -337,5 +402,67 @@ public final class StreamViewportBinder
         out[2] = clampedRight;
         out[3] = clampedBottom;
         return out;
+    }
+
+    /**
+     * Cursor-follow entry point. Called on the UI thread from {@code Game.updateMousePosition}
+     * and from the absolute-touch path. If the cursor is within the edge margin or outside
+     * the visible crop, pans the crop so the cursor sits on the margin line.
+     *
+     * <p>Uses {@link CursorFollowPlanner} (12% edge margin, pure Java) and
+     * {@link ViewportGeometry#hostPointFromView} / {@link ViewportGeometry#viewDeltaForHostDelta}
+     * for the coordinate math. The actual pan goes through {@link PanZoomHandler#panBy},
+     * which calls {@code constrainToBounds} and notifies this binder via the existing
+     * {@link com.limelight.meow.viewport.ZoomTransformObserver} path on the HandlerThread.
+     *
+     * @param viewX      cursor X in parent (streamContainer) pixels
+     * @param viewY      cursor Y in parent pixels
+     * @param panHandler the handler that owns the transform
+     * @return true if a pan was performed
+     */
+    public boolean handleCursorViewPosition(float viewX, float viewY, PanZoomHandler panHandler) {
+        if (!live || panHandler == null) {
+            return false;
+        }
+        ViewportRect visible = computeVisibleHostRect();
+        if (visible == null) {
+            return false;
+        }
+        float childX = streamView.getX();
+        float childY = streamView.getY();
+        float childW = streamView.getWidth() * streamView.getScaleX();
+        float childH = streamView.getHeight() * streamView.getScaleY();
+        if (!(childW > 0f) || !(childH > 0f)) {
+            return false;
+        }
+        int[] hostPt = ViewportGeometry.hostPointFromView(viewX, viewY, childX, childY, childW, childH,
+                streamWidth, streamHeight);
+        int cursorX = hostPt[0];
+        int cursorY = hostPt[1];
+
+        // Bounds for the planner: the desktop content box if known, else the full stream.
+        int boundsX = 0;
+        int boundsY = 0;
+        int boundsW = streamWidth;
+        int boundsH = streamHeight;
+        ViewportReferenceFrame frame = reporter.referenceFrame();
+        if (frame != null) {
+            boundsX = frame.contentX;
+            boundsY = frame.contentY;
+            boundsW = frame.contentWidth;
+            boundsH = frame.contentHeight;
+        }
+
+        CursorFollowPlan plan = cursorPlanner.plan(visible, cursorX, cursorY, boundsX, boundsY, boundsW, boundsH);
+        if (!plan.isMove()) {
+            return false;
+        }
+        float dxView = ViewportGeometry.viewDeltaForHostDelta(plan.dx, childW, streamWidth);
+        float dyView = ViewportGeometry.viewDeltaForHostDelta(plan.dy, childH, streamHeight);
+        if (dxView == 0f && dyView == 0f) {
+            return false;
+        }
+        panHandler.panBy(dxView, dyView);
+        return true;
     }
 }

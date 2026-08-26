@@ -325,6 +325,9 @@ public class PreferenceConfiguration {
     //物理光标捕获
     public boolean enableMouseLocalCursor;
 
+    // MEOW-CURSOR: enlarge local cursor at low zoom (overview). Default off.
+    public boolean enableEnlargeCursorAtLowZoom;
+
     public boolean enableMultiTouchGestures;
 
     //禁用内置的特殊指令
@@ -970,6 +973,8 @@ private static int getFramePacingValue(Context context) {
         config.enableTouchSensitivity=prefs.getBoolean("checkbox_enable_touch_sensitivity",false);
 
         config.enableMouseLocalCursor=prefs.getBoolean("checkbox_mouse_local_cursor",false);
+
+        config.enableEnlargeCursorAtLowZoom=prefs.getBoolean("checkbox_enlarge_cursor_at_low_zoom",false);
 
         config.enableMultiTouchGestures = prefs.getBoolean("checkbox_multi_touch_gestures", false);
 

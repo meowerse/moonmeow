@@ -54,4 +54,16 @@ public abstract class InputCaptureProvider {
     }
 
     public void onWindowFocusChanged(boolean focusActive) {}
+
+    /**
+     * MEOW-CURSOR: called when zoom scale changes. Default no-op; overridden by
+     * AndroidPointerIconCaptureProvider to swap between normal and enlarged
+     * system pointer. Only affects local cursor overlay, never host-drawn frame.
+     */
+    public void onZoomScaleChanged(float scale) {}
+
+    /**
+     * MEOW-CURSOR: enable/disable the low-zoom enlargement. Default no-op.
+     */
+    public void setEnlargeAtLowZoomEnabled(boolean enabled) {}
 }

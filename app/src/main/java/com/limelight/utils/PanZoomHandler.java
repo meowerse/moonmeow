@@ -28,8 +28,11 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
     private float childX, childY = 0;
     private float parentWidth, parentHeight = 0;
     private float childWidth, childHeight = 0;
-    // MEOW-TOUCH(viewport-follow): one observer seam so the visible host rectangle can be
-    // reported without duplicating the transform. Null unless the feature is wired up.
+    // MEOW-TOUCH(viewport-follow): observers so viewport reporting and cursor scaling
+    // share the same transform without duplicating it. Single-slot originally; now a list
+    // because a second feature (cursor enlargement at low zoom) needs it too.
+    private final java.util.List<ZoomTransformObserver> zoomTransformObservers = new java.util.ArrayList<>();
+    @Deprecated
     private ZoomTransformObserver zoomTransformObserver;
 
     public PanZoomHandler(Context context, Game game, View streamView, View parent, PreferenceConfiguration prefConfig) {
@@ -49,20 +52,49 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
     /**
      * MEOW-TOUCH(viewport-follow): install the single zoom-transform observer.
      *
-     * <p><b>Single ownership.</b> There is exactly one slot, and calling this again silently
-     * displaces whatever was there. That is deliberate rather than an oversight — the one
-     * caller is {@code Game.onCreate}, once per activity — but it means this must not become
-     * a general-purpose listener registry by accident. If a second feature ever needs the
-     * transform, make this a list <em>then</em>; do not add a second call and assume both
-     * survive. Pass null to detach.
+     * <p>Now delegates to the observer list; kept for backward compat and tests that
+     * reflect on this method name. Calling this clears the list and installs exactly
+     * this one observer (pass null to clear).
      */
     public void setZoomTransformObserver(ZoomTransformObserver observer) {
         this.zoomTransformObserver = observer;
+        zoomTransformObservers.clear();
+        if (observer != null) {
+            zoomTransformObservers.add(observer);
+        }
+    }
+
+    /** Add an additional observer without clearing existing ones. */
+    public void addZoomTransformObserver(ZoomTransformObserver observer) {
+        if (observer != null && !zoomTransformObservers.contains(observer)) {
+            zoomTransformObservers.add(observer);
+        }
+        // Keep deprecated single field in sync with first observer for reflection checks
+        if (zoomTransformObservers.isEmpty()) {
+            this.zoomTransformObserver = null;
+        } else {
+            this.zoomTransformObserver = zoomTransformObservers.get(0);
+        }
+    }
+
+    public void removeZoomTransformObserver(ZoomTransformObserver observer) {
+        zoomTransformObservers.remove(observer);
+        if (zoomTransformObservers.isEmpty()) {
+            this.zoomTransformObserver = null;
+        } else {
+            this.zoomTransformObserver = zoomTransformObservers.get(0);
+        }
     }
 
     private void notifyZoomTransformChanged() {
-        if (zoomTransformObserver != null) {
-            zoomTransformObserver.onZoomTransformChanged();
+        // Iterate over snapshot to allow observer adding/removing during callback
+        java.util.List<ZoomTransformObserver> snapshot = new java.util.ArrayList<>(zoomTransformObservers);
+        // Fallback: if list empty but deprecated field set (set via reflection in tests)
+        if (snapshot.isEmpty() && zoomTransformObserver != null) {
+            snapshot.add(zoomTransformObserver);
+        }
+        for (ZoomTransformObserver o : snapshot) {
+            if (o != null) o.onZoomTransformChanged();
         }
     }
 
