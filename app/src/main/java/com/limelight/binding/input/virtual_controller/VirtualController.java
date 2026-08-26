@@ -5,7 +5,6 @@
 package com.limelight.binding.input.virtual_controller;
 
 import android.content.Context;
-import android.os.Build;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.VibrationEffect;
@@ -77,11 +76,7 @@ public class VirtualController {
         this.handler = new Handler(Looper.getMainLooper());
 
         this.vibrator = (Vibrator) context.getSystemService(Context.VIBRATOR_SERVICE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            defaultVibrationEffect = VibrationEffect.createOneShot(10, VibrationEffect.DEFAULT_AMPLITUDE);
-        } else {
-            defaultVibrationEffect = null;
-        }
+        defaultVibrationEffect = VibrationEffect.createOneShot(10, VibrationEffect.DEFAULT_AMPLITUDE);
 
         buttonConfigure = new Button(context);
         buttonConfigure.setAlpha(0.25f);
@@ -247,20 +242,13 @@ public class VirtualController {
 
         sendControllerInputContextInternal();
         if (frame_layout != null && PreferenceConfiguration.readPreferences(context).enableKeyboardVibrate) {
-            if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.O) {
-                VibrationEffect effect;
-                if (vibrationDuration == 0) {
-                    effect = defaultVibrationEffect;
-                } else {
-                    effect = VibrationEffect.createOneShot(vibrationDuration, vibrationAmplitude);
-                }
-                vibrator.vibrate(effect);
+            VibrationEffect effect;
+            if (vibrationDuration == 0) {
+                effect = defaultVibrationEffect;
             } else {
-                if (vibrationDuration == 0) {
-                    vibrationDuration = 10;
-                }
-                vibrator.vibrate(vibrationDuration);
+                effect = VibrationEffect.createOneShot(vibrationDuration, vibrationAmplitude);
             }
+            vibrator.vibrate(effect);
         }
         // HACK: GFE sometimes discards gamepad packets when they are received
         // very shortly after another. This can be critical if an axis zeroing packet

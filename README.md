@@ -97,8 +97,8 @@ There are no prebuilt releases. Moonmeow is built from source — see below.
 
 Requirements:
 
-* Android SDK (`compileSdk 36`, `minSdk 21`)
-* Android NDK **27.0.12077973** — the version is pinned in `app/build.gradle`;
+* Android SDK (`compileSdk 36`, `minSdk 26` — Android 8.0 Oreo)
+* Android NDK **28.2.13676358** — the version is pinned in `app/build.gradle`;
   install it through the SDK Manager so Gradle can find it under `$ANDROID_HOME/ndk/`
 * JDK 17 or newer
 
@@ -130,13 +130,18 @@ a signing key first; see [Signing](#signing) below.
 Unit tests:
 
 ```bash
-./gradlew testNonRoot_gameDebugUnitTest
+./gradlew testNonRoot_gameReleaseUnitTest
 ```
 
+AGP 9 generates unit-test tasks only for `testBuildType`, which `app/build.gradle`
+pins to `release` so the gate tests the variant that actually ships. There is no
+`*DebugUnitTest` task.
+
 The debug build installs as `meow.alxnko.moonmeow.debug`, so it sits side by side
-with a release install rather than replacing it. There is also a `root` flavour,
-which exists only for pre-Android-8 devices that need root for mouse capture
-(`maxSdk 25`); you almost certainly do not want it.
+with a release install rather than replacing it. The `root` flavour — which existed
+only for pre-Android-8 devices needing root for mouse capture — was removed when
+minSdk rose to 26; Android's own native pointer capture supersedes it on every
+device that can now install this app.
 
 ### Signing
 

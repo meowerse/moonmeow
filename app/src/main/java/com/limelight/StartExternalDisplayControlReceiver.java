@@ -11,7 +11,6 @@ import android.os.Handler;
 import android.os.Looper;
 import android.view.Display;
 
-import androidx.annotation.RequiresApi;
 
 import com.limelight.utils.ExternalDisplayControlActivity;
 
@@ -20,7 +19,6 @@ public class StartExternalDisplayControlReceiver extends BroadcastReceiver {
     private static Handler handler = new Handler(Looper.getMainLooper());
     private static boolean isTimeoutActive = false;
 
-    @RequiresApi(api = Build.VERSION_CODES.O)
     @Override
     public void onReceive(Context context, Intent intent) {
         requestFocusToGameActivity(true);

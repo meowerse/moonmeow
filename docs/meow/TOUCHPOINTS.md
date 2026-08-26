@@ -549,3 +549,77 @@ Findings 1, 5 and 6 could not be fixed in the Java layer alone, so
 - The `Limelight.h` and `ControlStream.c` comments that described the wire as host desktop
   pixels, and the `-3` return as "any non-Apollo host", were corrected. Both were wrong in
   ways that produced wrong code.
+
+---
+
+## `minsdk-26` legacy removal — deliberately untokenised
+
+**This section registers a change that cannot carry inline markers, because its edits are
+deletions.** You cannot put a `MEOW-TOUCH` comment on a block that is gone. §3's
+`app/proguard-rules.pro` precedent applies: register the site here, leave the `git grep`
+audit exact.
+
+Raising `minSdk` 23 → 26 (Android 8.0) made a large class of code unreachable. **24 upstream
+Java files were edited in place and 13 files deleted.** Across the whole branch that is 46
+files, ~1,082 insertions and ~2,666 deletions — figures that will drift, so re-derive rather
+than trust them:
+
+```bash
+git diff --stat $(git merge-base HEAD origin/moonlight-noir)..HEAD
+```
+
+That is the most expensive thing §2 contemplates, so it is written down.
+
+### What changed, by class of edit
+
+| Class | Files | What it is |
+| --- | --- | --- |
+| Dead-guard collapse | 24 upstream Java files | `Build.VERSION.SDK_INT` guards whose predicate is now constant. ~85 sites. |
+| Root flavour removal | `app/src/root/**`, `evdev_reader/**`, `NullCaptureProvider`, `ShieldCaptureProvider`, `EvdevCaptureProviderShim` | The flavour carried `maxSdk 25`, so Play already refused to serve it to any device that can install this app. |
+| Resource qualifier merge | `values-v14`, `values-v21`, `values-v24` deleted | `v14`/`v21` were byte-identical to `values/`. **`v24` was NOT dropped — its `windowBackground = @android:color/black` was merged into `values/styles.xml`**, which is what every API-24+ device was already resolving to. `values-v29/` is deliberately retained: API 26–28 devices exist and must keep the MaterialComponents base. |
+| Re-indentation | ~918 lines | Body dedent after unwrapping `if` blocks. Unavoidable given the collapse, but it is why the raw diff is larger than the semantic one. |
+
+### The standing policy for future syncs — this is the part that matters
+
+`ClassicOldSong/moonlight-android` is merged monthly (§4) and is active. When upstream next
+edits *inside* a block this change removed, git has no surviving context to three-way-merge
+against: it produces a conflict with the whole hunk deleted on our side, and the resolver has
+to re-derive intent. So the intent is recorded here instead:
+
+> **An upstream change that re-adds or edits a `SDK_INT < 26` guard gets re-collapsed, not
+> re-instated.** Take upstream's change to the *surviving* branch and discard the branch that
+> cannot execute at `minSdk 26`. Do not restore the guard "to be safe" — that silently
+> reintroduces dead code and makes the next sync worse.
+>
+> The same applies to the root flavour: upstream edits to `EvdevCaptureProvider`,
+> `EvdevReader`, `EvdevTranslator`, `EvdevEvent`, `ShieldCaptureProvider` or
+> `NullCaptureProvider` are **dropped**, not resurrected.
+
+### One thing that looks like leftover cruft and is load-bearing
+
+`com.limelight.binding.input.evdev.EvdevListener` **survives the removal on purpose.** It is
+not evdev residue: `Game` implements it, and `KeyBoardController` / `KeyBoardLayoutController`
+call through it for the on-screen keyboard. Deleting it "because evdev is gone" breaks that
+path. Its `-keep` rule in `app/proguard-rules.pro` is retained for the same reason.
+
+### Guards that survived because they are still live
+
+Not everything sub-`O` was collapsible. These remain and must not be swept up in a later pass:
+`O_MR1` (API 27) at `KeyBoardLayoutController.java` and `KeyBoardController.java`, and
+`SDK_INT <= O` at `ControllerHandler.java`. All three genuinely branch at minSdk 26.
+
+Also worth stating because it would be silent: `Game.java`'s `SDK_INT >= N` block that sets
+`android.content.extra.IS_SENSITIVE` when `hideClipboardContent` is on **survived intact**.
+Had it been dropped along with its guard, host clipboard content would start appearing in
+system clipboard previews — a §8 security regression that no test would catch.
+
+### The flavour dimension is intentionally left in place
+
+`flavorDimensions.add("root")` now has a single member, `nonRoot_game`. Collapsing it would
+rename every Gradle task and every APK output path — `.github/workflows/ci.yml` hard-codes
+`lintVitalNonRoot_gameRelease`, `testNonRoot_gameReleaseUnitTest` and
+`assembleNonRoot_gameDebug`; `CLAUDE.md` documents
+`app/build/outputs/apk/nonRoot_game/release/`; and the Obtainium update URL's
+`apkFilterRegEx: "nonRoot"` matches the flavour-derived filename, so **every existing user's
+update check would silently stop matching**. A cosmetically odd dimension name is much cheaper
+than that.

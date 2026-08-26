@@ -5,9 +5,12 @@ Quick-start guide: writing JVM/Robolectric unit tests for this repo
     • Path: `app/src/test/java/com/limelight/...` (plain JVM tests, *not* instrumented).  
     • There is no `app/src/androidTest` — this repo has zero instrumented tests.  
     • Build task (verify with `./gradlew :app:tasks --all`):  
-      – Default flavour: `./gradlew :app:testNonRoot_gameReleaseUnitTest`  ← the gate task  
-      – Root flavour:    `./gradlew :app:testRootReleaseUnitTest`  
+      – The gate task:   `./gradlew :app:testNonRoot_gameReleaseUnitTest`  
       – Every variant:   `./gradlew :app:test`  
+      There is no longer a root flavour: it was removed with minSdk 26, so
+      `:app:testRootReleaseUnitTest` no longer exists. `testNonRoot_gameReleaseUnitTest`
+      is now the only unit-test task in the project — verified against
+      `./gradlew :app:tasks --all`.  
       There is **no** `:app:testDebugUnitTest` task — the product flavours mean every
       unit-test task name carries a flavour.  
       There are also **no `*DebugUnitTest` tasks at all** any more. AGP 9 generates

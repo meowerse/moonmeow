@@ -97,7 +97,8 @@ public class DiskAssetLoader {
                 options.inPreferredConfig = Bitmap.Config.RGB_565;
                 options.inDither = true;
             }
-            else if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
+            else {
+                // Always true in this branch: SDK_INT is >= 26 and < P here.
                 options.inPreferredConfig = Bitmap.Config.HARDWARE;
             }
 

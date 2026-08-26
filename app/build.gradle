@@ -25,7 +25,7 @@ android {
     namespace 'com.limelight'
 
     defaultConfig {
-        minSdk 23
+        minSdk 26
         targetSdk 34
 
         versionName "20.2.6"
@@ -46,46 +46,24 @@ android {
     buildFeatures {
         buildConfig = true
         // AGP 9 turns resValues off by default. This project defines app_label,
-        // app_label_root, app_label_game and obtainium_app_url via resValue in both
-        // buildTypes and productFlavors, so it has to be switched back on explicitly.
+        // app_label_game and obtainium_app_url via resValue in both buildTypes and
+        // productFlavors, so it has to be switched back on explicitly.
+        // (app_label_root went away with the root flavour.)
         resValues = true
     }
 
     productFlavors {
-        root {
-            // Android O has native mouse capture, so don't show the rooted
-            // version to devices running O on the Play Store.
-            maxSdk 25
-
-            externalNativeBuild {
-                ndkBuild {
-                    arguments "PRODUCT_FLAVOR=root"
-                }
-            }
-
-            resValue "string",
-                    "obtainium_app_url",
-                    "data:text/html;base64,PGgxPlJvb3QgYnVpbGQgaXMgbm90IGF2YWlsYWJsZTwvaDE+"
-
-            applicationId "meow.alxnko.moonmeow.root"
-            dimension "root"
-            buildConfigField "boolean", "ROOT_BUILD", "true"
-        }
-
+        // Sole flavor. It is deliberately kept (rather than collapsed away) so the
+        // variant task names -- assembleNonRoot_gameRelease,
+        // testNonRoot_gameReleaseUnitTest -- the APK output path and the
+        // `apkFilterRegEx: "nonRoot"` in obtainium_app_url below all stay valid.
         nonRoot_game {
-            externalNativeBuild {
-                ndkBuild {
-                    arguments "PRODUCT_FLAVOR=nonRoot"
-                }
-            }
-
             resValue "string",
                     "obtainium_app_url",
                     "https://apps.obtainium.imranr.dev/redirect?r=obtainium://app/%7B%22id%22%3A%22meow.alxnko.moonmeow%22%2C%22url%22%3A%22https%3A%2F%2Fgithub.com%2Fmeowerse%2Fmoonmeow%22%2C%22author%22%3A%22meowerse%22%2C%22name%22%3A%22Moonmeow%22%2C%22additionalSettings%22%3A%22%7B%5C%22apkFilterRegEx%5C%22%3A%5C%22nonRoot%5C%22%2C%5C%22matchGroutToUse%5C%22%3A%5C%22%241%5C%22%2C%5C%22versionExtractionRegEx%5C%22%3A%5C%22v%28.%2B%29%5C%22%7D%22%7D"
 
             applicationId "meow.alxnko.moonmeow"
             dimension "root"
-            buildConfigField "boolean", "ROOT_BUILD", "false"
         }
     }
 
@@ -129,7 +107,6 @@ android {
         debug {
             applicationIdSuffix ".debug"
             resValue "string", "app_label", "Moonmeow Debug"
-            resValue "string", "app_label_root", "Moonmeow Debug (Root)"
             resValue "string", "app_label_game", "Moonmeow Debug (Game)"
 
             minifyEnabled true
@@ -168,7 +145,6 @@ android {
             // TL;DR: Leave the following line alone!
             signingConfig signingConfigs.moonmeow
             resValue "string", "app_label", "Moonmeow"
-            resValue "string", "app_label_root", "Moonmeow (Root)"
             resValue "string", "app_label_game", "Moonmeow (Game)"
 
             minifyEnabled true

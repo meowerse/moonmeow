@@ -390,9 +390,7 @@ public class ExternalDisplayControlActivity extends AppCompatActivity implements
                 ViewGroup.LayoutParams.MATCH_PARENT,
                 ViewGroup.LayoutParams.MATCH_PARENT));
         rootLayout.setFocusable(true);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            rootLayout.setFocusedByDefault(true);
-        }
+        rootLayout.setFocusedByDefault(true);
 
         rootLayout.setInputCallbacks(Game.instance);
         rootLayout.setCommitTextEnabled(prefConfig.enableCommitText);
@@ -525,11 +523,9 @@ public class ExternalDisplayControlActivity extends AppCompatActivity implements
 
     private void showStickyNotification() {
         NotificationManager notificationManager = (NotificationManager) getSystemService(Context.NOTIFICATION_SERVICE);
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.O) {
-            NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW);
-            channel.setShowBadge(false);
-            notificationManager.createNotificationChannel(channel);
-        }
+        NotificationChannel channel = new NotificationChannel(NOTIFICATION_CHANNEL_ID, getString(R.string.notification_channel_name), NotificationManager.IMPORTANCE_LOW);
+        channel.setShowBadge(false);
+        notificationManager.createNotificationChannel(channel);
 
         Intent broadcastIntent = new Intent(this, StartExternalDisplayControlReceiver.class);
         PendingIntent pendingIntent = PendingIntent.getBroadcast(this, 0, broadcastIntent, PendingIntent.FLAG_UPDATE_CURRENT | PendingIntent.FLAG_IMMUTABLE);

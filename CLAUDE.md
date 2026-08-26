@@ -27,7 +27,7 @@ Note `master` and `next` in that repo are **stale** (2024) and 573 commits behin
 ### Branding: applicationId only, never the namespace
 
 Shipped:
-- `applicationId` → `meow.alxnko.moonmeow` (`.root`, `.debug` variants)
+- `applicationId` → `meow.alxnko.moonmeow` (`.debug` variant)
 - App label → "Moonmeow", UI strings rebranded in the 6 locales that carried the
   Artemis name (en, fr, ru, vi, zh-rCN, zh-rTW). There are 33 `values-*` dirs and 29
   `strings.xml` files, but the rest never mentioned it — "all 33 locales" was wrong.
@@ -307,12 +307,12 @@ that actually apply are the ones listed per class: `ShadowMoonBridge` and
 its own commit and its own test run.
 
 ```bash
-./gradlew testNonRoot_gameDebugUnitTest      # the gate task
+./gradlew testNonRoot_gameReleaseUnitTest    # the gate task
 ./gradlew testNonRoot_gameReleaseUnitTest    # same suite, release variant
 ./gradlew :app:test                          # all four flavour/build-type combinations
 ```
 
-Report: `app/build/reports/tests/testNonRoot_gameDebugUnitTest/index.html`.
+Report: `app/build/reports/tests/testNonRoot_gameReleaseUnitTest/index.html`.
 Conventions for adding to the suite live in `android_test_setup.md`.
 
 **The real hole is instrumented tests: `app/src/androidTest` does not exist — zero.**
@@ -373,7 +373,7 @@ Ordered by what is actually uncovered, not by what sounds important:
 
 ```bash
 ./gradlew assembleNonRoot_gameRelease     # release build, lintVital runs here
-./gradlew testNonRoot_gameDebugUnitTest   # 51 tests, all must pass
+./gradlew testNonRoot_gameReleaseUnitTest # 219 tests, all must pass
 ```
 
 Then the runtime check in §5. Red gate → nothing gets pushed.
