@@ -891,6 +891,28 @@ upstream's try/catch wrapped around Artemis' null check, matching neither side v
 **On a future merge:** upstream's version is strictly weaker here — it loses both log
 lines. Prefer ours.
 
+### `MEOW-TOUCH(upstream-backport 3c6a0d12)` — `binding/input/ControllerHandler.java`
+
+Upstream's rumble fix dereferences the `VibratorManager` unconditionally on S+:
+
+```java
+this.deviceVibratorManager = (VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+this.deviceVibrator = this.deviceVibratorManager.getDefaultVibrator();
+```
+
+`ControllerHandler` is constructed on **every stream start**, so an OEM build that does
+not register `VIBRATOR_MANAGER_SERVICE` would take streaming down entirely with an NPE
+in a constructor. The deprecated `getSystemService(VIBRATOR_SERVICE)` call it replaces
+could not fail that way, so the port would have introduced a crash path that did not
+previously exist. This fork already ships a fix for exactly that class of device — see
+the `0711e236` entry above, where a Meta Quest returns a null `GameManager` — so the
+risk is not hypothetical here.
+
+Ours falls back to the legacy vibrator when the manager is absent, which is strictly
+safer and preserves upstream's behaviour everywhere the manager exists.
+
+**On a future merge:** keep the null check.
+
 ### Blocked, not skipped: the Android 16.1 back-ports
 
 `ddb674a9` (native keyboard capture) and `6d4c64a5` (disable surface producer

@@ -138,9 +138,18 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         this.conn = conn;
         this.gestures = gestures;
         this.prefConfig = prefConfig;
-        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
-            this.deviceVibratorManager = (VibratorManager) activityContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE);
-            this.deviceVibrator = this.deviceVibratorManager.getDefaultVibrator();
+        // MEOW-TOUCH(upstream-backport 3c6a0d12): upstream dereferences the VibratorManager
+        // unconditionally on S+. ControllerHandler is constructed on every stream start, so
+        // an OEM build that does not register VIBRATOR_MANAGER_SERVICE would take streaming
+        // down entirely -- a crash path the deprecated call it replaces did not have, and
+        // this fork already ships a fix for exactly that class of device (see 0711e236,
+        // Meta Quest returning a null GameManager). Fall back instead.
+        VibratorManager vibratorManager = Build.VERSION.SDK_INT >= Build.VERSION_CODES.S
+                ? (VibratorManager) activityContext.getSystemService(Context.VIBRATOR_MANAGER_SERVICE)
+                : null;
+        if (vibratorManager != null) {
+            this.deviceVibratorManager = vibratorManager;
+            this.deviceVibrator = vibratorManager.getDefaultVibrator();
         }
         else {
             this.deviceVibratorManager = null;
