@@ -78,6 +78,68 @@ public class RelativeCursorTrackerTest {
         assertEquals(500, t.hostX());
     }
 
+    // --- being told the truth ------------------------------------------------------------
+
+    @Test
+    public void aKnownPositionOverridesTheEstimateAndSeedsIt() {
+        RelativeCursorTracker t = new RelativeCursorTracker();
+        t.moveTo(300, 400, W, H);
+        assertTrue("a known position is also a seed", t.isSeeded());
+        assertEquals(300, t.hostX());
+        assertEquals(400, t.hostY());
+
+        // Unlike seed(), this always wins: the caller knows and the estimate does not.
+        t.moveTo(700, 800, W, H);
+        assertEquals(700, t.hostX());
+        assertEquals(800, t.hostY());
+    }
+
+    @Test
+    public void aKnownPositionIsClampedToTheFrame() {
+        RelativeCursorTracker t = new RelativeCursorTracker();
+        t.moveTo(-1, H + 500, W, H);
+        assertEquals(0, t.hostX());
+        assertEquals(H, t.hostY());
+    }
+
+    @Test
+    public void driftFromDeltasIsWipedOutByTheNextRealPosition() {
+        // This is the point of the method: the absolute paths set the library's virtual cursor,
+        // so an estimate that ignored them would disagree with it from the first touch onwards.
+        RelativeCursorTracker t = new RelativeCursorTracker();
+        t.seed(100, 100, W, H);
+        t.accumulate(600, 600, W, H);
+        t.moveTo(100, 100, W, H);
+        assertEquals(100, t.hostX());
+        assertEquals(100, t.hostY());
+    }
+
+    @Test
+    public void aReferenceFramePositionIsNormalisedIntoStreamPixels() {
+        // Half way across a 960px view is half way across a 1920px stream.
+        RelativeCursorTracker t = new RelativeCursorTracker();
+        t.moveToReferencePosition(480f, 270f, 960, 540, W, H);
+        assertEquals(960, t.hostX());
+        assertEquals(540, t.hostY());
+    }
+
+    @Test
+    public void aReferenceFramePositionAtTheEdgeLandsAtTheEdge() {
+        RelativeCursorTracker t = new RelativeCursorTracker();
+        t.moveToReferencePosition(960f, 540f, 960, 540, W, H);
+        assertEquals(W, t.hostX());
+        assertEquals(H, t.hostY());
+    }
+
+    @Test
+    public void aDegenerateReferenceFrameIsIgnoredRatherThanDividingByZero() {
+        RelativeCursorTracker t = new RelativeCursorTracker();
+        t.moveToReferencePosition(10f, 10f, 0, 540, W, H);
+        assertFalse("nothing may be recorded from an unusable reference", t.isSeeded());
+        t.moveToReferencePosition(10f, 10f, 960, 0, W, H);
+        assertFalse(t.isSeeded());
+    }
+
     // --- scaleDelta ---------------------------------------------------------------------
 
     @Test

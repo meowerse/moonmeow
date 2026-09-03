@@ -454,7 +454,7 @@ public final class StreamViewportBinder
      * {@code PanZoomHandler}; that calls {@code constrainToBounds} and notifies this binder
      * via the existing {@link ZoomTransformObserver} path.
      *
-     * <h2>Why this does not check {@link #isLive()}</h2>
+     * <h2>Why this does not check {@link ViewportReporter#isLive()}</h2>
      * It used to, and that is what made the feature look implemented but dead. Panning the
      * local view is entirely client side — it moves a {@code SurfaceView}, sends nothing, and
      * needs no cooperation from the host. {@code live} means "the host echoed our viewport

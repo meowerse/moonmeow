@@ -334,8 +334,8 @@ a setter and two calls.
 | 160 | field declaration | `private StreamViewportBinder viewportBinder;` |
 | 506 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **when the render mode is `MODE_2D`** and attaches it to `panZoomHandler`; the preference is passed to `setEnabled` rather than gating construction |
 | 1739 | `onDestroy()`, before the capture provider is destroyed | one guarded `viewportBinder.release()` |
-| 3597 | inside `stopConnection()`'s teardown worker, above `conn.stop()` | one guarded `viewportBinder.onStreamStopped()` |
-| 3831 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
+| 3598 | inside `stopConnection()`'s teardown worker, above `conn.stop()` | one guarded `viewportBinder.onStreamStopped()` |
+| 3832 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
 
 **Construction is no longer inside the preference guard, and that is a deliberate change.**
 It used to be, on the argument that an install which had not opted in should run bit-for-bit
@@ -593,7 +593,7 @@ both of them the wrong gate:
 `streamStarted` replaces `live` as the guard. It is the honest precondition: cursor-follow
 needs the negotiated stream size, and nothing else.
 
-### `app/src/main/java/com/limelight/Game.java` — 5 sites
+### `app/src/main/java/com/limelight/Game.java` — 6 sites
 
 | Line | Site | Edit |
 | --- | --- | --- |
@@ -602,7 +602,7 @@ needs the negotiated stream size, and nothing else.
 | 2847 | relative-mouse path, plain-relative branch | one call to `followDeadReckonedCursor` with the raw delta |
 | 3316 | absolute-touch (finger) path, after the touch contexts have had the event | one `viewportBinder.handleCursorViewPosition(...)` |
 | 3451 | private helper above `updateMousePosition` | `followDeadReckonedCursor`, ~25 lines |
-| 3537 | `updateMousePosition`, after `conn.sendMousePosition` | one `viewportBinder.handleCursorViewPosition(...)` |
+| 3541 | `updateMousePosition`, after `conn.sendMousePosition` | one `relativeCursor.moveToReferencePosition(...)` — the position just sent *is* the library's virtual cursor, so the estimate is told rather than left to drift — and one `viewportBinder.handleCursorViewPosition(...)` |
 
 The two relative-mouse sites were ~35 lines of near-duplicated inline arithmetic, including
 a `ViewportGeometry.hostPointFromView(0,0,0,0,0,0,0,0); // keep class loaded` no-op and a
@@ -644,10 +644,29 @@ lets the follow loop be tested without reaching for a `Game`.
 have, letting the cursor leave the screen is not a taste anyone holds. `setCursorFollowEnabled`
 exists on the binder for a future one; nothing reads a key today.
 
+That argument is strongest on the dead-reckoned path, where the cursor really can leave the
+screen. It is weaker on the absolute path, where the pointer is an Android pointer and is
+visible by construction — there the behaviour is edge-scroll, which the user did ask for in
+so many words ("make cursor to the top of viewing part and it will move viewing part to the
+top while cursor still stays on the top border") but which is a taste rather than a rescue.
+**The rate is the open question, not the existence.** The cursor's offset within the crop is
+invariant under a pan — both the cursor's host coordinate and `visible.x` shift by the same
+amount — so a pointer held inside the border zone yields the same non-zero `dx` on every
+event, up to a full margin (12% of the crop) each time. It is bounded, because
+`updateMousePosition` only fires when the pointer actually moves and the clamp stops the crop
+at the content boundary, but a jiggle at the edge slams rather than scrolls. Slowing it means
+changing the model `CursorFollowPlanner` documents, so it is recorded here rather than done.
+
 **The behaviour model is unchanged.** `CursorFollowPlanner` still pins the cursor to a margin
 line rather than recentring, for the reason its class comment gives: a recentre moves the crop
 further than the user asked and loses the region they were reading. This change makes the
 documented behaviour happen; it does not redefine it.
+
+**`LocalCursorScaler` came out from behind the viewport preference with it.** The `MEOW-CURSOR`
+block was nested inside the removed guard, so `enableEnlargeCursorAtLowZoom` silently did
+nothing for anyone who had viewport-following off. It has its own preference and the scaler is
+inert when that is unset, so this is the setting finally doing what it says — but it is a
+second feature changing population, and it is recorded rather than left to be discovered.
 
 **Absolute-pointer follow is edge-scroll by construction, not a bug.** On that path the cursor
 position is derived from the on-screen pointer *through* the transform, so panning moves the

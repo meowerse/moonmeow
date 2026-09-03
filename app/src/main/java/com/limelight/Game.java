@@ -517,7 +517,11 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             // gated on it -- see StreamViewportBinder.handleCursorViewPosition.
             viewportBinder.setEnabled(ViewportPreference.isEnabled(this));
             panZoomHandler.setZoomTransformObserver(viewportBinder);
-            // MEOW-CURSOR: enlarge local cursor at low zoom (overview)
+            // MEOW-CURSOR: enlarge local cursor at low zoom (overview). This used to sit behind
+            // the viewport preference by accident of nesting, which meant
+            // enableEnlargeCursorAtLowZoom did nothing for anyone who had viewport-following
+            // off. It is its own preference and LocalCursorScaler is inert when that is unset,
+            // so honouring it for every 2D stream is the behaviour the setting always promised.
             try {
                 localCursorScaler = new LocalCursorScaler(streamContainer.getSurfaceView(), inputCaptureProvider);
                 panZoomHandler.addZoomTransformObserver(localCursorScaler);
@@ -3539,6 +3543,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         // scrolls under it. The pan itself is synchronous on the UI thread -- it only moves a
         // View -- and the resulting transform change is what the reporter's thread hears about.
         if (viewportBinder != null && panZoomHandler != null) {
+            // The position just sent is now the library's virtual cursor, and the next relative
+            // delta will be added to it. Tell the estimate, or the two diverge from here on and
+            // only an edge run reconciles them.
+            relativeCursor.moveToReferencePosition(eventX, eventY,
+                    streamContainer.getWidth(), streamContainer.getHeight(),
+                    displayWidth, displayHeight);
             // eventX/Y are already in streamContainer (parent) pixels after the clamping above
             viewportBinder.handleCursorViewPosition(eventX, eventY, panZoomHandler);
         }
