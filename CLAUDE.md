@@ -17,12 +17,16 @@ no longer holds as written.** Upstream revived in 2026-08; Artemis went quiet. T
 fork is still correct, but on a different ground — read the new one, because the old
 one will mislead you.
 
-*Verified 2026-09-03. Re-measure before acting on it.*
+*Verified 2026-09-03 against `6c05251f`. Re-measure before acting on it.*
+
+Read the **behind** counts as the load-bearing ones: how far we are *ahead* of a
+base grows every time we commit, so it drifts by the time you read this. How far we
+are *behind* only moves when they commit.
 
 | | Last commit | vs our HEAD | Releases |
 | --- | --- | --- | --- |
-| `moonlight-stream/moonlight-android` (`master`) | 2026-09-02 (`98c12beb`, "Update to OkHttp 5.5") | **54 ahead** / 610 behind | frozen at v12.1, 2024-02-28 |
-| `ClassicOldSong/moonlight-android` (`moonlight-noir`) | 2025-10-18 (`3397ec77`) | 0 ahead / 59 behind — **we are fully current** | — |
+| `moonlight-stream/moonlight-android` (`master`) | 2026-09-02 (`98c12beb`, "Update to OkHttp 5.5") | **54 commits we lack**; ~610 they lack | frozen at v12.1, 2024-02-28 |
+| `ClassicOldSong/moonlight-android` (`moonlight-noir`) | 2025-10-18 (`3397ec77`) | **0 commits we lack** — fully current; ~59 they lack | — |
 
 **The code revived; the releases did not.** 30 of those 54 upstream commits landed in
 the last two months (25 in 2026-09, 5 in 2026-08); the remaining 24 tail back through
@@ -56,7 +60,8 @@ merge base of 2024-11-14, and they are not just translations:
 `XboxOneController.java`, `MediaCodecDecoderRenderer.java`, `VideoDecoderRenderer.java`,
 `MoonBridge.java`, `UiHelper.java`, `callbacks.c`, `Android.mk`, the
 `moonlight-common-c` submodule pin, both `build.gradle`s, `AndroidManifest.xml`, plus
-11 resource/`strings.xml` files.
+12 resource files (10 of them `values-*/strings.xml`, plus `values/arrays.xml` and
+`xml/locales_config.xml`).
 
 Decoder, input and JNI conflicting at once, resolved by hand, is precisely the trap §2
 exists to prevent. So the rule is: **take individual fixes, never the branch.**
@@ -67,8 +72,10 @@ Re-verify the numbers above with:
 git remote add origin-upstream https://github.com/moonlight-stream/moonlight-android.git  # if absent
 git fetch origin-upstream && git fetch upstream
 git log -1 --date=short --format='%h %ad %s' origin-upstream/master
-git rev-list --left-right --count HEAD...origin-upstream/master        # 610  54
-git rev-list --left-right --count HEAD...upstream/moonlight-noir       #  59   0
+git rev-list --left-right --count HEAD...origin-upstream/master        # ~610   54
+git rev-list --left-right --count HEAD...upstream/moonlight-noir       #  ~59    0
+#   ^ left column is ours-only and drifts as we commit; the right column is the one
+#     that matters. Measured 610/59 at 6c05251f.
 git rev-list --count origin-upstream/master..upstream/moonlight-noir   # 551
 git log --date=format:'%Y-%m' --format='%ad' HEAD..origin-upstream/master | sort | uniq -c
 gh release list -R moonlight-stream/moonlight-android | head -1        # v12.1, 2024-02-28
@@ -93,10 +100,25 @@ surrounding context. Expect to read every hunk.
 | `8974dcda` | Android 15/16 keycodes | 3-way |
 | `68adf9ec` | no H.264 constraint/`level_idc` edits on Oreo+ | 3-way |
 
-`31b70030` (libopus 1.6.1 + openssl 4.0.2 — native security deps) is **not
-cherry-pickable at all**: it moves the `moonlight-common-c` submodule pin, and our pin
-is our own fork's. It fails both a strict and a 3-way apply. Route it through the
-submodule procedure in §4 instead.
+`31b70030` (libopus 1.6.1 + openssl 4.0.2 — native security deps) is a special case
+and the `git apply` check **lies about it**. It fails both strict and 3-way with:
+
+```
+error: cannot apply binary patch to '.../libopus/arm64-v8a/libopus.a'
+       without full index line
+```
+
+That is an artefact of `git show` emitting abbreviated binary patches — it says
+nothing about `git cherry-pick`, which works on trees and is not affected. Note this
+commit does **not** touch the `moonlight-common-c` submodule at all; it re-vendors
+prebuilt native libs. It is 173 files: `Android.mk`, ~160 `openssl/include/**`
+headers, and binary `libopus.a` / `libcrypto.a` / `libssl.a` archives. Of those 173,
+our tree already matches its parent on 125 and diverges on 48 (`Android.mk` plus ~47
+openssl headers), so a real cherry-pick will need merging but is not blocked.
+
+**The general lesson:** `git apply --check` is a cheap screen for source patches and
+useless for anything with binary or submodule content. When it fails, look at *why*
+before concluding a commit is unportable.
 
 Test any candidate before committing to it:
 
@@ -279,7 +301,7 @@ now alive, and the fork we branched from is the quiet one:
 The old text explained the app repo's recent "last pushed" away as the `weblate`
 translation bot pushing to a side branch, and concluded "we are 0 behind / 571 ahead
 of it, so there is genuinely nothing to sync from the app." **Both halves are now
-wrong**: `master` itself moved, and we are **54 behind / 610 ahead**. It is still not
+wrong**: `master` itself moved, and we are **54 commits behind it**. It is still not
 archived — 350 open issues, 37 open PRs — so it remains a maintenance gap rather than
 a dead project, but there is now real work to pull. Pull it as cherry-picks per §1,
 never as a merge (26 conflicting paths, measured there).
