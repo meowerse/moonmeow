@@ -1417,7 +1417,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             else {
                 LimeLog.warning("SemWindowManager.getInstance() returned null");
             }
-        } catch (ClassNotFoundException | NoSuchMethodException | InvocationTargetException |
+        } catch (ClassNotFoundException ignored) {
+            // Not a Samsung device. This is the normal path everywhere else, so it must
+            // stay silent -- setMetaKeyCaptureState() runs on every grab toggle.
+        } catch (NoSuchMethodException | InvocationTargetException |
                  IllegalAccessException e) {
             e.printStackTrace();
         }

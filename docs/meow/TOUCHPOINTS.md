@@ -911,6 +911,11 @@ risk is not hypothetical here.
 Ours falls back to the legacy vibrator when the manager is absent, which is strictly
 safer and preserves upstream's behaviour everywhere the manager exists.
 
+Two cosmetic deviations live on the same lines and are covered by this row rather than
+one of their own: upstream's stray tab-indented blank lines are dropped, and the
+redundant `(Vibrator)` cast on `getDefaultVibrator()` is omitted since it already
+returns `Vibrator`.
+
 **On a future merge:** keep the null check.
 
 ### Blocked, not skipped: the Android 16.1 back-ports
@@ -920,7 +925,8 @@ throttling) need `compileSdk 37`. Both were ported, compiled and then **reverted
 because raising `compileSdk` from 36 to 37 breaks the unit-test gate:
 
 ```
-CursorFollowBindingTest.java:107: error: cannot access FingerprintManager
+app/src/test/java/com/limelight/meow/viewport/CursorFollowBindingTest.java:107:
+error: cannot access FingerprintManager
     Shadows.shadowOf(Looper.getMainLooper()).idle();
   class file for android.hardware.fingerprint.FingerprintManager not found
 ```
