@@ -331,15 +331,24 @@ a setter and two calls.
 
 | Line | Site | Edit |
 | --- | --- | --- |
-| 157 | field declaration | `private StreamViewportBinder viewportBinder;` |
-| 500 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **only when the preference is on and the render mode is `MODE_2D`** and attaches it to `panZoomHandler` |
-| 1764 | `onDestroy()`, before the capture provider is destroyed | one guarded `viewportBinder.release()` |
-| 3522 | inside `stopConnection()`'s teardown worker, above `conn.stop()` | one guarded `viewportBinder.onStreamStopped()` |
-| 3751 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
+| 160 | field declaration | `private StreamViewportBinder viewportBinder;` |
+| 506 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **when the render mode is `MODE_2D`** and attaches it to `panZoomHandler`; the preference is passed to `setEnabled` rather than gating construction |
+| 1739 | `onDestroy()`, before the capture provider is destroyed | one guarded `viewportBinder.release()` |
+| 3597 | inside `stopConnection()`'s teardown worker, above `conn.stop()` | one guarded `viewportBinder.onStreamStopped()` |
+| 3831 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
 
-The construction is inside the preference guard on purpose: an install that has not opted
-in leaves `viewportBinder` null, so not one line of this feature executes and behaviour is
-bit-for-bit what it was before.
+**Construction is no longer inside the preference guard, and that is a deliberate change.**
+It used to be, on the argument that an install which had not opted in should run bit-for-bit
+the code it ran before. That argument was sound while the binder did one thing. It stopped
+being sound once the same object also owned cursor-follow, which sends nothing and needs no
+host: gating it on a *bitrate* preference made a local feature depend on a remote one. The
+preference now reaches `ViewportReporter.setEnabled` instead, and with it off
+`onStreamStarted` records the host as `UNSUPPORTED` before probing, so **not one packet goes
+on the wire** — which is what the old guard was actually protecting. Pinned by
+`CursorFollowBindingTest.panningHappensWithTheViewportPreferenceOff`.
+
+The cost, stated plainly: the reporter's `HandlerThread` is now started for every 2D stream
+rather than only for opted-in ones. It is one idle looper, released in `onDestroy()`.
 
 The guard also requires `StreamContainer.StreamMode.MODE_2D`, obtained from the public
 `streamContainer.mapIntToStreamMode(prefConfig.renderMode)` rather than compared against a
@@ -392,7 +401,7 @@ reading `prefConfig.width` here would be wrong.
 | `MeowViewportBridge.java` | JNI | the native call out and the echo back in |
 | `HandlerDeadlineScheduler.java` | yes | `Scheduler` over a `Handler` |
 | `StreamViewportBinder.java` | yes | reads the views, owns the reporter's thread |
-| `ViewportPreference.java` | yes | reads the preference, and documents why it defaults off |
+| `ViewportPreference.java` | yes | reads the preference, and documents why it defaults on |
 
 Tested by `app/src/test/java/com/limelight/meow/viewport/`.
 
@@ -549,6 +558,104 @@ Findings 1, 5 and 6 could not be fixed in the Java layer alone, so
 - The `Limelight.h` and `ControlStream.c` comments that described the wire as host desktop
   pixels, and the `-3` return as "any non-Apollo host", were corrected. Both were wrong in
   ways that produced wrong code.
+
+---
+
+## `MEOW-TOUCH(cursor-follow)`
+
+**Feature:** when the user is zoomed in, the visible crop chases the host cursor so the
+cursor cannot walk off the phone screen.
+
+**Why upstream had to be touched at all:** the cursor position is only known where the input
+events are already dispatched, which is inside `Game`. Everything else — deciding whether and
+how far to pan, and dead-reckoning the cursor in the captured-pointer modes — lives in
+`meow/cursor/`.
+
+### The bug this registry entry was created by
+
+It shipped inside `MEOW-TOUCH(viewport-follow)` and did not work. Two independent gates,
+both of them the wrong gate:
+
+1. `StreamViewportBinder.handleCursorViewPosition` early-returned on `!live`, and `live`
+   means *"the host echoed our viewport message"*. Panning the local view is client side —
+   it moves a `SurfaceView` and sends nothing. Against a host without the extension
+   `ViewportReporter` latches `UNSUPPORTED` about four seconds into the session
+   (`PROBE_ATTEMPTS` × `ECHO_DEADLINE_MS`), and cursor-follow died with it for a reason that
+   has nothing to do with cursor-follow.
+2. The binder was only constructed when the viewport preference was on. That preference's
+   own summary string promises host-side bitrate cropping and says nothing about the cursor,
+   so a user who turned it off — reasonably, since cropping is opinionated — silently lost an
+   unrelated feature.
+
+`CursorFollowBindingTest.panningHappensEvenWhenTheHostNeverEchoes` and
+`panningHappensWithTheViewportPreferenceOff` fail against the old gates.
+
+`streamStarted` replaces `live` as the guard. It is the honest precondition: cursor-follow
+needs the negotiated stream size, and nothing else.
+
+### `app/src/main/java/com/limelight/Game.java` — 5 sites
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 214 | field declaration | `private final RelativeCursorTracker relativeCursor = ...` |
+| 2838 | relative-mouse path, `absoluteMouseMode` branch | one call to `followDeadReckonedCursor`, with the delta rescaled by `RelativeCursorTracker.scaleDelta` |
+| 2847 | relative-mouse path, plain-relative branch | one call to `followDeadReckonedCursor` with the raw delta |
+| 3316 | absolute-touch (finger) path, after the touch contexts have had the event | one `viewportBinder.handleCursorViewPosition(...)` |
+| 3451 | private helper above `updateMousePosition` | `followDeadReckonedCursor`, ~25 lines |
+| 3537 | `updateMousePosition`, after `conn.sendMousePosition` | one `viewportBinder.handleCursorViewPosition(...)` |
+
+The two relative-mouse sites were ~35 lines of near-duplicated inline arithmetic, including
+a `ViewportGeometry.hostPointFromView(0,0,0,0,0,0,0,0); // keep class loaded` no-op and a
+comment admitting it had given up on the conversion. That is now one call each into
+`meow/cursor/`, which is where §2 says it should have been.
+
+### The delta was being accumulated in the wrong units
+
+`absoluteMouseMode` sends movement with `LiSendMouseMoveAsMousePositionEvent(dx, dy, refW,
+refH)`, and the library normalises the delta **against that same reference** — `refW` here is
+`streamContainer`'s pixel width, not the stream width. So `n` container pixels move the host
+cursor by `n / refW` of the frame. Adding the raw `n` to a stream-pixel accumulator, which is
+what shipped, mis-scales the estimate by `streamWidth / containerWidth` on every single
+event, with nothing to correct it but running into a screen edge.
+`RelativeCursorTracker.scaleDelta` does the conversion, and says why in its javadoc.
+
+The plain-relative branch keeps the raw delta on purpose: `LiSendMouseMoveEvent` passes
+deltas through and the host applies them in its own pixels.
+
+### New code (additive, in `meow/cursor/`)
+
+| File | Android? | What it is |
+| --- | --- | --- |
+| `CursorFollowPlanner.java` | no | edge-pan + catch-up, one rule at two distances |
+| `CursorFollowPlan.java` | no | the resulting `{dx, dy}`, with a shared no-move instance |
+| `RelativeCursorTracker.java` | no | dead-reckons the host cursor while the pointer is captured |
+
+Tested by `app/src/test/java/com/limelight/meow/cursor/` and, end to end against a real
+`PanZoomHandler`, by `viewport/CursorFollowBindingTest`.
+
+`StreamViewportBinder.handleCursorViewPosition` and `handleCursorHostPosition` take an
+`InlinePinchZoomController.ZoomTarget` rather than a `PanZoomHandler`. Same object at
+runtime; the narrower type is the seam that already existed for inline pinch, and it is what
+lets the follow loop be tested without reaching for a `Game`.
+
+### What is deliberately *not* here
+
+**No new preference.** Cursor-follow is inert unless the user has zoomed in, and when they
+have, letting the cursor leave the screen is not a taste anyone holds. `setCursorFollowEnabled`
+exists on the binder for a future one; nothing reads a key today.
+
+**The behaviour model is unchanged.** `CursorFollowPlanner` still pins the cursor to a margin
+line rather than recentring, for the reason its class comment gives: a recentre moves the crop
+further than the user asked and loses the region they were reading. This change makes the
+documented behaviour happen; it does not redefine it.
+
+**Absolute-pointer follow is edge-scroll by construction, not a bug.** On that path the cursor
+position is derived from the on-screen pointer *through* the transform, so panning moves the
+content under a stationary pointer and the cursor keeps its position within the crop. Holding
+the pointer in the border zone therefore scrolls continuously until the crop hits the boundary
+— which is exactly the "cursor stays on the border while the view moves" behaviour the feature
+was asked for. The dead-reckoned path is different and does converge: there the cursor has a
+host coordinate of its own, so the crop catches up and stops.
 
 ---
 
