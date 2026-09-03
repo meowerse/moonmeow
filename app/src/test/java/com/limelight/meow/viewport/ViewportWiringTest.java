@@ -1,5 +1,6 @@
 package com.limelight.meow.viewport;
 
+import static org.junit.Assert.assertFalse;
 import static org.junit.Assert.assertTrue;
 import static org.junit.Assert.fail;
 
@@ -56,18 +57,41 @@ public class ViewportWiringTest {
     }
 
     @Test
-    public void theBinderIsBuiltOnlyWhenThePreferenceIsOnAndTheRendererIs2D() throws IOException {
-        // An install that has not opted in must run exactly the code it ran before. And
+    public void theBinderIsBuiltWheneverTheRendererIs2D() throws IOException {
         // ViewportGeometry assumes the stream view's box is the video frame: StreamContainer
         // stops sizing itself to the stream aspect outside MODE_2D and getSurfaceView() then
         // returns a GLSurfaceView rendering a stereo composition, so the mapping is nonsense.
+        // That is the only real precondition, and it is the only gate left.
         String condition = enclosingIfCondition(stripComments(read(GAME)), "new StreamViewportBinder(");
-        assertContains("the binder must be gated on the preference", condition,
-                "ViewportPreference.isEnabled(this)");
         assertContains("the binder must be gated on the 2D render mode", condition,
                 "MODE_2D");
         assertContains("the render mode must come from mapIntToStreamMode, not a literal",
                 condition, "mapIntToStreamMode(");
+    }
+
+    @Test
+    public void thePreferenceGatesTheWireAndNotTheConstruction() throws IOException {
+        // The binder owns two features: telling the host where to spend bitrate, and panning
+        // our own view to chase the cursor. Only the first needs the preference or the host.
+        // Gating construction on the preference is what silently killed cursor-follow for
+        // anyone who had it off -- see docs/meow/TOUCHPOINTS.md, MEOW-TOUCH(cursor-follow).
+        String game = stripComments(read(GAME));
+        assertContains("the preference must reach the reporter rather than the constructor",
+                game, "viewportBinder.setEnabled(ViewportPreference.isEnabled(this))");
+        assertFalse("the binder must not be constructed behind the preference",
+                enclosingIfCondition(game, "new StreamViewportBinder(")
+                        .contains("ViewportPreference"));
+    }
+
+    @Test
+    public void cursorFollowIsNotGatedOnHostSupport() throws IOException {
+        // Panning the local view sends nothing. Gating it on `live` -- which means "the host
+        // echoed our viewport message" -- is what made the feature look implemented and dead.
+        String body = methodBody(stripComments(read(BINDER)),
+                "public boolean handleCursorViewPosition(");
+        assertFalse("cursor-follow must not depend on the host echo", body.contains("!live"));
+        assertContains("it depends on the stream being up, and nothing else",
+                body, "streamStarted");
     }
 
     @Test
