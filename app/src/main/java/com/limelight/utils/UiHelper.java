@@ -38,18 +38,27 @@ public class UiHelper {
 
     private static void setGameModeStatus(Context context, boolean streaming, boolean interruptible) {
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU) {
-            GameManager gameManager = context.getSystemService(GameManager.class);
+            // MEOW-TOUCH(upstream-backport 0711e236): upstream drops the warning log that
+            // Artemis added here. It is kept, so this block is upstream's try/catch wrapped
+            // around Artemis' null check rather than a verbatim copy of either.
+            try {
+                GameManager gameManager = context.getSystemService(GameManager.class);
 
-            if (gameManager == null) {
-                LimeLog.warning("GameManager is null, maybe your system does not support it?");
-                return;
-            }
+                if (gameManager == null) {
+                    // Not supported on this device (e.g. Meta Quest)
+                    LimeLog.warning("GameManager is null, maybe your system does not support it?");
+                    return;
+                }
 
-            if (streaming) {
-                gameManager.setGameState(new GameState(false, interruptible ? GameState.MODE_GAMEPLAY_INTERRUPTIBLE : GameState.MODE_GAMEPLAY_UNINTERRUPTIBLE));
-            }
-            else {
-                gameManager.setGameState(new GameState(false, GameState.MODE_NONE));
+                if (streaming) {
+                    gameManager.setGameState(new GameState(false, interruptible ? GameState.MODE_GAMEPLAY_INTERRUPTIBLE : GameState.MODE_GAMEPLAY_UNINTERRUPTIBLE));
+                }
+                else {
+                    gameManager.setGameState(new GameState(false, GameState.MODE_NONE));
+                }
+            } catch (Throwable t) {
+                // Swallow any failure. Some OEM builds ship partial/incompatible GameManager impls.
+                LimeLog.warning("Unable to set game mode status: " + t);
             }
         }
     }

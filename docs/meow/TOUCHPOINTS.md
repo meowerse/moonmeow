@@ -843,3 +843,101 @@ load-bearing again rather than dead.
   `if` as the viewport binder in `Game`. Its own preference,
   `checkbox_enlarge_cursor_at_low_zoom`, still defaults off, so nothing changes visually until
   the user opts in — but the object is live where it previously was not.
+
+---
+
+## Policy: back-ports from the ORIGINAL upstream
+
+*Added 2026-09-03 with the first batch of cherry-picks from
+`moonlight-stream/moonlight-android` (`CLAUDE.md` §1).*
+
+§3 exists to list "the places a merge can hurt". A hunk restored verbatim from the
+original upstream into an upstream file does the opposite: it moves our copy of that
+file **toward** the code a future merge will bring in, so it removes conflict surface
+rather than adding it. This is the same reasoning §3 already applies to repairing an
+inherited test that upstream drift broke.
+
+So the rule for back-ports is:
+
+- **Faithful port** — the resulting changed lines are identical to the upstream commit's.
+  **No `MEOW-TOUCH` marker, no row here.** The commit message names the upstream SHA;
+  that is the audit trail. Adding markers for these would inflate the registry with
+  entries that describe *less* divergence than before the commit.
+- **Adapted port** — we deliberately deviated from the upstream diff, because Artemis
+  had already changed that code or already fixed part of the bug. That divergence **is**
+  a place a future merge will hurt. **Marker + row below.**
+- **Skipped** — Artemis already carries the fix. Recorded in the PR, not here; nothing
+  was touched.
+
+### `MEOW-TOUCH(upstream-backport 280454fd)` — `binding/input/driver/XboxOneController.java`
+
+Upstream's Xbox Series S/X commit adds four `InitPacket` entries: `0x0b05`, `0x0b13`,
+`0x0b12` and `0x02fe`. Artemis already carries the last two further down `INIT_PKTS`.
+`sendInitializationPackets()` sends **every** matching entry rather than stopping at the
+first, so re-adding them would transmit the init packet twice to those controllers. Only
+`0x0b05` and `0x0b13` were added. `SERIES_S_INIT` is kept as upstream defines it — today
+byte-identical to `ONE_S_INIT` — so the constant table still matches upstream.
+
+**On a future merge:** keep exactly one entry per product ID.
+
+### `MEOW-TOUCH(upstream-backport 0711e236)` — `utils/UiHelper.java`
+
+Artemis had already fixed half of the Meta Quest bug, with a null check on
+`getSystemService(GameManager.class)` plus a `LimeLog.warning`. Upstream's fix is a
+`catch (Throwable)` around the whole block, for OEM builds whose `GameManager` throws
+instead of being absent, and it does **not** have the warning. The block is therefore
+upstream's try/catch wrapped around Artemis' null check, matching neither side verbatim.
+
+**On a future merge:** upstream's version is strictly weaker here — it loses both log
+lines. Prefer ours.
+
+### `MEOW-TOUCH(upstream-backport 3c6a0d12)` — `binding/input/ControllerHandler.java`
+
+Upstream's rumble fix dereferences the `VibratorManager` unconditionally on S+:
+
+```java
+this.deviceVibratorManager = (VibratorManager) getSystemService(VIBRATOR_MANAGER_SERVICE);
+this.deviceVibrator = this.deviceVibratorManager.getDefaultVibrator();
+```
+
+`ControllerHandler` is constructed on **every stream start**, so an OEM build that does
+not register `VIBRATOR_MANAGER_SERVICE` would take streaming down entirely with an NPE
+in a constructor. The deprecated `getSystemService(VIBRATOR_SERVICE)` call it replaces
+could not fail that way, so the port would have introduced a crash path that did not
+previously exist. This fork already ships a fix for exactly that class of device — see
+the `0711e236` entry above, where a Meta Quest returns a null `GameManager` — so the
+risk is not hypothetical here.
+
+Ours falls back to the legacy vibrator when the manager is absent, which is strictly
+safer and preserves upstream's behaviour everywhere the manager exists.
+
+Two cosmetic deviations live on the same lines and are covered by this row rather than
+one of their own: upstream's stray tab-indented blank lines are dropped, and the
+redundant `(Vibrator)` cast on `getDefaultVibrator()` is omitted since it already
+returns `Vibrator`.
+
+**On a future merge:** keep the null check.
+
+### Blocked, not skipped: the Android 16.1 back-ports
+
+`ddb674a9` (native keyboard capture) and `6d4c64a5` (disable surface producer
+throttling) need `compileSdk 37`. Both were ported, compiled and then **reverted**,
+because raising `compileSdk` from 36 to 37 breaks the unit-test gate:
+
+```
+app/src/test/java/com/limelight/meow/viewport/CursorFollowBindingTest.java:107:
+error: cannot access FingerprintManager
+    Shadows.shadowOf(Looper.getMainLooper()).idle();
+  class file for android.hardware.fingerprint.FingerprintManager not found
+```
+
+API 37 **removed** `android.hardware.fingerprint.FingerprintManager`
+(`unzip -l $ANDROID_HOME/platforms/android-37.0/android.jar | grep -c FingerprintManager`
+→ 0; the same grep against android-36 → 4). Robolectric 4.16's generated `Shadows`
+class still declares a `shadowOf(FingerprintManager)` overload, so javac cannot resolve
+*any* `shadowOf` call once the test classpath is the API 37 stub. `CLAUDE.md` §5 forbids
+weakening an inherited test to get a green gate, so the bump was dropped instead.
+
+**The prerequisite is a Robolectric upgrade, not more porting effort.** Verified along
+the way: AGP 9.3.2 accepts `compileSdk 37`, the `android-37.0` platform is installed, and
+both back-ports compile against it — only the test compile fails.
