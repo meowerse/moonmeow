@@ -25,7 +25,7 @@ Quick-start guide: writing JVM/Robolectric unit tests for this repo
 
         testImplementation 'junit:junit:4.13.2'
         testImplementation 'androidx.test:core:1.7.0'
-        testImplementation 'org.robolectric:robolectric:4.16'
+        testImplementation 'org.robolectric:robolectric:4.17'
         testImplementation 'org.mockito:mockito-core:5.19.0'
 
     Extra flag:  
@@ -33,6 +33,13 @@ Quick-start guide: writing JVM/Robolectric unit tests for this repo
         testOptions.unitTests.includeAndroidResources = true  
 
     → Tells Robolectric to merge `res/` into the unit-test APK so layout inflation works.
+
+        unitTests.all { jvmArgs '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED' }
+
+    → Needed by any test at `@Config(sdk = 36)` or above: Robolectric's SDK 36+ sandbox
+      reflects into `jdk.internal.access` during setup, which JDK 17+ does not export.
+      Without it such a test dies in setup with "Failed to interact with raw
+      FileDescriptor internals".
 
 2.  Test-class boilerplate  
 
@@ -64,9 +71,12 @@ Quick-start guide: writing JVM/Robolectric unit tests for this repo
     ```
 
     • `@Config(sdk = {33})` makes Robolectric emulate Android 13. The module builds against
-      `compileSdk 36` with `targetSdk 34`; 33 is what every existing test pins because it is
+      `compileSdk 37` with `targetSdk 34`; 33 is what nearly every test pins because it is
       the level Robolectric is most stable at here. Keep new tests on 33 unless you need
-      a newer API, and raise it deliberately if so.  
+      a newer API, and raise it deliberately if so -- `GameSurfaceProducerThrottlingTest`
+      runs at 36 and 37 to test an API 37 version guard. A method that does not exist at
+      the test's SDK cannot be named even in `verify(mock, never())`; assert with
+      `verifyNoMoreInteractions` instead.  
     • `shadows = …` suppresses native or platform calls:
 
       – `ShadowMoonBridge` eliminates the static initializer that tries `System.loadLibrary("moonbr")`, and provides minimal stubs/constants used by the app.  

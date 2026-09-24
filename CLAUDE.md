@@ -17,7 +17,9 @@ no longer holds as written.** Upstream revived in 2026-08; Artemis went quiet. T
 fork is still correct, but on a different ground — read the new one, because the old
 one will mislead you.
 
-*Verified 2026-09-03 against `6c05251f`. Re-measure before acting on it.*
+*Verified 2026-09-03 against `6c05251f`; the table and counts re-measured 2026-09-24
+after the second sync (branch `sync/upstream-2026-09-24`). Re-measure before acting on
+it.*
 
 Read the **behind** counts as the load-bearing ones: how far we are *ahead* of a
 base grows every time we commit, so it drifts by the time you read this. How far we
@@ -25,21 +27,36 @@ are *behind* only moves when they commit.
 
 | | Last commit | vs our HEAD | Releases |
 | --- | --- | --- | --- |
-| `moonlight-stream/moonlight-android` (`master`) | 2026-09-02 (`98c12beb`, "Update to OkHttp 5.5") | **54 commits we lack**; ~610 they lack | frozen at v12.1, 2024-02-28 |
-| `ClassicOldSong/moonlight-android` (`moonlight-noir`) | 2025-10-18 (`3397ec77`) | **0 commits we lack** — fully current; ~59 they lack | — |
+| `moonlight-stream/moonlight-android` (`master`) | 2026-09-12 (`b48494cb`, "Version 12.2") | **55 commits by `rev-list`** (54 + 1 merge) — but only 31 not carried in any form, 25 of them Weblate translations (see below); ~646 they lack | **v12.2, 2026-09-12** (after v12.1, 2024-02-28) |
+| `ClassicOldSong/moonlight-android` (`moonlight-noir`) | 2026-09-09 (`c5cf27f4`) | **0 commits we lack** — fully current; ~91 they lack | — |
 
-**The code revived; the releases did not.** 30 of those 54 upstream commits landed in
-the last two months (25 in 2026-09, 5 in 2026-08); the remaining 24 tail back through
-2024-12. Yet the newest GitHub release is still v12.1 from 2024-02-28. Upstream is
-therefore a source of *patches*, not of *shipped versions* — do not read "upstream is
-active again" as "upstream ships again", and do not expect a release to sync to.
+**`rev-list` cannot see cherry-picks.** A picked commit gets a new SHA, so the 55 stays 55
+however much we take. What moved on 2026-09-24, classified per upstream non-merge commit
+(the `(cherry picked from commit …)` trailers plus `git cherry`):
+
+| Status | Count | Commits |
+| --- | --- | --- |
+| Picked (trailer) | 19 | 8 on 2026-09-03 (PR #13); `b3a7e32a` `c2e224eb` `8d720748` `9d8b073c` (compileSdk hunk) `6d4c64a5` `ad861490` `31b70030` `5c0c2390` `4eb24a8d` `801dba1b` `98c12beb` on 2026-09-24 |
+| Already on our tree, no pick needed | 4 | `9221a0ca` (JDK 17), `583f662a` (8BitDo vendor ID, from Artemis), `3df0103a` (Artemis dropped every < API 21 path), `0dc4c4fe` (its common-c `874ac95` is inside our pin) |
+| Deliberately not taken | 6 | `4b2221d3` targetSdk 36 (runtime behaviour change, wants its own PR), `1fa0e2a0` NDK r29 (no pick needs it), `3f114ac7` `578f38f6` AppVeyor (we run GitHub Actions), `b55b4b6d` + `b48494cb` (new-locale entries and upstream's version bump) |
+| Weblate translations | 25 | none apply, even with line endings normalised: Artemis rewrote those `strings.xml` files, and `fr` is one of our rebranded locales |
+
+The keyboard-capture half of `ddb674a9` is still out (see docs/meow/TOUCHPOINTS.md).
+
+**The code revived, and on 2026-09-12 so did the releases.** 31 of those 55 upstream
+commits landed in 2026-08/09 (26 in 2026-09, 5 in 2026-08); the rest tail back through
+2024-12. This section used to say releases were frozen at v12.1 (2024-02-28) and that
+upstream was a source of patches, not shipped versions. v12.2 (2026-09-12) ended that.
+We still take patches, not releases — `b48494cb` is only their version bump — but do not
+assume upstream is unreleased.
 
 **Why we still base on Artemis.** Not because upstream is dead — it is not — but
-because `moonlight-noir` is **551 commits ahead of `moonlight-stream/master`**, and
+because `moonlight-noir` is **555 commits ahead of `moonlight-stream/master`** (551 on
+2026-09-03; Artemis' Right-Alt merge added 4), and
 those commits *are* the product moonmeow is built on: explicitly tuned for
 desktop/office use rather than gaming — custom virtual buttons, multiple mouse modes
 (touchpad / multi-touch / local cursor), custom resolutions. Re-basing onto revived
-upstream means abandoning or re-porting all 551. See the conflict measurement below
+upstream means abandoning or re-porting all 555. See the conflict measurement below
 for what that would cost.
 
 Note `master` and `next` in the Artemis repo are **stale** (2024-07-16 and 2024-09-11)
@@ -72,13 +89,13 @@ Re-verify the numbers above with:
 git remote add origin-upstream https://github.com/moonlight-stream/moonlight-android.git  # if absent
 git fetch origin-upstream && git fetch upstream
 git log -1 --date=short --format='%h %ad %s' origin-upstream/master
-git rev-list --left-right --count HEAD...origin-upstream/master        # ~610   54
-git rev-list --left-right --count HEAD...upstream/moonlight-noir       #  ~59    0
+git rev-list --left-right --count HEAD...origin-upstream/master        # ~646   55
+git rev-list --left-right --count HEAD...upstream/moonlight-noir       #  ~91    0
 #   ^ left column is ours-only and drifts as we commit; the right column is the one
-#     that matters. Measured 610/59 at 6c05251f.
-git rev-list --count origin-upstream/master..upstream/moonlight-noir   # 551
+#     that matters. Measured 610/54 at 6c05251f, 646/55 and 91/0 on 2026-09-24.
+git rev-list --count origin-upstream/master..upstream/moonlight-noir   # 555
 git log --date=format:'%Y-%m' --format='%ad' HEAD..origin-upstream/master | sort | uniq -c
-gh release list -R moonlight-stream/moonlight-android | head -1        # v12.1, 2024-02-28
+gh release list -R moonlight-stream/moonlight-android | head -1        # v12.2, 2026-09-12
 git merge-tree --write-tree --name-only HEAD origin-upstream/master 2>/dev/null \
   | sed -n '2,/^$/p' | grep -c .                                       # 26
 ```
@@ -116,9 +133,23 @@ headers, and binary `libopus.a` / `libcrypto.a` / `libssl.a` archives. Of those 
 our tree already matches its parent on 125 and diverges on 48 (`Android.mk` plus ~47
 openssl headers), so a real cherry-pick will need merging but is not blocked.
 
+*Measured 2026-09-24:* the real cherry-pick of `31b70030` was clean, and the resulting
+`openssl/` and `opus/` trees are byte-identical to upstream's. The "diverges on 48" above
+does not reproduce: `git diff --name-only 31b70030^ <our tree> --` over that commit's 173
+paths lists only `Android.mk`, both at `6c05251f` and on 2026-09-24.
+
 **The general lesson:** `git apply --check` is a cheap screen for source patches and
 useless for anything with binary or submodule content. When it fails, look at *why*
 before concluding a commit is unportable.
+
+**Line endings are the other trap.** Many of our Java and resource files are CRLF
+(`ControllerHandler.java`, `KeyboardTranslator.java`, `XboxOneController.java`,
+`MediaCodecDecoderRenderer.java`, the non-English `strings.xml` files); upstream's are
+LF. A plain `git cherry-pick` into one of those conflicts on *every line* of the file,
+which reads like a total rewrite and is not. Check with `git show HEAD:<path> | grep -c
+$'\r'`, then apply upstream's diff with its hunk lines converted to CRLF and keep the
+file CRLF. Never convert the file to LF to make a pick apply: that is a whole-file diff
+and every later sync conflicts on it.
 
 Test any candidate before committing to it:
 
@@ -201,9 +232,13 @@ user complains about is in the protocol.
 If you believe you need a protocol change, stop and escalate. You almost certainly
 need a Java-layer change instead.
 
-Sealed does not mean *unmaintained*: our pin is a fork's, and it is 39 commits behind
-the real project, security fixes included. See "Upstream reality check" in §4 before
-concluding this submodule is fine because `git submodule status` is clean.
+Sealed does not mean *unmaintained*: our pin is a fork's. It is
+`meowerse/moonmeow-common-c` branch `meow` — upstream `874ac95` plus our viewport
+additions — and *measured 2026-09-24* it is **3 commits behind** the real project's
+`master` (`62e0663`, 2026-09-08) and 9 ahead. (This line used to say 39 behind; that was
+the old ClassicOldSong pin, `c999436`.) A separate change re-grafts `meow` onto
+`62e0663`. See "Upstream reality check" in §4 before concluding this submodule is fine
+because `git submodule status` is clean.
 
 ---
 
@@ -285,8 +320,8 @@ real API decision, not a formatting one. Read both sides.
 
 ### Upstream reality check — we track forks, verify against originals
 
-*Measured 2026-08-24; the app-repo rows re-measured 2026-09-03. Re-measure before
-acting on it.*
+*Measured 2026-08-24; the app-repo rows re-measured 2026-09-03 and both rows again
+2026-09-24. Re-measure before acting on it.*
 
 This section used to say "upstream is dormant" is true of the **Android app** and
 false of the **protocol core**. The second half still holds. **The first half no
@@ -295,18 +330,20 @@ now alive, and the fork we branched from is the quiet one:
 
 | | Last commit | Status |
 | --- | --- | --- |
-| `moonlight-stream/moonlight-android` (original app) | 2026-09-02 (`98c12beb`) | **active again**; 54 commits we lack, 30 of them since 2026-08. Releases still frozen at v12.1, 2024-02-28 |
-| `moonlight-stream/moonlight-common-c` (protocol core) | 2026-08-18 (`874ac95`) | **actively developed** |
+| `moonlight-stream/moonlight-android` (original app) | 2026-09-12 (`b48494cb`) | **active again, and releasing**: v12.2 on 2026-09-12. 55 commits by `rev-list`, of which 31 are not carried in any form, 25 of those translations (§1) |
+| `moonlight-stream/moonlight-common-c` (protocol core) | 2026-09-08 (`62e0663`) | **actively developed**; our pin is 3 behind (§2) |
 
 The old text explained the app repo's recent "last pushed" away as the `weblate`
 translation bot pushing to a side branch, and concluded "we are 0 behind / 571 ahead
 of it, so there is genuinely nothing to sync from the app." **Both halves are now
-wrong**: `master` itself moved, and we are **54 commits behind it**. It is still not
+wrong**: `master` itself moved, and on 2026-09-03 we were **54 commits behind it**. It is still not
 archived — 350 open issues, 37 open PRs — so it remains a maintenance gap rather than
 a dead project, but there is now real work to pull. Pull it as cherry-picks per §1,
 never as a merge (26 conflicting paths, measured there).
 
-**The trap.** `.gitmodules` points the protocol core at a *fork*, not the original:
+**The trap** — historical, kept because the lesson is not. Until 2026-08-25
+`.gitmodules` pointed the protocol core at a *fork*, not the original (it now points at
+`meowerse/moonmeow-common-c`, which is still a fork):
 
 ```
 [submodule "app/src/main/jni/moonlight-core/moonlight-common-c"]
@@ -400,7 +437,10 @@ Not "nearly empty". `app/src/test` carries a working JVM/Robolectric suite —
 Helpers, not tests: `shadows/ShadowMoonBridge`, `shadows/ShadowGameManager`,
 `shadows/ShadowBackdropFrameRenderer`, `TestLogSuppressor`, `ProfileTestHelper`.
 
-Stack: JUnit 4.13.2, Robolectric 4.16, Mockito 5.19.0, `androidx.test:core` 1.7.0.
+Stack: JUnit 4.13.2, Robolectric 4.17, Mockito 5.19.0, `androidx.test:core` 1.7.0.
+Robolectric 4.17 is what allows `compileSdk 37` (4.16 could not compile any test against
+the API 37 stubs); unit-test JVMs get `--add-opens=java.base/jdk.internal.access=ALL-UNNAMED`
+because its SDK 36+ sandbox needs it on JDK 17+.
 `testOptions.unitTests.includeAndroidResources = true` lets real layout XML inflate.
 
 There is a `robolectric.properties` at the repo root naming
@@ -481,7 +521,7 @@ Ordered by what is actually uncovered, not by what sounds important:
 
 ```bash
 ./gradlew assembleNonRoot_gameRelease     # release build, lintVital runs here
-./gradlew testNonRoot_gameReleaseUnitTest # 219 tests, all must pass
+./gradlew testNonRoot_gameReleaseUnitTest # 294 tests (2026-09-24), all must pass
 ```
 
 Then the runtime check in §5. Red gate → nothing gets pushed.
