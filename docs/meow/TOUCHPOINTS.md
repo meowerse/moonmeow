@@ -708,7 +708,11 @@ video hid, or one hidden and wandering, is still never chased
 without the pinned rule. sunmeow's coalescer sends one report when the cursor hides and none
 while it stays hidden (`src/meow/cursor.h`, `coalescer_t::due`), so in the resumed case the
 first report arrives before any input and no driven report ever follows; the user's first
-relative move decides instead (`onDrivenWhileHostReports`). The fake host sends the same
+relative move *into that edge* decides instead (`onDrivenWhileHostReports`), ignoring the
+desktop origin, which is sunmeow's placeholder for a cursor its capture never saw visible
+(`cursor_pipewire.h` starts at (0, 0) and only updates x/y while visible). Whether the
+resumed case works against real sunmeow therefore depends on the host reporting where the
+cursor actually is; `cursor-follow-ux.md` "Known limits" has the details. The fake host sends the same
 way by default, with `resendWhileHidden` for a host that does not. The Game-level reproduction is
 `GameCursorFollowModesTest.aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt`: the
 fake host reports 40 ms late from a callback thread and hides the cursor at the edge, and

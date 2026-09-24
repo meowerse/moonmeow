@@ -738,4 +738,44 @@ public class CursorFollowControllerTest {
         frames.settle();
         assertTrue(1919f <= view.x + 480f);
     }
+
+    @Test
+    public void aHiddenPlaceholderAtTheDesktopOriginIsNotChasedOnTheFirstMove() {
+        // A stream that starts in a fullscreen game: sunmeow reports hidden at (0, 0).
+        controller.onCursorPosition(0, 0, false, 1);
+        frames.runUi();
+        float before = view.x;
+        float beforeY = view.y;
+        controller.onRelativeMove(-40, -40);
+        frames.runUi();
+        frames.settle();
+        assertEquals(before, view.x, 0f);
+        assertEquals(beforeY, view.y, 0f);
+    }
+
+    @Test
+    public void aMoveAwayFromTheEdgeDoesNotPanToAHiddenCursorThere() {
+        controller.onCursorPosition(1919, 540, false, 1);
+        frames.runUi();
+        float before = view.x;
+        controller.onRelativeMove(-40, 0);
+        frames.runUi();
+        frames.settle();
+        assertEquals(before, view.x, 0f);
+    }
+
+    @Test
+    public void aSettledHiddenFollowDoesNotPullTheViewBackLater() {
+        controller.onCursorPosition(1919, 540, false, 1);
+        frames.runUi();
+        controller.onRelativeMove(40, 0);
+        frames.runUi();
+        frames.settle();
+        assertTrue(1919f <= view.x + 480f);
+        // The user pans away; later the keyboard opens (a re-check), and the host is silent.
+        view.x = 200f;
+        controller.ensureVisible();
+        frames.settle();
+        assertEquals(200f, view.x, 0f);
+    }
 }

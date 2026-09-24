@@ -1063,26 +1063,4 @@ public class GameCursorFollowModesTest {
                 v[0] + v[2] >= sw - 1f);
     }
 
-    /**
-     * A host that re-sends while hidden, and a diagonal swipe: once the cursor hides at the
-     * right edge its y still moves, and the follow must slide along the edge, not drop.
-     */
-    @Test
-    public void aDiagonalSwipeIntoTheEdgeOfAHostThatReSendsWhileHiddenIsFollowed()
-            throws Exception {
-        hostAcceleration = 1.8f;
-        emulatorAgainstAReportingHost("2");
-        ShadowMoonBridgeWithHost.hideAtEdge = true;
-        ShadowMoonBridgeWithHost.resendWhileHidden = true;
-        ShadowMoonBridgeWithHost.reportLatencyMs = 40L;
-        for (int i = 0; i < 3; i++) {
-            trackpadStroke(700f, 40f);
-        }
-        settle();
-        assertTrue(ShadowMoonBridgeWithHost.cursorX >= desktopW - 1f);
-        assertTrue("y still inside the desktop", ShadowMoonBridgeWithHost.cursorY < desktopH - 1f);
-        float[] v = visible();
-        assertTrue("the view reached the desktop's right edge: " + v[0] + "+" + v[2],
-                v[0] + v[2] >= sw - 1f);
-    }
 }

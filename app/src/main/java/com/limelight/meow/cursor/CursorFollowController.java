@@ -922,15 +922,29 @@ public final class CursorFollowController
      * "moved while hidden: nothing the client can use"), so a resumed session whose first
      * report is the cursor hidden at the edge would never get a driven report to decide on.
      * The move itself decides: before the host has shown its cursor this stream, a hidden
-     * cursor pinned against the desktop edge that the user now drives is followed.
+     * cursor pinned against the desktop edge is followed when the user pushes into that edge.
+     *
+     * <p>Only a push into the edge, and never the content origin: sunmeow publishes (0, 0) for
+     * a capture that has not yet seen a visible cursor, which lands on the desktop's top-left
+     * corner -- inside both edge bands. Without these guards the first move of an ordinary
+     * session that starts with a hidden cursor (a fullscreen game) panned there.
      */
-    private void onDrivenWhileHostReports() {
+    private void onDrivenWhileHostReports(int deltaX, int deltaY) {
         if (followHidden || seenVisible || cursor.isVisible() || !cursor.isKnown()) {
             return;
         }
         float x = cursor.x();
         float y = cursor.y();
-        if (onVerticalEdge(x) || onHorizontalEdge(y)) {
+        if (Math.abs(x - cursor.boundsLeft()) < 0.5f && Math.abs(y - cursor.boundsTop()) < 0.5f) {
+            return;  // The host never saw this cursor: a placeholder, not a position.
+        }
+        boolean left = onVerticalEdge(x) && x < (cursor.boundsLeft() + cursor.boundsRight()) / 2f;
+        boolean top = onHorizontalEdge(y) && y < (cursor.boundsTop() + cursor.boundsBottom()) / 2f;
+        boolean pushes = (deltaX > 0 && onVerticalEdge(x) && !left)
+                || (deltaX < 0 && left)
+                || (deltaY > 0 && onHorizontalEdge(y) && !top)
+                || (deltaY < 0 && top);
+        if (pushes) {
             followHidden = true;
             followHiddenX = x;
             followHiddenY = y;
@@ -944,7 +958,7 @@ public final class CursorFollowController
         }
         if (cursor.isHostReporting()) {
             // With host reports, the host's own answer (a round trip later) moves the cursor.
-            onDrivenWhileHostReports();
+            onDrivenWhileHostReports(deltaX, deltaY);
             return;
         }
         if (!cursor.isKnown() && view.visibleReferenceRect(visible)) {
@@ -1018,7 +1032,7 @@ public final class CursorFollowController
         float needY = CursorFollowMotion.remaining(visible[1], visible[3], cursor.y(),
                 bounds[1], bounds[3], margin);
         if (needX == 0f && needY == 0f) {
-            disarm();
+            settled();
             return;
         }
 
@@ -1047,11 +1061,23 @@ public final class CursorFollowController
 
         if (Math.abs(needX - stepX) <= CursorFollowMotion.SETTLE_PX
                 && Math.abs(needY - stepY) <= CursorFollowMotion.SETTLE_PX) {
-            disarm();
+            settled();
             return;
         }
         frameRequested = true;
         frames.requestFrame(onFrame);
+    }
+
+    /**
+     * The view reached the cursor. A follow of a hidden cursor ends here: sunmeow sends
+     * nothing while it stays hidden, so a latch kept past this point would pull the view back
+     * to a stale point on every later re-check (keyboard, rotation, a user pan).
+     */
+    private void settled() {
+        if (!cursor.isVisible()) {
+            followHidden = false;
+        }
+        disarm();
     }
 
     private void disarm() {
