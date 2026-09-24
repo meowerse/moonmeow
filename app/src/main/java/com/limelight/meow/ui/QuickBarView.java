@@ -63,7 +63,14 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     private boolean autoHide;
     private Runnable obstructionChanged;
 
-    private final Runnable autoHideRunnable = this::hideBar;
+    // Guarded: a permanent bar never collapses on a timer armed while it was transient.
+    private final Runnable autoHideRunnable = () -> {
+        if (isTransient()) {
+            hideBar();
+        }
+    };
+    /** The user hid the bar with a two-finger tap: do not bring it back on our own. */
+    private boolean hiddenByUser;
 
     // 2-finger tap detection
     private long twoFingerDownTime = 0;
@@ -228,8 +235,11 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
 
     private void applyOrientation(Configuration cfg) {
         // Until the keyboard controller arranges it for the real stream box, the bar stands
-        // across the bottom, as it always did.
-        setVertical(false);
+        // across the bottom, as it always did. Afterwards arrange() owns the placement, so a
+        // configuration change (rotation included) waits for it instead of flashing a layout.
+        if (!layoutKnown) {
+            setVertical(false);
+        }
     }
 
     /** Across the bottom, or down the right-hand side. No-op when unchanged. */
@@ -339,16 +349,18 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
         setVertical(vertical);
         if (nowTransient != transientBar) {
             transientBar = nowTransient;
-            if (transientBar) {
-                scheduleAutoHide();
-            } else if (getVisibility() == VISIBLE && !barVisible) {
+            // Re-arms the timer when transient, and cancels one armed earlier when not.
+            scheduleAutoHide();
+            if (!isTransient() && !hiddenByUser && getVisibility() == VISIBLE && !barVisible) {
                 showBar();
             }
         }
     }
 
     /** The room a bar needs beside or below the stream, margins included. */
-    static final int BAR_SPACE_DP = 84;
+    // Column 60 + margins 6 + padding 12 + outer margin 8 + obstruction margin 4 (vertical);
+    // the horizontal bar comes to about 89. A 20:9 phone leaves ~91 dp beside a 16:9 stream.
+    static final int BAR_SPACE_DP = 90;
 
     private boolean isTransient() {
         return autoHide || transientBar;
@@ -371,6 +383,7 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     }
 
     public void showBar() {
+        hiddenByUser = false;
         if (barVisible) {
             scheduleAutoHide();
             return;
@@ -414,6 +427,7 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     }
 
     public void toggleFromGesture() {
+        hiddenByUser = barVisible;
         if (barVisible) hideBar();
         else showBar();
     }

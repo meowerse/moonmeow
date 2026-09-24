@@ -182,9 +182,11 @@ public class QuickBarViewTest {
         android.graphics.Rect r = new android.graphics.Rect();
         assertTrue("transient over a landscape keyboard: not an obstruction", !bar.obstructionInWindow(540, r));
         View kb = findByDescription(bar, "Keyboard");
-        int[] at = new int[2];
-        kb.getLocationInWindow(at);
-        assertTrue("the Keyboard button stays on screen: " + at[1], at[1] + bar.getTranslationY() >= 0 || at[1] >= 0);
+        float top = bar.getTop() + bar.getTranslationY();
+        for (View v = kb; v != bar; v = (View) v.getParent()) {
+            top += v.getTop();
+        }
+        assertTrue("the Keyboard button stays on screen: " + top, top >= 0 && top < 540);
         idle(10);
         assertTrue("and it collapses like auto-hide", !bar.isBarShown());
     }
@@ -215,5 +217,31 @@ public class QuickBarViewTest {
         android.graphics.Rect r = new android.graphics.Rect();
         assertTrue(bar.obstructionInWindow(2400, r));
         assertTrue("below the stream: " + r, r.top >= 1504 && r.width() > r.height());
+    }
+
+    @Test
+    @Config(sdk = {33}, qualifiers = "land")
+    public void leavingATransientStateCancelsItsPendingCollapse() {
+        // Open the PC keyboard in landscape (the bar turns transient and arms its timer),
+        // close it within 3 s: the bar is permanent again and must stay.
+        QuickBarView bar = laidOut(bar(), 2400, 1080);
+        bar.onStreamStarted();
+        bar.arrange(rect(240, 0, 2160, 1080), 2400, 1080, 540);
+        idle(1);
+        bar.arrange(rect(240, 0, 2160, 1080), 2400, 1080, 1080);
+        idle(10);
+        assertTrue(bar.isBarShown());
+    }
+
+    @Test
+    public void aBarTheUserHidDoesNotComeBackOnItsOwn() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.onStreamStarted();
+        bar.toggleFromGesture();
+        idle(1);
+        bar.arrange(rect(0, 0, 1080, 2400), 1080, 2400, 2400);   // transient
+        bar.arrange(rect(0, 896, 1080, 1504), 1080, 2400, 2400); // permanent again
+        idle(1);
+        assertTrue(!bar.isBarShown());
     }
 }
