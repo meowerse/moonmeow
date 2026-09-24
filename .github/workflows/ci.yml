@@ -56,7 +56,7 @@ jobs:
           submodules: recursive
           filter: blob:none
 
-      # AGP 9.3.2 and Gradle 9.7.1 both require JDK 17 (AGP's own bytecode is
+      # AGP 9.4.0 and Gradle 9.7.1 both require JDK 17 (AGP's own bytecode is
       # class-file major 61), so 17 remains correct after the toolchain bump.
       # `cache: gradle` caches ~/.gradle/caches and
       # wrapper dists keyed on the build files, which is the single biggest

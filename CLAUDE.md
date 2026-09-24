@@ -27,7 +27,7 @@ are *behind* only moves when they commit.
 
 | | Last commit | vs our HEAD | Releases |
 | --- | --- | --- | --- |
-| `moonlight-stream/moonlight-android` (`master`) | 2026-09-12 (`b48494cb`, "Version 12.2") | **55 commits by `rev-list`** (54 + 1 merge) — but only 31 not carried in any form, 25 of them Weblate translations (see below); ~646 they lack | **v12.2, 2026-09-12** (after v12.1, 2024-02-28) |
+| `moonlight-stream/moonlight-android` (`master`) | 2026-09-12 (`b48494cb`, "Version 12.2") | **55 commits by `rev-list`** (54 + 1 merge) — but only 32 not taken in any form, 25 of them Weblate translations (see below); ~646 they lack | **v12.2, 2026-09-12** (after v12.1, 2024-02-28) |
 | `ClassicOldSong/moonlight-android` (`moonlight-noir`) | 2026-09-09 (`c5cf27f4`) | **0 commits we lack** — fully current; ~91 they lack | — |
 
 **`rev-list` cannot see cherry-picks.** A picked commit gets a new SHA, so the 55 stays 55
@@ -37,8 +37,8 @@ however much we take. What moved on 2026-09-24, classified per upstream non-merg
 | Status | Count | Commits |
 | --- | --- | --- |
 | Picked (trailer) | 19 | 8 on 2026-09-03 (PR #13); `b3a7e32a` `c2e224eb` `8d720748` `9d8b073c` (compileSdk hunk) `6d4c64a5` `ad861490` `31b70030` `5c0c2390` `4eb24a8d` `801dba1b` `98c12beb` on 2026-09-24 |
-| Already on our tree, no pick needed | 4 | `9221a0ca` (JDK 17), `583f662a` (8BitDo vendor ID, from Artemis), `3df0103a` (Artemis dropped every < API 21 path), `0dc4c4fe` (its common-c `874ac95` is inside our pin) |
-| Deliberately not taken | 6 | `4b2221d3` targetSdk 36 (runtime behaviour change, wants its own PR), `1fa0e2a0` NDK r29 (no pick needs it), `3f114ac7` `578f38f6` AppVeyor (we run GitHub Actions), `b55b4b6d` + `b48494cb` (new-locale entries and upstream's version bump) |
+| Already on our tree, no pick needed | 3 | `9221a0ca` (JDK 17), `583f662a` (8BitDo vendor ID, from Artemis), `3df0103a` (Artemis dropped every < API 21 path) |
+| Deliberately not taken | 7 | `0dc4c4fe` (its common-c bump to `874ac95` is inside our pin; its JNI/Java half — µs decode-unit timestamps with epoch normalisation in `MediaCodecDecoderRenderer`, `LI_CTYPE_STEAM` / `LI_CCAP_DUAL_TOUCHPAD` constants — is not: our `callbacks.c` converts µs to ms instead, adapted when the pin moved), `4b2221d3` targetSdk 36 (runtime behaviour change, wants its own PR), `1fa0e2a0` NDK r29 (no pick needs it), `3f114ac7` `578f38f6` AppVeyor (we run GitHub Actions), `b55b4b6d` + `b48494cb` (new-locale entries and upstream's version bump) |
 | Weblate translations | 25 | none apply, even with line endings normalised: Artemis rewrote those `strings.xml` files, and `fr` is one of our rebranded locales |
 
 The keyboard-capture half of `ddb674a9` is still out (see docs/meow/TOUCHPOINTS.md).
@@ -330,7 +330,7 @@ now alive, and the fork we branched from is the quiet one:
 
 | | Last commit | Status |
 | --- | --- | --- |
-| `moonlight-stream/moonlight-android` (original app) | 2026-09-12 (`b48494cb`) | **active again, and releasing**: v12.2 on 2026-09-12. 55 commits by `rev-list`, of which 31 are not carried in any form, 25 of those translations (§1) |
+| `moonlight-stream/moonlight-android` (original app) | 2026-09-12 (`b48494cb`) | **active again, and releasing**: v12.2 on 2026-09-12. 55 commits by `rev-list`, of which 32 are not taken in any form, 25 of those translations (§1) |
 | `moonlight-stream/moonlight-common-c` (protocol core) | 2026-09-08 (`62e0663`) | **actively developed**; our pin is 3 behind (§2) |
 
 The old text explained the app repo's recent "last pushed" away as the `weblate`
