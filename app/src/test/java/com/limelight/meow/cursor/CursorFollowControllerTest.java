@@ -53,6 +53,15 @@ public class CursorFollowControllerTest {
             out[4] = zoom;
             return true;
         }
+
+        @Override
+        public boolean window(float[] out) {
+            out[0] = 0f;
+            out[1] = 0f;
+            out[2] = 1920f;
+            out[3] = 1080f;
+            return true;
+        }
     }
 
     /** Pans the fake view the way PanZoomHandler would. */
@@ -198,7 +207,7 @@ public class CursorFollowControllerTest {
     public void directPointingSelectsTheEdgeMargin() {
         // A host that moves its pointer to a native touch 10% in from the right edge: inside
         // the edge band's reach, outside the comfort margin's.
-        controller.onDirectPointing(Float.NaN, Float.NaN);
+        controller.onDirectPointing(CursorInputTap.TOUCH_MOVE, Float.NaN, Float.NaN);
         controller.onCursorPosition(1152, 540, true, 1);
         frames.runUi();
         float before = view.x;
@@ -405,19 +414,53 @@ public class CursorFollowControllerTest {
         controller.setTouchMode(() -> true);
         // A native-touch drag toward the right edge of the visible box (720..1200).
         float before = view.x;
-        controller.onDirectPointing(1000f / 1920f, 0.5f);
+        controller.onDirectPointing(CursorInputTap.TOUCH_DOWN, 1000f / 1920f, 0.5f);
+        controller.onDirectPointing(CursorInputTap.TOUCH_MOVE, 1100f / 1920f, 0.5f);
         frames.settle();
         assertEquals("inside the view, away from the edge: nothing moves", before, view.x, 0f);
-        controller.onDirectPointing(1195f / 1920f, 0.5f);
+        controller.onDirectPointing(CursorInputTap.TOUCH_MOVE, 1195f / 1920f, 0.5f);
         frames.settle();
         assertTrue("dragged into the 4% edge band: the view scrolls", view.x > before);
-        assertTrue(1195f <= view.x + 480f);
+        assertTrue("and the finger's point is back out of the band",
+                1195f <= view.x + 480f * (1f - CursorFollowController.EDGE_MARGIN) + 1f);
+    }
+
+    @Test
+    public void aTapInTheEdgeBandDoesNotScrollTheView() {
+        controller.setTouchMode(() -> true);
+        float before = view.x;
+        // Down 1% inside the right edge, a pixel of jitter, and up.
+        controller.onDirectPointing(CursorInputTap.TOUCH_DOWN, 1195f / 1920f, 0.5f);
+        controller.onDirectPointing(CursorInputTap.TOUCH_MOVE, 1196f / 1920f, 0.5f);
+        controller.onDirectPointing((byte) 0x02, Float.NaN, Float.NaN);
+        frames.settle();
+        assertEquals(before, view.x, 0f);
+    }
+
+    @Test
+    public void aHoveringPenAtTheEdgeIsFollowed() {
+        controller.setTouchMode(() -> true);
+        float before = view.x;
+        controller.onDirectPointing(CursorInputTap.TOUCH_HOVER, 1195f / 1920f, 0.5f);
+        frames.settle();
+        assertTrue(view.x > before);
+    }
+
+    @Test
+    public void aReportingHostsPointerIsNotMovedByTheFinger() {
+        controller.setTouchMode(() -> true);
+        controller.onCursorPosition(900, 500, true, 1);
+        frames.runUi();
+        assertTrue(controller.cursor().isHostReporting());
+        controller.onDirectPointing(CursorInputTap.TOUCH_HOVER, 1195f / 1920f, 0.5f);
+        frames.runUi();
+        assertEquals(900f, controller.cursor().x(), 0f);
     }
 
     @Test
     public void aSecondFingerOrALiftCarriesNoPositionToFollow() {
         controller.setTouchMode(() -> true);
-        controller.onDirectPointing(Float.NaN, Float.NaN);
+        controller.onDirectPointing(CursorInputTap.TOUCH_MOVE, Float.NaN, Float.NaN);
         assertEquals(0, frames.settle());
         assertFalse(controller.cursor().isKnown());
     }

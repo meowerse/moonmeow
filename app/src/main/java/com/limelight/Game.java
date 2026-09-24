@@ -537,6 +537,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             });
             cursorFollow.setTouchMode(
                     () -> !prefConfig.touchscreenTrackpad && touchContextMap[0] != null);
+            cursorFollow.setAutoZoom(com.limelight.meow.cursor.AutoCursorZoom.isEnabled(this));
             viewportBinder.setCursorFollow(cursorFollow);
             // Automatic bitrate: the starting bitrate is negotiated below, reports start once
             // the host is proven. Both extensions need that proof, so always probe for it.

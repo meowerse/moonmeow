@@ -59,8 +59,10 @@ import java.util.concurrent.atomic.AtomicLong;
  * at a known point inside the view. Unzoomed, nothing changes: relative input stays relative,
  * with the host's own acceleration, because the whole desktop is on screen anyway.
  *
- * <p>No allocation on the per-event or per-frame paths. Inputs from other threads are folded
- * into atomics and drained on the UI thread by one reused runnable.
+ * <p>No allocation on the per-event or per-frame paths, apart from a {@code MeowFollow} line
+ * (at most four a second, built only when it will be written). Inputs from other threads are
+ * folded into atomics and drained on the UI thread by one reused runnable; a native touch
+ * reported off the UI thread (no sender does that today) is posted as a small task.
  */
 public final class CursorFollowController
         implements CursorInputTap.Listener, MeowStreamBridge.CursorListener {
@@ -88,6 +90,8 @@ public final class CursorFollowController
      * screen stays this many screen pixels inside the right and bottom edges so it is seen.
      */
     static final float POINTER_SPRITE_PX = 24f;
+    /** Screen pixels a touch contact travels before it counts as a drag the view follows. */
+    static final float TOUCH_SLOP_PX = 24f;
     private static final long NEVER = Long.MIN_VALUE / 2;
 
     /** What the controller needs from the view side. Implemented by the viewport binder. */
@@ -109,6 +113,14 @@ public final class CursorFollowController
          * {@code origin + r * pxPerReference}.
          */
         boolean transform(float[] out);
+
+        /**
+         * The window the view is seen through, {left, top, right, bottom} in parent pixels
+         * (above the soft keyboard and any docked overlay).
+         *
+         * @return false before the views are laid out or the stream has started
+         */
+        boolean window(float[] out);
     }
 
     /** Sends an absolute host pointer position. Production: {@code NvConnection}. */
@@ -142,6 +154,10 @@ public final class CursorFollowController
     private final Frames frames;
     private final HostCursor cursor = new HostCursor();
     private final boolean enabled;
+    /** {@link AutoCursorZoom}: start zoomed when the desktop is a strip in the view. */
+    private boolean autoZoom;
+    /** The user set the zoom themselves this stream (a pinch, a restored zoom): hands off. */
+    private boolean userZoomed;
 
     private PointerSink sink;
     private TouchMode touchMode = () -> false;
@@ -174,6 +190,11 @@ public final class CursorFollowController
     private final float[] visible = new float[4];
     private final float[] bounds = new float[4];
     private final float[] transform = new float[5];
+    private final float[] scratchWindow = new float[4];
+    /** The current touch contact, UI thread: where it went down, and whether it is a drag. */
+    private float touchDownX;
+    private float touchDownY;
+    private boolean touchDragging;
 
     // Cross-thread inbox, drained on the UI thread.
     private static final long NO_POSITION = -1L;
@@ -218,6 +239,11 @@ public final class CursorFollowController
     /** Where the controller may place the host pointer. Without it, it never does. */
     public void setPointerSink(PointerSink sink) {
         this.sink = sink;
+    }
+
+    /** Auto cursor zoom on or off ({@link AutoCursorZoom#isEnabled}). Before the stream. */
+    public void setAutoZoom(boolean on) {
+        this.autoZoom = on;
     }
 
     /** How to tell the direct-touch modes from the pointer modes. Read when needed. */
@@ -268,6 +294,8 @@ public final class CursorFollowController
         pendingRelativeY.set(0);
         armed = false;
         haveTransform = view.transform(lastTransform);
+        // A zoom already in place (rememberZoomPan restored it) is the user's choice.
+        userZoomed = haveTransform && lastTransform[4] > UNZOOMED;
         ignoreHostReportsUntilMs = NEVER;
         hostProvenAtMs = NEVER;
         streamStarted = true;
@@ -278,7 +306,9 @@ public final class CursorFollowController
         log.state("stream start " + streamWidth + "x" + streamHeight + ": follow "
                 + (enabled ? "on" : "OFF") + ", touch mode "
                 + (touchMode.isDirectTouch() ? "direct" : "pointer")
-                + ", sink " + (sink != null) + ", zoom " + (haveTransform ? lastTransform[4] : -1f));
+                + ", sink " + (sink != null) + ", zoom " + (haveTransform ? lastTransform[4] : -1f)
+                + ", auto zoom " + (autoZoom ? (userZoomed ? "on, user zoom kept" : "on") : "off"));
+        autoZoomIfStrip("stream start");
     }
 
     /** Any thread. Stops listening; the view is left where it is. */
@@ -291,6 +321,55 @@ public final class CursorFollowController
     /** UI thread. The desktop size from the viewport echo, for scaling relative deltas. */
     public void onDesktopExtent(int desktopWidth, int desktopHeight) {
         cursor.setDesktopExtent(desktopWidth, desktopHeight);
+        // The echo also told the binder where the desktop sits in the frame: now the strip
+        // can be measured. Every later echo lands here too and finds nothing to change.
+        autoZoomIfStrip("desktop " + desktopWidth + "x" + desktopHeight);
+    }
+
+    /**
+     * {@link AutoCursorZoom}: when the desktop fills only a strip of the window, zoom so it
+     * fills the window, centred on the cursor (or on the desktop's middle when the cursor is
+     * unknown; the first move then puts the pointer in the middle of the view). Does nothing
+     * once the user has zoomed this stream. UI thread.
+     */
+    private void autoZoomIfStrip(String why) {
+        if (!enabled || !autoZoom || userZoomed || !streamStarted
+                || !view.transform(transform) || !view.window(scratchWindow)) {
+            return;
+        }
+        view.contentBounds(bounds);
+        float zoom = transform[4];
+        float pxX = transform[2] / zoom;
+        float pxY = transform[3] / zoom;
+        float windowW = scratchWindow[2] - scratchWindow[0];
+        float windowH = scratchWindow[3] - scratchWindow[1];
+        float target = AutoCursorZoom.targetZoom(
+                (bounds[2] - bounds[0]) * pxX, (bounds[3] - bounds[1]) * pxY, windowW, windowH,
+                pxX * cursor.desktopToReferenceX(), pxY * cursor.desktopToReferenceY());
+        if (Math.abs(target - zoom) < 0.01f * target) {
+            return;
+        }
+        float centreX = scratchWindow[0] + windowW / 2f;
+        float centreY = scratchWindow[1] + windowH / 2f;
+        float atX = cursor.isKnown() ? cursor.x() : (bounds[0] + bounds[2]) / 2f;
+        float atY = cursor.isKnown() ? cursor.y() : (bounds[1] + bounds[3]) / 2f;
+        moving = true;
+        try {
+            panTarget.pinchBy(target / zoom, centreX, centreY);
+            if (view.transform(transform)) {
+                panTarget.panBy(centreX - (transform[0] + atX * transform[2]),
+                        centreY - (transform[1] + atY * transform[3]));
+            }
+        } finally {
+            moving = false;
+        }
+        remember();
+        log.state("auto zoom " + zoom + "->" + target + " (" + why + "): desktop "
+                + Math.round(bounds[2] - bounds[0]) + "x" + Math.round(bounds[3] - bounds[1])
+                + " ref in a " + Math.round(windowW) + "x" + Math.round(windowH)
+                + " window, centred on " + (cursor.isKnown() ? "cursor " + describeCursor()
+                        : "the desktop"));
+        arm();
     }
 
     /**
@@ -333,6 +412,10 @@ public final class CursorFollowController
         boolean zoomed = newZoom != oldZoom;
         boolean panned = transform[0] != lastTransform[0] || transform[1] != lastTransform[1];
 
+        if (zoomed && !resized) {
+            // Anything that zooms other than the controller itself is the user.
+            userZoomed = true;
+        }
         boolean direct = touchMode.isDirectTouch();
         if (!resized && !direct && cursor.isVisible()) {
             if (zoomed) {
@@ -356,6 +439,10 @@ public final class CursorFollowController
         // purpose, so the view is never chased there.
         if (!direct && (resized || cursorOffScreen())) {
             arm();
+        }
+        if (resized) {
+            // A rotation: measure the strip again (the user's zoom, once set, is kept).
+            autoZoomIfStrip("resize");
         }
     }
 
@@ -505,8 +592,8 @@ public final class CursorFollowController
                 || !frames.isUiThread() || !view.transform(transform)
                 || transform[4] <= UNZOOMED
                 || !view.visibleReferenceRect(visible)) {
-            if (enabled && streamStarted && transform[4] > UNZOOMED
-                    && log.activityAllowed(frames.uptimeMillis())) {
+            if (enabled && streamStarted && view.transform(transform)
+                    && transform[4] > UNZOOMED && log.activityAllowed(frames.uptimeMillis())) {
                 log.activity("relative move sent as relative: sink " + (sink != null)
                         + ", host reporting " + cursor.isHostReporting()
                         + ", waiting for first report " + !mayOwnPointer()
@@ -605,7 +692,8 @@ public final class CursorFollowController
     }
 
     @Override
-    public void onDirectPointing(final float fractionX, final float fractionY) {
+    public void onDirectPointing(final byte eventType, final float fractionX,
+                                 final float fractionY) {
         // Any thread. The finger is the pointer here: edge-scroll only (the margin), and the
         // view follows it when it is dragged into the edge band.
         lastAbsoluteInputMs = frames.uptimeMillis();
@@ -613,18 +701,41 @@ public final class CursorFollowController
             return;
         }
         if (frames.isUiThread()) {
-            applyTouchPoint(fractionX, fractionY);
+            applyTouchPoint(eventType, fractionX, fractionY);
         } else {
-            frames.postToUi(() -> applyTouchPoint(fractionX, fractionY));
+            frames.postToUi(() -> applyTouchPoint(eventType, fractionX, fractionY));
         }
     }
 
-    private void applyTouchPoint(float fractionX, float fractionY) {
+    /**
+     * A touch that lands in the edge band is a tap, not a request to scroll: panning between
+     * its down and its up would re-map the lift through the new view, and the host would see
+     * the contact slide. So a contact is followed only once it has travelled past the slop,
+     * which is also what makes it a drag. A hovering pen has no contact and is followed.
+     */
+    private void applyTouchPoint(byte eventType, float fractionX, float fractionY) {
         if (!streamStarted || cursor.isHostReporting()) {
             // A reporting host says where its pointer went (if touch moved it at all).
             return;
         }
-        cursor.onTouchPoint(fractionX * streamWidth, fractionY * streamHeight);
+        float x = fractionX * streamWidth;
+        float y = fractionY * streamHeight;
+        if (eventType == CursorInputTap.TOUCH_DOWN) {
+            touchDownX = x;
+            touchDownY = y;
+            touchDragging = false;
+            return;
+        }
+        if (eventType == CursorInputTap.TOUCH_MOVE && !touchDragging) {
+            float scale = view.transform(transform) ? transform[2] : 1f;
+            float dx = (x - touchDownX) * scale;
+            float dy = (y - touchDownY) * scale;
+            if (dx * dx + dy * dy < TOUCH_SLOP_PX * TOUCH_SLOP_PX) {
+                return;
+            }
+            touchDragging = true;
+        }
+        cursor.onTouchPoint(x, y);
         arm();
     }
 

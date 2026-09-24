@@ -52,8 +52,11 @@ public final class CursorInputTap {
          * ({@code fractionX}, {@code fractionY}) of the reference frame (already mapped
          * through the user's view). NaN when the event carries no position to follow (a lift,
          * a cancel, a second finger).
+         *
+         * @param eventType {@link #TOUCH_HOVER}, {@link #TOUCH_DOWN} or {@link #TOUCH_MOVE}
+         *                  when there is a position; anything else with NaN
          */
-        void onDirectPointing(float fractionX, float fractionY);
+        void onDirectPointing(byte eventType, float fractionX, float fractionY);
     }
 
     private static volatile Listener listener;
@@ -95,14 +98,18 @@ public final class CursorInputTap {
      * Hook in {@code NvConnection.sendTouchEvent} and {@code sendPenEvent}. Only the first
      * pointer's hover, down and move events carry a position worth following.
      */
+    public static final byte TOUCH_HOVER = 0x00;
+    public static final byte TOUCH_DOWN = 0x01;
+    public static final byte TOUCH_MOVE = 0x03;
+
     public static void touch(byte eventType, int pointerId, float x, float y) {
         Listener l = listener;
         if (l == null) {
             return;
         }
-        boolean follows = pointerId == 0 && (eventType == 0x00 /* HOVER */
-                || eventType == 0x01 /* DOWN */ || eventType == 0x03 /* MOVE */);
-        l.onDirectPointing(follows ? x : Float.NaN, follows ? y : Float.NaN);
+        boolean follows = pointerId == 0 && (eventType == TOUCH_HOVER
+                || eventType == TOUCH_DOWN || eventType == TOUCH_MOVE);
+        l.onDirectPointing(eventType, follows ? x : Float.NaN, follows ? y : Float.NaN);
     }
 
     /** Hook in {@code NvConnection.sendMouseMoveAsMousePosition}. */

@@ -28,8 +28,8 @@ public class CursorInputTapTest {
             calls.add("as " + dx + "," + dy + " " + w + "x" + h);
         }
 
-        @Override public void onDirectPointing(float x, float y) {
-            calls.add("touch " + (Float.isNaN(x) ? "-" : x + "," + y));
+        @Override public void onDirectPointing(byte type, float x, float y) {
+            calls.add("touch" + type + " " + (Float.isNaN(x) ? "-" : x + "," + y));
         }
     }
 
@@ -45,11 +45,12 @@ public class CursorInputTapTest {
         CursorInputTap.relative((short) -3, (short) 4);
         CursorInputTap.absolute((short) 10, (short) 20, (short) 1920, (short) 1080);
         CursorInputTap.moveAsPosition((short) 5, (short) 6, (short) 2712, (short) 1220);
+        CursorInputTap.touch((byte) 0x01, 0, 0.2f, 0.5f);    // first finger down
         CursorInputTap.touch((byte) 0x03, 0, 0.25f, 0.5f);   // first finger moves
         CursorInputTap.touch((byte) 0x03, 1, 0.75f, 0.5f);   // a second finger: no position
         CursorInputTap.touch((byte) 0x02, 0, 0.25f, 0.5f);   // lift: no position
-        assertEquals("[rel -3,4, abs 10,20 1920x1080, as 5,6 2712x1220, touch 0.25,0.5, "
-                + "touch -, touch -]", r.calls.toString());
+        assertEquals("[rel -3,4, abs 10,20 1920x1080, as 5,6 2712x1220, touch1 0.2,0.5, "
+                + "touch3 0.25,0.5, touch3 -, touch2 -]", r.calls.toString());
     }
 
     @Test

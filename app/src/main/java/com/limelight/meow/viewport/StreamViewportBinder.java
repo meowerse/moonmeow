@@ -744,6 +744,18 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
     }
 
+    /** The window the parent is seen through, {left, top, right, bottom}, parent pixels. */
+    @Override
+    public boolean window(float[] out) {
+        int parentWidth = parent.getWidth();
+        int parentHeight = parent.getHeight();
+        if (!streamStarted || parentWidth <= 0 || parentHeight <= 0) {
+            return false;
+        }
+        System.arraycopy(windowInParentCoords(parentWidth, parentHeight), 0, out, 0, 4);
+        return out[2] > out[0] && out[3] > out[1];
+    }
+
     /** {originX, originY, parentPxPerReferenceX, parentPxPerReferenceY, zoom}. */
     @Override
     public boolean transform(float[] out) {

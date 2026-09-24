@@ -62,7 +62,6 @@ public class GameCursorFollowModesTest {
     private static final int W = 1920;
     private static final int H = 1080;
 
-    /** The fake host's desktop and pointer acceleration; the default fills the stream. */
     /** The stream container on screen, and the negotiated stream; by default both W x H. */
     private int cw = W;
     private int ch = H;
@@ -70,6 +69,9 @@ public class GameCursorFollowModesTest {
     private int sh = H;
     /** A zoom restored by rememberZoomPan before the stream starts, or 0 for none. */
     private float restoredZoom;
+    /** Auto cursor zoom is off for the older cases, which pinch to a known zoom themselves. */
+    private boolean autoZoom;
+    /** The fake host's desktop and pointer acceleration; the default fills the stream. */
     private int desktopW = W;
     private int desktopH = H;
     private float hostAcceleration = 1f;
@@ -114,6 +116,7 @@ public class GameCursorFollowModesTest {
                 .putBoolean("checkbox_absolute_mouse_mode", absoluteMouse)
                 .putBoolean(CursorFollowPreference.KEY, true)
                 .putBoolean(ViewportPreference.KEY, true)
+                .putBoolean(AutoCursorZoom.KEY, autoZoom)
                 .commit();
 
         // The Shield controller extension binds a service Robolectric answers with a null
@@ -444,6 +447,17 @@ public class GameCursorFollowModesTest {
     }
 
     @Test
+    public void aNativeTouchTapInTheEdgeBandIsNotDraggedByAPan() throws Exception {
+        // Mode 0 against an old host: a tap 1% inside the right edge must reach the host where
+        // it went down, not slide by a follow pan between the down and the up.
+        launch("0", false, false);
+        float before = panZoom.getChildX();
+        touchDrag(W - 19f, 540f, W - 17f, 2);
+        settle();
+        assertEquals(before, panZoom.getChildX(), 0f);
+    }
+
+    @Test
     public void aTapInsideTheEdgeBandDoesNotMoveTheView() throws Exception {
         launch("1", false, true);
         float before = panZoom.getChildX();
@@ -730,7 +744,6 @@ public class GameCursorFollowModesTest {
         float[][] strokes = {{400f, 0f}, {-400f, 0f}, {0f, 300f}, {0f, -300f},
                 {400f, 0f}, {400f, 0f}, {-400f, 0f}, {-400f, 0f}};
         for (float[] stroke : strokes) {
-            float before = panZoom.getChildX() + panZoom.getChildY();
             trackpadStroke(stroke[0], stroke[1]);
             settle();
             assertHostCursorOnScreen();
@@ -807,5 +820,109 @@ public class GameCursorFollowModesTest {
         touchDrag(1600f, 540f, W - 2f, 30);
         settle();
         assertTrue("the view scrolled toward the finger", panZoom.getChildX() < before);
+    }
+
+    // ---- auto cursor zoom: the desktop starts readable, not as a strip ------------------
+
+    /** Sends the host's echo again, as every crop change does. */
+    private void echoAgain() throws Exception {
+        float scalar = Math.min((float) sw / desktopW, (float) sh / desktopH);
+        int contentW = (int) (desktopW * scalar);
+        int contentH = (int) (desktopH * scalar);
+        binder.onViewportApplied((sw - contentW) / 2, (sh - contentH) / 2, contentW, contentH,
+                desktopW, desktopH, 0);
+        drainBinder();
+        idle();
+    }
+
+    private void wideDesktopOnAnUprightPhone() {
+        portraitPhone();
+        desktopW = 5360;
+        desktopH = 1440;
+        hostAcceleration = 1.8f;
+    }
+
+    /** The desktop strip's height on screen at zoom 1, pixels. */
+    private float stripHeight() {
+        return (int) (desktopH * ((float) sw / desktopW)) * ((float) cw / sw);
+    }
+
+    private void autoZoomSession(String mode) throws Exception {
+        wideDesktopOnAnUprightPhone();
+        autoZoom = true;
+        launch(mode, false, false, false);
+        assertEquals("the desktop fills the height", ch / stripHeight(),
+                panZoom.getScaleFactor(), 0.05f);
+        float[] v = visible();
+        float contentH = (int) (desktopH * ((float) sw / desktopW));
+        assertEquals("the whole desktop height is on screen", contentH, v[3], 2f);
+        assertHostCursorOnScreen();
+        // And follow works from there, with no pinch at all.
+        float[][] strokes = {{400f, 0f}, {400f, 0f}, {400f, 0f}, {400f, 0f}, {-400f, 0f},
+                {-400f, 0f}, {-400f, 0f}, {-400f, 0f}, {-400f, 0f}, {0f, 300f}};
+        float childX = panZoom.getChildX();
+        boolean panned = false;
+        for (float[] stroke : strokes) {
+            trackpadStroke(stroke[0], stroke[1]);
+            settle();
+            assertHostCursorOnScreen();
+            panned |= panZoom.getChildX() != childX;
+        }
+        assertTrue("the view followed the cursor", panned);
+    }
+
+    @Test
+    public void aWideDesktopOnAnUprightPhoneStartsZoomedAndFollowedTrackpadNatural()
+            throws Exception {
+        autoZoomSession("2");
+    }
+
+    @Test
+    public void aWideDesktopOnAnUprightPhoneStartsZoomedAndFollowedTrackpadGaming()
+            throws Exception {
+        autoZoomSession("3");
+    }
+
+    @Test
+    public void aSixteenByNineDesktopInLandscapeIsNotZoomed() throws Exception {
+        autoZoom = true;
+        launch("2", false, false, false);
+        assertEquals(1f, panZoom.getScaleFactor(), 0f);
+        echoAgain();
+        assertEquals(1f, panZoom.getScaleFactor(), 0f);
+    }
+
+    @Test
+    public void withTheSwitchOffTheStripStays() throws Exception {
+        wideDesktopOnAnUprightPhone();
+        autoZoom = false;
+        launch("2", false, false, false);
+        assertEquals(1f, panZoom.getScaleFactor(), 0f);
+    }
+
+    @Test
+    public void aRestoredZoomIsTheUsersAndIsKept() throws Exception {
+        wideDesktopOnAnUprightPhone();
+        autoZoom = true;
+        restoredZoom = 3f;
+        launch("2", false, false, false);
+        assertEquals(3f, panZoom.getScaleFactor(), 0.01f);
+    }
+
+    @Test
+    public void aUserWhoPinchesOutStaysOut() throws Exception {
+        wideDesktopOnAnUprightPhone();
+        autoZoom = true;
+        launch("2", false, false, false);
+        assertTrue(panZoom.getScaleFactor() > 5f);
+        for (int i = 0; i < 4 && panZoom.getScaleFactor() > 1f; i++) {
+            pinch(cw / 2f, ch / 2f, 400f, 40f, 0f, 0f, 20);
+        }
+        assertEquals("pinched all the way out", 1f, panZoom.getScaleFactor(), 0f);
+        echoAgain();
+        panZoom.handleSurfaceChange();
+        idle();
+        settle();
+        assertEquals("and it stays out", 1f, panZoom.getScaleFactor(), 0f);
     }
 }

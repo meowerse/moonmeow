@@ -670,6 +670,15 @@
             android:title="@string/title_checkbox_meow_cursor_follow"
             app:iconSpaceReserved="false" />
 
+        <!-- MEOW-TOUCH(cursor-follow): must match AutoCursorZoom.DEFAULT. -->
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:dependency="checkbox_meow_cursor_follow"
+            android:key="checkbox_meow_auto_cursor_zoom"
+            android:summary="@string/summary_checkbox_meow_auto_cursor_zoom"
+            android:title="@string/title_checkbox_meow_auto_cursor_zoom"
+            app:iconSpaceReserved="false" />
+
         <CheckBoxPreference
             android:defaultValue="false"
             android:key="checkbox_enable_post_stream_toast"

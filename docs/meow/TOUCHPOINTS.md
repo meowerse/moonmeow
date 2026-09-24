@@ -661,7 +661,8 @@ One line each, first statement of `sendMouseMove`, `sendMousePosition`,
 `sendMouseMoveAsMousePosition`, `sendTouchEvent` and `sendPenEvent`: a call into
 `CursorInputTap`. The touch and pen hooks pass the event type, pointer id and the normalised
 position, so in the direct-touch modes the first finger is followed into the edge band even
-against a host that never reports its cursor. In `sendMouseMove` it is `if (CursorInputTap.relative(...)) return;`: while
+against a host that never reports its cursor -- once it has travelled 24 px from where it
+went down, so a tap in the band is never dragged by a follow pan. In `sendMouseMove` it is `if (CursorInputTap.relative(...)) return;`: while
 zoomed against a host that does not report its cursor, the follower has already sent the move
 as an absolute position and the relative one must not also go out. This is the one funnel every input mode already goes through, and the only
 place where "every relative-send path" is true by construction. Fully-qualified, no import.
@@ -685,6 +686,20 @@ The visible rectangle then ends above it, for cursor follow and for the host cro
 `checkbox_meow_cursor_follow`, default `true` — the explicit off switch.
 `CursorFollowPreferenceTest` checks the XML default against `CursorFollowPreference.DEFAULT`.
 
+### Auto cursor zoom (2026-09-24, same PR)
+
+One more line in the `Game.onCreate` block that builds the follower:
+`cursorFollow.setAutoZoom(com.limelight.meow.cursor.AutoCursorZoom.isEnabled(this));`, plus a
+`checkbox_meow_auto_cursor_zoom` entry (default on, depends on cursor follow) in
+`res/xml/preferences.xml` and its two strings. When the desktop fills less than 60% of the
+window in one axis -- a 5360x1440 desktop on an upright phone is a 1220x330 px strip -- the
+stream starts zoomed so the desktop fills the window, centred on the cursor, and follow works
+from the first frame. The rule and its cap are in `AutoCursorZoom`; the controller measures at
+stream start, on each echo (which is when the desktop's box in the frame becomes known) and on
+a resize, and stops for the stream once the user zooms. The window it measures against comes
+from a new `ViewportView.window()`, which the binder answers with the same
+`windowInParentCoords` the visible rectangle uses. Contract: `cursor-follow-ux.md` rows 40-42.
+
 ### Diagnostics: `adb logcat -s MeowFollow`
 
 `FollowLog` writes, in release builds (no proguard rule strips `android.util.Log`, pinned by
@@ -700,6 +715,7 @@ take over, with the reason. Nothing is formatted for a dropped line.
 | File | Android? | What it is |
 | --- | --- | --- |
 | `FollowLog.java` | Log | the `MeowFollow` diagnostics, rate limited |
+| `AutoCursorZoom.java` | prefs | auto cursor zoom: its switch and the zoom rule (fill a strip, cap at 2 screen px per desktop px) |
 | `CursorFollowController.java` | Choreographer | arming, vsync stepping, margins, cross-thread inbox |
 | `CursorFollowMotion.java` | no | the per-axis target and the eased, speed-capped step |
 | `HostCursor.java` | no | host-reported or dead-reckoned cursor in reference pixels |

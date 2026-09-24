@@ -711,6 +711,8 @@
     <string name="perf_overlay_meow_applied_bitrate_host">Bitrate: applied %1$.1f Mbps (host)</string>
     <string name="title_checkbox_meow_cursor_follow">Follow the cursor when zoomed in</string>
     <string name="summary_checkbox_meow_cursor_follow">While you are zoomed in, pan the view so the desktop cursor stays on screen, whichever touch or mouse mode moves it. Uses the host\'s own cursor position when the host reports it.</string>
+    <string name="title_checkbox_meow_auto_cursor_zoom">Start zoomed in on a wide desktop</string>
+    <string name="summary_checkbox_meow_auto_cursor_zoom">When the desktop would only fill a thin strip of the screen (a wide desktop on a phone held upright), start zoomed so it fills the screen, centred on the cursor. Pinch to change it; your zoom is kept for the rest of the stream.</string>
     <string name="title_checkbox_enable_viewport_follow">Viewport-following quality</string>
     <string name="summary_checkbox_enable_viewport_follow">Tell the host which part of the desktop you are looking at, so it spends the whole bitrate on that region instead of the entire desktop. Needs a host that supports it; the app checks at the start of each stream and turns this off for the session if the host does not answer.</string>
     <string name="title_checkbox_enable_perf_overlay_bottom">Move overlay to bottom</string>

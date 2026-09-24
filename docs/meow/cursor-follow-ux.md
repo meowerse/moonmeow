@@ -196,14 +196,30 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 31 | Following turned off in Settings | any | any | any | view never moves on its own, pointer never placed, no 0x3004 subscription | `CursorFollowBindingTest.withFollowingOffTheViewStaysPut`, `CursorFollowControllerTest.aDisabledControllerNeverSubscribesOrPans` |
 | 32 | "Remove animations" on | any | Z | any | jumps to the target in one frame | `CursorFollowControllerTest.withAnimationsOffTheViewJumpsInOneFrame` |
 | 33 | A host report older than a position the client just sent | any | Z | H | ignored for 300 ms | `CursorFollowControllerTest.aStaleHostReportJustAfterTheClientMovedThePointerIsIgnored` |
+| 34 | External-display controller (phone as trackpad for a second screen) | pointer | any | any | *Assumed, not traced:* its input reaches the host through the same `NvConnection` methods, so rows 6 / 11 apply; its own Pan/Zoom toggle mirrors `Game.toggleZoomMode` | — |
 | 35 | Moving left vs right, all four edges and corners, letterboxed 5360x1440 desktop, host acceleration 1.8x (the second report) | pointer | Z | DR | the same everywhere: the cursor stays on screen, and view and cursor reach every edge and corner (within 20 desktop px on all four sides) | `…everyEdgeAndCornerIsReachedWithTheCursorOnScreen` (fails without the client-owned pointer: `host cursor 352 off screen: visible 550..1030`), `CursorFollowControllerTest.pushingLeftAndRightIsSymmetric` |
 | 36 | Slow drag in gaming touch mode at a sensitivity other than 100% | pointer | any | any | no motion lost: the sub-pixel remainder is carried (at 150% a 1-px-per-sample drag used to send two thirds of it; at 70% nothing) | `TouchDeltaAccumulationTest.gamingTouchModeLosesNoMotionAtAnySensitivity`, `SubPixelAccumulatorTest` |
 | 37 | An on-screen overlay (PC keyboard) covers the bottom of the stream | pointer | Z | any | visible area ends above it; cursor kept above it; host crop moves with it | `CursorFollowBindingTest.anOverlayOverTheBottomOfTheStreamKeepsTheCursorAboveIt` |
 | 38 | Trackpad natural and gaming against an old host (echo v1, no 0x3004), portrait 2160x3840 stream in a 1220x2169 container, 5360x1440 desktop, 1.8x acceleration: unzoomed moves, pinch, strokes both ways | pointer | 1→Z | DR | cursor on screen after every stroke | `…deviceSession*AgainstAnOldHost` (landscape and portrait) |
 | 39 | The same with the zoom restored by "remember zoom" before the stream starts (no pinch) | pointer | Z | DR | as 38 | `…aZoomRestoredBeforeTheStreamIsFollowed*` |
-| 34 | External-display controller (phone as trackpad for a second screen) | pointer | any | any | *Assumed, not traced:* its input reaches the host through the same `NvConnection` methods, so rows 6 / 11 apply; its own Pan/Zoom toggle mirrors `Game.toggleZoomMode` | — |
+| 40 | Stream start (or rotation) with the desktop filling < 60% of the window in one axis (5360x1440 on an upright phone: a 1220x330 px strip) | any | 1→A | any | starts zoomed so the desktop fills the window, capped at 2 screen px per desktop px, centred on the cursor (or the desktop's middle when unknown; the first move then puts the pointer mid-view); follow works from there | `…aWideDesktopOnAnUprightPhoneStartsZoomedAndFollowedTrackpadNatural/Gaming`, `AutoCursorZoomTest` |
+| 41 | 16:9 desktop in landscape, auto zoom switched off, or a zoom restored by "remember zoom" | any | 1 / Z | any | no auto zoom | `…aSixteenByNineDesktopInLandscapeIsNotZoomed`, `…withTheSwitchOffTheStripStays`, `…aRestoredZoomIsTheUsersAndIsKept` |
+| 42 | The user pinches after an auto zoom (in or all the way out) | any | A→Z | any | their zoom wins for the rest of the stream: later echoes and rotations do not re-zoom | `…aUserWhoPinchesOutStaysOut` |
+| 43 | Native-touch tap inside the edge band | direct | Z | any | no scroll: a contact is followed only once it has travelled 24 px (a drag), so the lift reaches the host where the finger went down | `…aNativeTouchTapInTheEdgeBandIsNotDraggedByAPan`, `CursorFollowControllerTest.aTapInTheEdgeBandDoesNotScrollTheView` |
 
 ## Known limits, stated
+
+* **Unzoomed there is nothing to follow, by design.** Build 601cff94's "mouse is not
+  followed" report was *not* reproduced: every trackpad session the tests replay (natural and
+  gaming, portrait and landscape, an old host without 0x3004) follows once zoomed, and the
+  trackpad path did not change in that build. The device's input log shows no two-finger
+  event in either session, and a reinstall drops a remembered zoom, so the stream was most
+  likely at 1x, where a 5360x1440 desktop on an upright phone is a 1220x330 px strip. Auto
+  cursor zoom (rows 40-42) now starts such a stream zoomed. `adb logcat -s MeowFollow` prints
+  the zoom at stream start and every auto zoom, which settles the next report.
+* **Auto zoom does not remember a zoom per host or orientation.** The user's pinch holds for
+  the stream; the next stream measures again. "Remember zoom" restores a zoom as before, and
+  a restored zoom is never auto-zoomed over.
 
 * **The soft keyboard row is not exercised in a unit test.** Robolectric does not dispatch
   IME insets. The visible-area arithmetic is the tested `windowFromLocationInWindow`, fed a
