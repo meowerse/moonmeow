@@ -71,6 +71,8 @@ public class GameCursorFollowModesTest {
     private float restoredZoom;
     /** Auto cursor zoom is off for the older cases, which pinch to a known zoom themselves. */
     private boolean autoZoom;
+    /** A resumed host session: the cursor is still at the right edge, hidden there. */
+    private boolean hostCursorLeftHiddenAtRightEdge;
     /** The fake host's desktop and pointer acceleration; the default fills the stream. */
     private int desktopW = W;
     private int desktopH = H;
@@ -169,8 +171,13 @@ public class GameCursorFollowModesTest {
         idle();
         if (hostReports) {
             // A reporting host answers the subscription with its position at once.
+            if (hostCursorLeftHiddenAtRightEdge) {
+                ShadowMoonBridgeWithHost.cursorX = desktopW - 1;
+                ShadowMoonBridgeWithHost.hideAtEdge = true;
+            }
             MeowStreamBridgeAccess.cursor(Math.round(ShadowMoonBridgeWithHost.referenceX()),
-                    Math.round(ShadowMoonBridgeWithHost.referenceY()), 1);
+                    Math.round(ShadowMoonBridgeWithHost.referenceY()),
+                    !hostCursorLeftHiddenAtRightEdge, 1);
             idle();
         }
         // Let the first-report wait pass, as it does in the first seconds of a real session.
@@ -1035,5 +1042,24 @@ public class GameCursorFollowModesTest {
         first.destroy();
         idle();
         swipesRightStayOnScreen();
+    }
+
+    /**
+     * The resume half of the emulator run: the first session left the host cursor hidden at
+     * the desktop's right edge; the new Game starts auto zoomed on the desktop's middle, and
+     * swiping right must bring the view to the cursor. Fails without the "pinned" rule.
+     */
+    @Test
+    public void aResumedSessionFollowsACursorLeftHiddenAtTheEdge() throws Exception {
+        hostCursorLeftHiddenAtRightEdge = true;
+        emulatorAgainstAReportingHost("2");
+        ShadowMoonBridgeWithHost.reportLatencyMs = 40L;
+        for (int i = 0; i < 2; i++) {
+            trackpadStroke(300f, 0f);
+        }
+        settle();
+        float[] v = visible();
+        assertTrue("the view reached the cursor at the right edge: " + v[0] + "+" + v[2],
+                v[0] + v[2] >= sw - 1f);
     }
 }

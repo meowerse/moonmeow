@@ -696,10 +696,15 @@ suppressed. Each kind now has its own limit (`FollowLog.INPUT` / `VIEW` / `PAN`)
 `CursorFollowControllerTest.aFollowPanIsLoggedDuringAContinuousSwipeAgainstAReportingHost`,
 which fails on the shared limit. The "waiting for first report" field no longer reads true
 for a host that is reporting. The same run had the host report its cursor hidden at the
-desktop's right edge mid-swipe, which disarmed the follower short of it. A cursor that goes
-hidden *while the user drives it* (it was visible, and pointer input went out within 500 ms
-of the report) is now still followed, decided per report so a follow in progress finishes;
-a cursor a game or video hid is still never chased. The Game-level reproduction is
+desktop's right edge mid-swipe, which disarmed the follower short of it. A hidden cursor is
+now still followed where the user drove it -- it went hidden within 500 ms of pointer input,
+or it is pinned against the desktop edge while driven (the resumed session, whose first
+report is the cursor still hidden where it was left), and a later hidden report at the same
+point keeps it -- decided per report so a follow in progress finishes. A cursor a game or
+video hid, or one hidden and wandering, is still never chased
+(`cursor-follow-ux.md` rows 20 and 44). The resume variant is
+`GameCursorFollowModesTest.aResumedSessionFollowsACursorLeftHiddenAtTheEdge`, which fails
+without the pinned rule. The Game-level reproduction is
 `GameCursorFollowModesTest.aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt`: the
 fake host reports 40 ms late from a callback thread and hides the cursor at the edge, and
 the test fails with the old rule (the view stopped at 734+304 of 1080). The emulator's

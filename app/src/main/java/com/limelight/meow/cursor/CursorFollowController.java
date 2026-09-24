@@ -182,10 +182,13 @@ public final class CursorFollowController
     /** When the client last sent pointer movement of any kind. Any thread writes it. */
     private volatile long lastPointerInputMs = Long.MIN_VALUE / 2;
     /**
-     * The host's cursor is hidden but went hidden while the user drove it: keep following.
-     * Decided when a report is drained, so a follow in progress runs to its end. UI thread.
+     * The host's cursor is hidden, but where the user drove it: keep following. Decided when a
+     * report is drained, so a follow in progress runs to its end. UI thread.
      */
     private boolean followHidden;
+    /** Where {@link #followHidden} was decided; a hidden cursor that moves on drops it. */
+    private float followHiddenX;
+    private float followHiddenY;
     /** The "sent as relative, host reports" line is written once per stream. */
     private boolean loggedHostReportingInput;
     private long ignoreHostReportsUntilMs = NEVER;
@@ -318,6 +321,7 @@ public final class CursorFollowController
         followHidden = false;
         loggedHostReportingInput = false;
         lastPointerInputMs = NEVER;
+        lastAbsoluteInputMs = NEVER;
         java.util.Arrays.fill(measuredGeometry, -1f);
         ignoreHostReportsUntilMs = NEVER;
         hostProvenAtMs = NEVER;
@@ -832,12 +836,12 @@ public final class CursorFollowController
                 }
             } else {
                 boolean first = !cursor.isHostReporting();
-                boolean wasShown = !first && (cursor.isVisible() || followHidden);
+                boolean wasVisible = !first && cursor.isVisible();
                 boolean driven = frames.uptimeMillis() - lastPointerInputMs
                         <= POINTER_INPUT_WINDOW_MS;
                 cursor.onHostPosition((int) (packed >>> 32) & 0xFFFF,
                         (int) (packed >>> 16) & 0xFFFF, (packed & 1L) != 0);
-                followHidden = !cursor.isVisible() && driven && wasShown;
+                followHidden = followsHidden(wasVisible, driven);
                 if (first) {
                     log.state("first host cursor report (0x3004): " + describeCursor());
                 }
@@ -852,6 +856,37 @@ public final class CursorFollowController
     }
 
     // ---- UI thread ---------------------------------------------------------------------
+
+    /**
+     * Whether the cursor just reported hidden is still followed. Only where the user drove it:
+     * <ul>
+     *   <li>it was visible and went hidden within {@link #POINTER_INPUT_WINDOW_MS} of pointer
+     *       input (the emulator host hid it at the desktop edge mid-swipe);</li>
+     *   <li>it is pinned against the desktop's edge while the user drives it -- a resumed
+     *       session whose first report is the cursor still hidden where it was left;</li>
+     *   <li>a later hidden report at the same point keeps it, one that moves drops it: a game
+     *       that hides the cursor and lets it wander is not chased (row 20).</li>
+     * </ul>
+     * Reports that arrive between two drains are coalesced to the newest, so a visible report
+     * squeezed between hidden ones can be missed; the next drive decides again.
+     */
+    private boolean followsHidden(boolean wasVisible, boolean driven) {
+        if (cursor.isVisible()) {
+            return false;
+        }
+        float x = cursor.x();
+        float y = cursor.y();
+        boolean stayed = followHidden && Math.abs(x - followHiddenX) <= 1f
+                && Math.abs(y - followHiddenY) <= 1f;
+        boolean pinned = x <= cursor.boundsLeft() + 1f || x >= cursor.boundsRight() - 2f
+                || y <= cursor.boundsTop() + 1f || y >= cursor.boundsBottom() - 2f;
+        if (stayed || (driven && (wasVisible || pinned))) {
+            followHiddenX = x;
+            followHiddenY = y;
+            return true;
+        }
+        return false;
+    }
 
     private void applyRelative(int deltaX, int deltaY) {
         if (!streamStarted || cursor.isHostReporting()) {

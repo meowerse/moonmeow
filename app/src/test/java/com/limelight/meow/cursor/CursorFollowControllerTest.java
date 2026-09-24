@@ -532,8 +532,12 @@ public class CursorFollowControllerTest {
             frames.now += 17;
             logged.onRelativeMove(1, 0);
         }
-        long said = lines.stream().filter(l -> l.startsWith("relative move")).count();
+        long said = lines.stream()
+                .filter(l -> l.equals("relative moves go out as relative: the host reports its cursor"))
+                .count();
         assertEquals(lines.toString(), 1, said);
+        assertFalse(lines.toString(),
+                lines.stream().anyMatch(l -> l.contains("sent as relative: sink")));
         assertFalse(lines.toString(), lines.stream().anyMatch(
                 l -> l.contains("waiting for first report true")));
         logged.onStreamStopped();
@@ -594,22 +598,67 @@ public class CursorFollowControllerTest {
         controller.onRelativeMove(40, 0);
         controller.onCursorPosition(1919, 540, false, 2);
         frames.runUi();
-        // The report came a round trip after the input; the follow outlives the window.
-        frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS - 10);
+        // A few frames of the follow, then the input window runs out mid-follow.
+        for (int i = 0; i < 3 && frames.frame != null; i++) {
+            Choreographer.FrameCallback f = frames.frame;
+            frames.frame = null;
+            frames.now += 17;
+            f.doFrame(frames.nanos += 16_666_667L);
+        }
+        float partWay = view.x;
+        assertTrue("under way, not done", partWay + 480f < 1919f);
+        frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS);
         frames.settle();
         assertTrue(1919f <= view.x + 480f);
     }
 
     @Test
-    public void aCursorHiddenByTheHostOnItsOwnIsNotChased() {
+    public void aCursorHiddenByTheHostOnItsOwnIsNotChasedEvenWhenTheMouseMovesLater() {
         controller.onCursorPosition(960, 540, true, 1);
         frames.runUi();
         frames.settle();
         frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS + 1);
         float before = view.x;
-        controller.onCursorPosition(1900, 540, false, 2);
+        controller.onCursorPosition(1100, 540, false, 2);
         frames.runUi();
         frames.settle();
         assertEquals(before, view.x, 0f);
+        for (int i = 0; i < 20; i++) {
+            controller.onRelativeMove(20, 0);
+            controller.onCursorPosition(1100 + 20 * i, 540, false, i + 3);
+            frames.runUi();
+            frames.settle();
+        }
+        assertEquals(before, view.x, 0f);
+    }
+
+    @Test
+    public void aCursorHiddenWhileDrivenThatWandersOnIsNotChased() {
+        // An RTS hides the cursor on a right-drag while the mouse moves, and it wanders.
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        controller.onRelativeMove(20, 0);
+        controller.onCursorPosition(1150, 540, false, 2);
+        frames.runUi();
+        frames.settle();
+        float atFirstHiddenPoint = view.x;
+        for (int i = 0; i < 30; i++) {
+            controller.onRelativeMove(25, 0);
+            controller.onCursorPosition(1175 + 25 * i, 540, false, i + 3);
+            frames.runUi();
+            frames.settle();
+        }
+        assertEquals(atFirstHiddenPoint, view.x, 1f);
+    }
+
+    @Test
+    public void aResumedCursorHiddenAtTheEdgeIsFollowedWhenDriven() {
+        // A new stream's first report is the cursor still hidden where it was left.
+        controller.onRelativeMove(40, 0);
+        controller.onCursorPosition(1919, 540, false, 1);
+        frames.runUi();
+        frames.settle();
+        assertTrue(1919f <= view.x + 480f);
     }
 }
