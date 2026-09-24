@@ -189,16 +189,9 @@ public class StreamContainer extends FrameLayout implements SurfaceHolder.Callba
         }
         outAttrs.inputType = android.text.InputType.TYPE_CLASS_TEXT;
         outAttrs.imeOptions = EditorInfo.IME_FLAG_NO_EXTRACT_UI;
-        return new BaseInputConnection(this, false) {
-            @Override
-            public boolean commitText(CharSequence text, int newCursorPosition) {
-                return mInputCallbacks != null && mInputCallbacks.handleCommitText(text) || super.commitText(text, newCursorPosition);
-            }
-            @Override
-            public boolean deleteSurroundingText(int beforeLength, int afterLength) {
-                return mInputCallbacks != null && mInputCallbacks.handleDeleteSurroundingText(beforeLength, afterLength) || super.deleteSurroundingText(beforeLength, afterLength);
-            }
-        };
+        // MEOW-TOUCH(pc-keyboard): mirrors composing text live and no longer re-sends every
+        // composed word from finishComposingText(); see ImeInputConnection for the bug.
+        return new com.limelight.meow.keyboard.ImeInputConnection(this, mInputCallbacks);
     }
 
     public void setOnSurfaceAvailable(Runnable callback) {
