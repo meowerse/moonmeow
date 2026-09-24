@@ -519,7 +519,7 @@ public class CursorFollowControllerTest {
     }
 
     @Test
-    public void theNotTakenOverLineNamesTheRealReason() {
+    public void aReportingHostsRelativeMovesAreSaidOnceNotPerSwipe() {
         java.util.List<String> lines = new java.util.ArrayList<>();
         CursorFollowController logged = new CursorFollowController(view, new Pan(), true, frames,
                 new FollowLog(lines::add));
@@ -528,11 +528,29 @@ public class CursorFollowControllerTest {
         logged.setPointerSink((x, y, w, h) -> { });
         logged.onCursorPosition(960, 540, true, 1);
         frames.runUi();
+        for (int i = 0; i < 100; i++) {
+            frames.now += 17;
+            logged.onRelativeMove(1, 0);
+        }
+        long said = lines.stream().filter(l -> l.startsWith("relative move")).count();
+        assertEquals(lines.toString(), 1, said);
+        assertFalse(lines.toString(), lines.stream().anyMatch(
+                l -> l.contains("waiting for first report true")));
+        logged.onStreamStopped();
+    }
+
+    @Test
+    public void theNotTakenOverLineNamesTheRealReason() {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        CursorFollowController logged = new CursorFollowController(view, new Pan(), true, frames,
+                new FollowLog(lines::add));
+        controller.onStreamStopped();
+        logged.onStreamStarted(1920, 1080);
+        // No pointer sink wired: the one reason, and nothing about a report wait.
         logged.onRelativeMove(12, 0);
         String line = lines.get(lines.size() - 1);
-        assertTrue(line, line.contains("host reporting true"));
-        assertFalse("not a wait for a report that has come: " + line,
-                line.contains("waiting for first report true"));
+        assertTrue(line, line.contains("sink false"));
+        assertTrue(line, line.contains("waiting for first report false"));
         logged.onStreamStopped();
     }
 
@@ -548,6 +566,37 @@ public class CursorFollowControllerTest {
         frames.runUi();
         frames.settle();
         assertTrue("followed to the edge", view.x > before);
+        assertTrue(1919f <= view.x + 480f);
+    }
+
+    @Test
+    public void aCursorAGameHidLongAgoIsNotChasedThoughTheMouseMoves() {
+        controller.onCursorPosition(960, 540, false, 1);
+        frames.runUi();
+        frames.settle();
+        float before = view.x;
+        int x = 960;
+        for (int i = 0; i < 30; i++) {
+            controller.onRelativeMove(20, 0);
+            x += 20;
+            controller.onCursorPosition(x, 540, false, i + 2);
+            frames.runUi();
+            frames.settle();
+        }
+        assertEquals(before, view.x, 0f);
+    }
+
+    @Test
+    public void aFollowStartedOnADrivenHiddenCursorRunsToItsEnd() {
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        controller.onRelativeMove(40, 0);
+        controller.onCursorPosition(1919, 540, false, 2);
+        frames.runUi();
+        // The report came a round trip after the input; the follow outlives the window.
+        frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS - 10);
+        frames.settle();
         assertTrue(1919f <= view.x + 480f);
     }
 

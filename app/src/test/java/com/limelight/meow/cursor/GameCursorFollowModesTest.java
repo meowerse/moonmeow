@@ -977,6 +977,30 @@ public class GameCursorFollowModesTest {
         assertHostCursorOnScreen();
     }
 
+    /**
+     * The emulator host as it behaved: reports a round trip late, from the library's callback
+     * thread, and hides the cursor once it reaches the desktop's edge. Fails on 415413a2: the
+     * hidden report at the edge stopped the follower short of the cursor.
+     */
+    @Test
+    public void aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt() throws Exception {
+        hostAcceleration = 1.8f;
+        emulatorAgainstAReportingHost("2");
+        ShadowMoonBridgeWithHost.hideAtEdge = true;
+        ShadowMoonBridgeWithHost.reportLatencyMs = 40L;
+        // Fast swipes, as on the emulator (1195 -> 1919 in three): the cursor reaches the
+        // edge while the view is still on its way.
+        for (int i = 0; i < 3; i++) {
+            trackpadStroke(700f, 0f);
+        }
+        settle();
+        assertTrue("the host cursor reached the edge: " + ShadowMoonBridgeWithHost.cursorX,
+                ShadowMoonBridgeWithHost.cursorX >= desktopW - 1f);
+        float[] v = visible();
+        assertTrue("the view reached the desktop's right edge: " + v[0] + "+" + v[2],
+                v[0] + v[2] >= sw - 1f);
+    }
+
     @Test
     public void aReportingHostIsFollowedInTrackpadNatural() throws Exception {
         emulatorAgainstAReportingHost("2");

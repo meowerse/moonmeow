@@ -74,10 +74,11 @@ public final class CursorFollowController
     /** How long an absolute input keeps the edge margin in force. */
     static final long ABSOLUTE_INPUT_WINDOW_MS = 500L;
     /**
-     * How long after the user last moved the pointer a cursor the host calls hidden is still
-     * followed. The user is driving it, so it is where they are looking; the emulator run
-     * against sunmeow PR #20 had the host report the cursor hidden at the desktop's right
-     * edge mid-swipe, and the follower stopped short of it.
+     * A cursor the host hides while the user is moving it -- it was visible, and pointer input
+     * went out within this long of the report -- is still followed: it is where the user is
+     * looking. The emulator run against sunmeow PR #20 had the host report the cursor hidden
+     * at the desktop's right edge mid-swipe, and the follower stopped short of it. A cursor
+     * that was already hidden (a game, a video) is never chased, however much the mouse moves.
      */
     static final long POINTER_INPUT_WINDOW_MS = 500L;
     /** After the client moves the pointer, host reports older than this may be stale. */
@@ -180,6 +181,13 @@ public final class CursorFollowController
     private volatile long lastAbsoluteInputMs = Long.MIN_VALUE / 2;
     /** When the client last sent pointer movement of any kind. Any thread writes it. */
     private volatile long lastPointerInputMs = Long.MIN_VALUE / 2;
+    /**
+     * The host's cursor is hidden but went hidden while the user drove it: keep following.
+     * Decided when a report is drained, so a follow in progress runs to its end. UI thread.
+     */
+    private boolean followHidden;
+    /** The "sent as relative, host reports" line is written once per stream. */
+    private boolean loggedHostReportingInput;
     private long ignoreHostReportsUntilMs = NEVER;
     /** When this stream's host proved it is a meow host (subscribed), or NEVER. */
     private volatile long hostProvenAtMs = NEVER;
@@ -307,6 +315,9 @@ public final class CursorFollowController
         haveTransform = view.transform(lastTransform);
         // A zoom already in place (rememberZoomPan restored it) is the user's choice.
         userZoomed = haveTransform && lastTransform[4] > UNZOOMED;
+        followHidden = false;
+        loggedHostReportingInput = false;
+        lastPointerInputMs = NEVER;
         java.util.Arrays.fill(measuredGeometry, -1f);
         ignoreHostReportsUntilMs = NEVER;
         hostProvenAtMs = NEVER;
@@ -622,10 +633,15 @@ public final class CursorFollowController
                 || !frames.isUiThread() || !view.transform(transform)
                 || transform[4] <= UNZOOMED
                 || !view.visibleReferenceRect(visible)) {
-            if (enabled && streamStarted && view.transform(transform)
+            if (enabled && streamStarted && cursor.isHostReporting()) {
+                // Expected with a reporting host: its reports move the cursor model. Said once.
+                if (!loggedHostReportingInput) {
+                    loggedHostReportingInput = true;
+                    log.state("relative moves go out as relative: the host reports its cursor");
+                }
+            } else if (enabled && streamStarted && view.transform(transform)
                     && transform[4] > UNZOOMED
                     && log.activityAllowed(FollowLog.INPUT, frames.uptimeMillis())) {
-                // Expected with a reporting host: its reports move the cursor model.
                 log.activity(FollowLog.INPUT, "relative move sent as relative: sink "
                         + (sink != null)
                         + ", host reporting " + cursor.isHostReporting()
@@ -816,8 +832,12 @@ public final class CursorFollowController
                 }
             } else {
                 boolean first = !cursor.isHostReporting();
+                boolean wasShown = !first && (cursor.isVisible() || followHidden);
+                boolean driven = frames.uptimeMillis() - lastPointerInputMs
+                        <= POINTER_INPUT_WINDOW_MS;
                 cursor.onHostPosition((int) (packed >>> 32) & 0xFFFF,
                         (int) (packed >>> 16) & 0xFFFF, (packed & 1L) != 0);
+                followHidden = !cursor.isVisible() && driven && wasShown;
                 if (first) {
                     log.state("first host cursor report (0x3004): " + describeCursor());
                 }
@@ -886,9 +906,8 @@ public final class CursorFollowController
     /** One vsync of following. */
     void onFrame(long frameTimeNanos) {
         frameRequested = false;
-        boolean driven = frames.uptimeMillis() - lastPointerInputMs <= POINTER_INPUT_WINDOW_MS;
         if (!armed || !enabled || !streamStarted || !cursor.isKnown()
-                || (!cursor.isVisible() && !driven)
+                || (!cursor.isVisible() && !followHidden)
                 || !view.visibleReferenceRect(visible) || !view.transform(transform)) {
             disarm();
             return;

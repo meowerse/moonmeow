@@ -38,6 +38,13 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
     public static float cursorX;
     public static float cursorY;
     public static boolean reporting;
+    /** As KWin did on the emulator: the cursor reported hidden at the desktop's edge. */
+    public static boolean hideAtEdge;
+    /**
+     * Report latency, ms. Above 0 each report is delivered that much later, from a worker
+     * thread, as the library's callback thread does; 0 delivers at once on the caller.
+     */
+    public static long reportLatencyMs;
     public static int sends;
     private static float libraryFractionX;
     private static float libraryFractionY;
@@ -46,6 +53,8 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
     public static void reset(boolean reportPositions) {
         configure(1920, 1080, 1920, 1080, 1f);
         reporting = reportPositions;
+        hideAtEdge = false;
+        reportLatencyMs = 0L;
     }
 
     /** A desktop of the given size, letterboxed into the stream, with relative acceleration. */
@@ -83,8 +92,26 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
         cursorX = Math.max(0, Math.min(cursorX, desktopWidth - 1));
         cursorY = Math.max(0, Math.min(cursorY, desktopHeight - 1));
         if (reporting) {
-            MeowStreamBridgeAccess.cursor(Math.round(referenceX()), Math.round(referenceY()),
-                    ++seq);
+            final int x = Math.round(referenceX());
+            final int y = Math.round(referenceY());
+            final boolean visible = !hideAtEdge
+                    || (cursorX > 0 && cursorX < desktopWidth - 1
+                        && cursorY > 0 && cursorY < desktopHeight - 1);
+            final int s = ++seq;
+            if (reportLatencyMs <= 0L) {
+                MeowStreamBridgeAccess.cursor(x, y, visible, s);
+            } else {
+                new android.os.Handler(android.os.Looper.getMainLooper()).postDelayed(() -> {
+                    Thread callback = new Thread(
+                            () -> MeowStreamBridgeAccess.cursor(x, y, visible, s));
+                    callback.start();
+                    try {
+                        callback.join();
+                    } catch (InterruptedException e) {
+                        Thread.currentThread().interrupt();
+                    }
+                }, reportLatencyMs);
+            }
         }
     }
 

@@ -696,12 +696,16 @@ suppressed. Each kind now has its own limit (`FollowLog.INPUT` / `VIEW` / `PAN`)
 `CursorFollowControllerTest.aFollowPanIsLoggedDuringAContinuousSwipeAgainstAReportingHost`,
 which fails on the shared limit. The "waiting for first report" field no longer reads true
 for a host that is reporting. The same run had the host report its cursor hidden at the
-desktop's right edge mid-swipe, which disarms the follower; a cursor the user moved within
-the last 500 ms is now followed even when the host calls it hidden
-(`…aCursorTheHostCallsHiddenIsFollowedWhileTheUserMovesIt`). The emulator's geometry
-(portrait 1080x2400, one 1920x1200 monitor, auto zoom 3.56x, 0x3004 on every move), a
-multi-touch-to-trackpad switch, and a second session in a new `Game` with the first torn
-down after it are replayed in `GameCursorFollowModesTest.aReportingHost*`; all follow.
+desktop's right edge mid-swipe, which disarmed the follower short of it. A cursor that goes
+hidden *while the user drives it* (it was visible, and pointer input went out within 500 ms
+of the report) is now still followed, decided per report so a follow in progress finishes;
+a cursor a game or video hid is still never chased. The Game-level reproduction is
+`GameCursorFollowModesTest.aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt`: the
+fake host reports 40 ms late from a callback thread and hides the cursor at the edge, and
+the test fails with the old rule (the view stopped at 734+304 of 1080). The emulator's
+geometry, a multi-touch-to-trackpad switch, and a second session in a new `Game` with the
+first torn down after it are replayed too (`aReportingHost*`); those pass on both. A
+reporting host's relative moves are now said once per stream, not four times a second.
 
 ### Auto cursor zoom (2026-09-24, same PR)
 
