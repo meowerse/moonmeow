@@ -686,6 +686,23 @@ The visible rectangle then ends above it, for cursor follow and for the host cro
 `checkbox_meow_cursor_follow`, default `true` — the explicit off switch.
 `CursorFollowPreferenceTest` checks the XML default against `CursorFollowPreference.DEFAULT`.
 
+### Emulator run against sunmeow PR #20 (2026-09-24): "a reporting host is not followed"
+
+The evidence was a `MeowFollow` log with relative-move lines and no "follow pan" line while
+the cursor left the view. That absence was the log, not the follower: one rate limit was
+shared by every activity line, and Choreographer runs input before animation callbacks in
+each frame, so during a swipe the input line took every slot and every pan line was
+suppressed. Each kind now has its own limit (`FollowLog.INPUT` / `VIEW` / `PAN`); pinned by
+`CursorFollowControllerTest.aFollowPanIsLoggedDuringAContinuousSwipeAgainstAReportingHost`,
+which fails on the shared limit. The "waiting for first report" field no longer reads true
+for a host that is reporting. The same run had the host report its cursor hidden at the
+desktop's right edge mid-swipe, which disarms the follower; a cursor the user moved within
+the last 500 ms is now followed even when the host calls it hidden
+(`…aCursorTheHostCallsHiddenIsFollowedWhileTheUserMovesIt`). The emulator's geometry
+(portrait 1080x2400, one 1920x1200 monitor, auto zoom 3.56x, 0x3004 on every move), a
+multi-touch-to-trackpad switch, and a second session in a new `Game` with the first torn
+down after it are replayed in `GameCursorFollowModesTest.aReportingHost*`; all follow.
+
 ### Auto cursor zoom (2026-09-24, same PR)
 
 One more line in the `Game.onCreate` block that builds the follower:
@@ -1059,6 +1076,17 @@ load-bearing again rather than dead.
   the user opts in — but the object is live where it previously was not.
 
 ---
+
+### Track pad (natural) for fresh installs (2026-09-24)
+
+`res/xml/preferences.xml`, `mouse_mode_list`: `android:defaultValue` `"0"` (multi-touch) ->
+`"2"` (Track pad, natural). The app is desktop-first and its owner works in trackpad mode.
+This reaches fresh installs only, and deliberately: `PcView`'s first `setDefaultValues`
+already stored `"0"` on every existing install, and no migration step rewrites it, so nobody
+who has launched the app loses their mode. The `"0"` fallbacks in
+`PreferenceConfiguration.readPreferences` and `Game`'s mode switcher are left as upstream
+wrote them; they only apply when nothing is stored, which `setDefaultValues` rules out.
+Pinned by `FreshInstallTouchModeTest`.
 
 ## Policy: back-ports from the ORIGINAL upstream
 

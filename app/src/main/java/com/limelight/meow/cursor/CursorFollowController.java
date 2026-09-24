@@ -73,6 +73,13 @@ public final class CursorFollowController
     static final float EDGE_MARGIN = 0.04f;
     /** How long an absolute input keeps the edge margin in force. */
     static final long ABSOLUTE_INPUT_WINDOW_MS = 500L;
+    /**
+     * How long after the user last moved the pointer a cursor the host calls hidden is still
+     * followed. The user is driving it, so it is where they are looking; the emulator run
+     * against sunmeow PR #20 had the host report the cursor hidden at the desktop's right
+     * edge mid-swipe, and the follower stopped short of it.
+     */
+    static final long POINTER_INPUT_WINDOW_MS = 500L;
     /** After the client moves the pointer, host reports older than this may be stale. */
     static final long HOST_REPORT_GRACE_MS = 300L;
     /** Zoom factors this close to 1 count as unzoomed. */
@@ -171,6 +178,8 @@ public final class CursorFollowController
     private float velocityX;
     private float velocityY;
     private volatile long lastAbsoluteInputMs = Long.MIN_VALUE / 2;
+    /** When the client last sent pointer movement of any kind. Any thread writes it. */
+    private volatile long lastPointerInputMs = Long.MIN_VALUE / 2;
     private long ignoreHostReportsUntilMs = NEVER;
     /** When this stream's host proved it is a meow host (subscribed), or NEVER. */
     private volatile long hostProvenAtMs = NEVER;
@@ -446,9 +455,9 @@ public final class CursorFollowController
             }
         }
         remember();
-        if ((zoomed || resized) && log.activityAllowed(frames.uptimeMillis())) {
+        if ((zoomed || resized) && log.activityAllowed(FollowLog.VIEW, frames.uptimeMillis())) {
             view.visibleReferenceRect(visible);
-            log.activity("view " + (resized ? "resized" : "zoom " + oldZoom + "->" + newZoom)
+            log.activity(FollowLog.VIEW, "view " + (resized ? "resized" : "zoom " + oldZoom + "->" + newZoom)
                     + " (" + (direct ? "direct: fingers anchor" : "pointer: cursor anchor")
                     + ") cursor " + describeCursor() + " visible " + describeVisible());
         }
@@ -614,10 +623,14 @@ public final class CursorFollowController
                 || transform[4] <= UNZOOMED
                 || !view.visibleReferenceRect(visible)) {
             if (enabled && streamStarted && view.transform(transform)
-                    && transform[4] > UNZOOMED && log.activityAllowed(frames.uptimeMillis())) {
-                log.activity("relative move sent as relative: sink " + (sink != null)
+                    && transform[4] > UNZOOMED
+                    && log.activityAllowed(FollowLog.INPUT, frames.uptimeMillis())) {
+                // Expected with a reporting host: its reports move the cursor model.
+                log.activity(FollowLog.INPUT, "relative move sent as relative: sink "
+                        + (sink != null)
                         + ", host reporting " + cursor.isHostReporting()
-                        + ", waiting for first report " + !mayOwnPointer()
+                        + ", waiting for first report "
+                        + (!cursor.isHostReporting() && !mayOwnPointer())
                         + ", ui thread " + frames.isUiThread() + ", cursor " + describeCursor());
             }
             return false;
@@ -677,6 +690,7 @@ public final class CursorFollowController
 
     @Override
     public boolean onRelativeMove(int deltaX, int deltaY) {
+        lastPointerInputMs = frames.uptimeMillis();
         if (frames.isUiThread()) {
             if (interceptRelative(deltaX, deltaY)) {
                 return true;
@@ -693,6 +707,9 @@ public final class CursorFollowController
     @Override
     public void onAbsolutePosition(final int x, final int y,
                                    final int referenceWidth, final int referenceHeight) {
+        if (!placing) {
+            lastPointerInputMs = frames.uptimeMillis();
+        }
         if (frames.isUiThread()) {
             applyAbsolute(x, y, referenceWidth, referenceHeight, false);
         } else {
@@ -704,6 +721,7 @@ public final class CursorFollowController
     @Override
     public void onMoveAsPosition(final int deltaX, final int deltaY,
                                  final int referenceWidth, final int referenceHeight) {
+        lastPointerInputMs = frames.uptimeMillis();
         if (frames.isUiThread()) {
             applyAbsolute(deltaX, deltaY, referenceWidth, referenceHeight, true);
         } else {
@@ -721,6 +739,7 @@ public final class CursorFollowController
         if (Float.isNaN(fractionX) || Float.isNaN(fractionY)) {
             return;
         }
+        lastPointerInputMs = lastAbsoluteInputMs;
         if (frames.isUiThread()) {
             applyTouchPoint(eventType, fractionX, fractionY);
         } else {
@@ -867,7 +886,9 @@ public final class CursorFollowController
     /** One vsync of following. */
     void onFrame(long frameTimeNanos) {
         frameRequested = false;
-        if (!armed || !enabled || !streamStarted || !cursor.isKnown() || !cursor.isVisible()
+        boolean driven = frames.uptimeMillis() - lastPointerInputMs <= POINTER_INPUT_WINDOW_MS;
+        if (!armed || !enabled || !streamStarted || !cursor.isKnown()
+                || (!cursor.isVisible() && !driven)
                 || !view.visibleReferenceRect(visible) || !view.transform(transform)) {
             disarm();
             return;
@@ -907,8 +928,8 @@ public final class CursorFollowController
             stepY = CursorFollowMotion.step(needY, velocityY, dt);
         }
 
-        if (log.activityAllowed(frames.uptimeMillis())) {
-            log.activity("follow pan " + stepX + "," + stepY + " of " + needX + "," + needY
+        if (log.activityAllowed(FollowLog.PAN, frames.uptimeMillis())) {
+            log.activity(FollowLog.PAN, "follow pan " + stepX + "," + stepY + " of " + needX + "," + needY
                     + " (margin " + margin + ") cursor " + describeCursor()
                     + " visible " + describeVisible());
         }

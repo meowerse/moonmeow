@@ -206,6 +206,8 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 41 | 16:9 desktop in landscape, auto zoom switched off, or a zoom restored by "remember zoom" | any | 1 / Z | any | no auto zoom | `…aSixteenByNineDesktopInLandscapeIsNotZoomed`, `…withTheSwitchOffTheStripStays`, `…aRestoredZoomIsTheUsersAndIsKept` |
 | 42 | The user pinches after an auto zoom (in or all the way out) | any | A→Z | any | their zoom wins for the rest of the stream: later echoes and rotations do not re-zoom | `…aUserWhoPinchesOutStaysOut` |
 | 43 | Native-touch tap inside the edge band | direct | Z | any | no scroll: a contact is followed only once it has travelled 24 px (a drag), so the lift reaches the host where the finger went down | `…aNativeTouchTapInTheEdgeBandIsNotDraggedByAPan`, `CursorFollowControllerTest.aTapInTheEdgeBandDoesNotScrollTheView` |
+| 44 | The host reports its cursor hidden (0x3004 visible=false) | any | Z | host | followed while the user moved the pointer in the last 500 ms (the emulator host hid it at the desktop edge mid-swipe); otherwise not chased | `CursorFollowControllerTest.aCursorTheHostCallsHiddenIsFollowedWhileTheUserMovesIt`, `…aCursorHiddenByTheHostOnItsOwnIsNotChased` |
+| 45 | Reporting host, trackpad, portrait 1080x2400, 1920x1200 monitor, auto zoom 3.56x; also after a multi-touch-to-trackpad switch and in a second session in a new `Game` | pointer | A | host | followed on every swipe | `GameCursorFollowModesTest.aReportingHost*` |
 
 ## Known limits, stated
 

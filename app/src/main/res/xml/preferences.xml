@@ -379,8 +379,11 @@
         android:title="@string/category_input_settings"
         app:initialExpandedChildrenCount="1"
         app:iconSpaceReserved="false">
+        <!-- MEOW-TOUCH(defaults): Track pad (natural) for fresh installs; the app is
+             desktop-first. Existing installs already had "0" materialised by
+             PcView's setDefaultValues, so they keep it. See docs/meow/TOUCHPOINTS.md -->
         <ListPreference
-            android:defaultValue="0"
+            android:defaultValue="2"
             android:entries="@array/mouse_mode_names"
             android:entryValues="@array/mouse_mode_values"
             android:key="mouse_mode_list"

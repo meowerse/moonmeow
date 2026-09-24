@@ -947,4 +947,69 @@ public class GameCursorFollowModesTest {
         settle();
         assertEquals("and it stays out", 1f, panZoom.getScaleFactor(), 0f);
     }
+
+    // ---- emulator run 2026-09-24 against sunmeow PR #20 (real 0x3004) -------------------
+
+    /** The emulator: portrait 1080x2400, a single 1920x1200 monitor, a reporting host. */
+    private void emulatorAgainstAReportingHost(String mode) throws Exception {
+        sw = 1080;
+        sh = 2400;
+        cw = 1080;
+        ch = 2400;
+        desktopW = 1920;
+        desktopH = 1200;
+        autoZoom = true;
+        launch(mode, false, true, false);
+        assertEquals("auto zoom fills the height", 2400f / 675f, panZoom.getScaleFactor(), 0.05f);
+    }
+
+    private void swipesRightStayOnScreen() {
+        for (int i = 0; i < 6; i++) {
+            trackpadStroke(300f, 0f);
+            settle();
+            if (ShadowMoonBridgeWithHost.cursorX >= desktopW - 2f) {
+                break;
+            }
+            assertHostCursorOnScreen();
+        }
+        assertTrue("the host cursor went right: " + ShadowMoonBridgeWithHost.cursorX,
+                ShadowMoonBridgeWithHost.cursorX > 1300f);
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void aReportingHostIsFollowedInTrackpadNatural() throws Exception {
+        emulatorAgainstAReportingHost("2");
+        swipesRightStayOnScreen();
+    }
+
+    @Test
+    public void aReportingHostIsFollowedAfterSwitchingFromMultiTouchToTrackpad() throws Exception {
+        emulatorAgainstAReportingHost("0");
+        java.lang.reflect.Method apply = Game.class.getDeclaredMethod("applyMouseMode", int.class);
+        apply.setAccessible(true);
+        apply.invoke(game, 2);
+        idle();
+        swipesRightStayOnScreen();
+    }
+
+    @Test
+    public void aReportingHostIsFollowedInASecondSessionAfterTheFirstGameIsGone()
+            throws Exception {
+        // The emulator run: a first session (multi-touch), back out, switch to trackpad,
+        // start again -- a new Game, the old one torn down around it.
+        emulatorAgainstAReportingHost("0");
+        trackpadStroke(200f, 0f);
+        settle();
+        ActivityController<Game> first = controller;
+        StreamViewportBinder firstBinder = binder;
+        first.pause().stop();
+        emulatorAgainstAReportingHost("2");
+        // The old activity's teardown lands after the new one is up.
+        firstBinder.onStreamStopped();
+        firstBinder.release();
+        first.destroy();
+        idle();
+        swipesRightStayOnScreen();
+    }
 }

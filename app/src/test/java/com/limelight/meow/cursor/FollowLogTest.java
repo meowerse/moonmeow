@@ -26,15 +26,29 @@ public class FollowLogTest {
 
     @Test
     public void activityIsRateLimitedAndReportsWhatItDropped() {
-        assertTrue(log.activityAllowed(1000));
-        log.activity("first");
+        assertTrue(log.activityAllowed(FollowLog.PAN, 1000));
+        log.activity(FollowLog.PAN, "first");
         for (int t = 1010; t < 1250; t += 10) {
-            assertFalse(log.activityAllowed(t));
+            assertFalse(log.activityAllowed(FollowLog.PAN, t));
         }
-        assertTrue(log.activityAllowed(1000 + FollowLog.ACTIVITY_INTERVAL_MS));
-        log.activity("second");
+        assertTrue(log.activityAllowed(FollowLog.PAN, 1000 + FollowLog.ACTIVITY_INTERVAL_MS));
+        log.activity(FollowLog.PAN, "second");
         assertEquals("first", lines.get(0));
         assertEquals("second (+24 suppressed)", lines.get(1));
+    }
+
+    @Test
+    public void oneKindNeverStarvesAnother() {
+        for (int t = 1000; t < 2000; t += 17) {
+            if (log.activityAllowed(FollowLog.INPUT, t)) {
+                log.activity(FollowLog.INPUT, "input");
+            }
+            if (log.activityAllowed(FollowLog.PAN, t)) {
+                log.activity(FollowLog.PAN, "pan");
+            }
+        }
+        assertTrue(lines.toString(), lines.stream().filter(l -> l.startsWith("pan")).count() >= 4);
+        assertTrue(lines.stream().filter(l -> l.startsWith("input")).count() >= 4);
     }
 
     @Test

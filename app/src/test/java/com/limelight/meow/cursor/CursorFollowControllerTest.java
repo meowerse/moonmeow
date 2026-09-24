@@ -473,4 +473,94 @@ public class CursorFollowControllerTest {
         assertEquals(0, frames.settle());
         assertFalse(controller.cursor().isKnown());
     }
+
+    /**
+     * Emulator run against sunmeow PR #20: during a trackpad swipe every frame starts with the
+     * input (a relative move the controller does not take over, since the host reports) and
+     * only then runs the follow step. One shared rate limit gave every slot to the input line,
+     * so the log showed no "follow pan" at all while the view was following.
+     */
+    @Test
+    public void aFollowPanIsLoggedDuringAContinuousSwipeAgainstAReportingHost() {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        CursorFollowController logged = new CursorFollowController(view, new Pan(), true, frames,
+                new FollowLog(lines::add));
+        controller.onStreamStopped();
+        logged.onStreamStarted(1920, 1080);
+        logged.setPointerSink((x, y, w, h) -> { });
+        logged.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        float before = view.x;
+        int x = 960;
+        for (int i = 0; i < 60; i++) {
+            // One vsync: the input first, as Choreographer runs CALLBACK_INPUT before
+            // CALLBACK_ANIMATION, then the follow step -- both at the frame's time.
+            frames.now += 17;
+            logged.onRelativeMove(12, 0);
+            x += 12;
+            logged.onCursorPosition(x, 540, true, i + 2);
+            frames.runUi();
+            Choreographer.FrameCallback f = frames.frame;
+            frames.frame = null;
+            if (f != null) {
+                f.doFrame(frames.nanos += 16_666_667L);
+            }
+        }
+        assertTrue("the view followed", view.x > before);
+        boolean pan = false;
+        boolean input = false;
+        for (String line : lines) {
+            pan |= line.startsWith("follow pan");
+            input |= line.startsWith("relative move");
+        }
+        assertTrue("a follow pan line: " + lines, pan);
+        assertTrue("and the input line too: " + lines, input);
+        logged.onStreamStopped();
+    }
+
+    @Test
+    public void theNotTakenOverLineNamesTheRealReason() {
+        java.util.List<String> lines = new java.util.ArrayList<>();
+        CursorFollowController logged = new CursorFollowController(view, new Pan(), true, frames,
+                new FollowLog(lines::add));
+        controller.onStreamStopped();
+        logged.onStreamStarted(1920, 1080);
+        logged.setPointerSink((x, y, w, h) -> { });
+        logged.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        logged.onRelativeMove(12, 0);
+        String line = lines.get(lines.size() - 1);
+        assertTrue(line, line.contains("host reporting true"));
+        assertFalse("not a wait for a report that has come: " + line,
+                line.contains("waiting for first report true"));
+        logged.onStreamStopped();
+    }
+
+    @Test
+    public void aCursorTheHostCallsHiddenIsFollowedWhileTheUserMovesIt() {
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        float before = view.x;
+        // A swipe right; the host reports the cursor hidden at the desktop's right edge.
+        controller.onRelativeMove(40, 0);
+        controller.onCursorPosition(1919, 540, false, 2);
+        frames.runUi();
+        frames.settle();
+        assertTrue("followed to the edge", view.x > before);
+        assertTrue(1919f <= view.x + 480f);
+    }
+
+    @Test
+    public void aCursorHiddenByTheHostOnItsOwnIsNotChased() {
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS + 1);
+        float before = view.x;
+        controller.onCursorPosition(1900, 540, false, 2);
+        frames.runUi();
+        frames.settle();
+        assertEquals(before, view.x, 0f);
+    }
 }

@@ -13,6 +13,11 @@ import android.util.Log;
  * written, the rest are counted and the count is reported on the next line that gets through.
  * Nothing is formatted for a line that is dropped.
  *
+ * <p>Each kind of activity has its own limit ({@link #INPUT}, {@link #VIEW}, {@link #PAN}).
+ * With one shared limit, a trackpad swipe starved the follow step: Choreographer runs input
+ * before animation callbacks in every frame, so the input line took every slot and the log of
+ * an emulator run showed no "follow pan" at all while the view was following.
+ *
  * <p>{@code app/proguard-rules.pro} has no rule stripping {@code android.util.Log}, so these
  * calls survive R8 ({@code FollowLogTest.releaseBuildsKeepTheseLines}).
  */
@@ -26,9 +31,17 @@ public final class FollowLog {
         void write(String line);
     }
 
+    /** A relative move the controller did or did not take over. */
+    public static final int INPUT = 0;
+    /** A zoom or resize and what the controller did about it. */
+    public static final int VIEW = 1;
+    /** A follow step. */
+    public static final int PAN = 2;
+
     private final Sink sink;
-    private long lastActivityMs = Long.MIN_VALUE / 2;
-    private int suppressed;
+    private final long[] lastActivityMs = {Long.MIN_VALUE / 2, Long.MIN_VALUE / 2,
+            Long.MIN_VALUE / 2};
+    private final int[] suppressed = new int[3];
 
     public FollowLog() {
         this(line -> Log.i(TAG, line));
@@ -43,21 +56,21 @@ public final class FollowLog {
         sink.write(line);
     }
 
-    /** Whether an activity line may be written now. Call before formatting it. */
-    public boolean activityAllowed(long nowMs) {
-        if (nowMs - lastActivityMs < ACTIVITY_INTERVAL_MS) {
-            suppressed++;
+    /** Whether a line of this kind may be written now. Call before formatting it. */
+    public boolean activityAllowed(int kind, long nowMs) {
+        if (nowMs - lastActivityMs[kind] < ACTIVITY_INTERVAL_MS) {
+            suppressed[kind]++;
             return false;
         }
-        lastActivityMs = nowMs;
+        lastActivityMs[kind] = nowMs;
         return true;
     }
 
-    /** An activity line; call only after {@link #activityAllowed} said yes. */
-    public void activity(String line) {
-        if (suppressed > 0) {
-            sink.write(line + " (+" + suppressed + " suppressed)");
-            suppressed = 0;
+    /** A line of this kind; call only after {@link #activityAllowed} said yes. */
+    public void activity(int kind, String line) {
+        if (suppressed[kind] > 0) {
+            sink.write(line + " (+" + suppressed[kind] + " suppressed)");
+            suppressed[kind] = 0;
         } else {
             sink.write(line);
         }
