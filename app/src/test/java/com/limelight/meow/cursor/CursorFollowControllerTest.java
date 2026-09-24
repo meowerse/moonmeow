@@ -438,6 +438,15 @@ public class CursorFollowControllerTest {
     }
 
     @Test
+    public void aTapStillMovesTheEstimateWithoutScrolling() {
+        controller.setTouchMode(() -> true);
+        controller.onDirectPointing(CursorInputTap.TOUCH_DOWN, 1000f / 1920f, 0.5f);
+        controller.onDirectPointing((byte) 0x02, Float.NaN, Float.NaN);
+        assertEquals(0, frames.settle());
+        assertEquals(1000f, controller.cursor().x(), 0.5f);
+    }
+
+    @Test
     public void aHoveringPenAtTheEdgeIsFollowed() {
         controller.setTouchMode(() -> true);
         float before = view.x;

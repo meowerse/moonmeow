@@ -202,7 +202,7 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 37 | An on-screen overlay (PC keyboard) covers the bottom of the stream | pointer | Z | any | visible area ends above it; cursor kept above it; host crop moves with it | `CursorFollowBindingTest.anOverlayOverTheBottomOfTheStreamKeepsTheCursorAboveIt` |
 | 38 | Trackpad natural and gaming against an old host (echo v1, no 0x3004), portrait 2160x3840 stream in a 1220x2169 container, 5360x1440 desktop, 1.8x acceleration: unzoomed moves, pinch, strokes both ways | pointer | 1→Z | DR | cursor on screen after every stroke | `…deviceSession*AgainstAnOldHost` (landscape and portrait) |
 | 39 | The same with the zoom restored by "remember zoom" before the stream starts (no pinch) | pointer | Z | DR | as 38 | `…aZoomRestoredBeforeTheStreamIsFollowed*` |
-| 40 | Stream start (or rotation) with the desktop filling < 60% of the window in one axis (5360x1440 on an upright phone: a 1220x330 px strip) | any | 1→A | any | starts zoomed so the desktop fills the window, capped at 2 screen px per desktop px, centred on the cursor (or the desktop's middle when unknown; the first move then puts the pointer mid-view); follow works from there | `…aWideDesktopOnAnUprightPhoneStartsZoomedAndFollowedTrackpadNatural/Gaming`, `AutoCursorZoomTest` |
+| 40 | Stream start (or rotation) with the desktop filling < 60% of the window in one axis (5360x1440 on an upright phone: a 1220x330 px strip) | any | 1→A | any | starts zoomed so the desktop fills the window, capped at 2 screen px per desktop px and at the handler's 10x, centred on the cursor when it is known -- usually the desktop's middle, since the zoom happens at the first echo, before a 0x3004 report can arrive; a report then brings the cursor into the comfort margin, and against an old host the first move puts the pointer mid-view. The window measured is the stream's box, not shortened by the soft keyboard or an overlay, and each geometry is measured once, so typing and echoes never re-zoom. Follow works from there | `…aWideDesktopOnAnUprightPhoneStartsZoomedAndFollowedTrackpadNatural/Gaming`, `AutoCursorZoomTest` |
 | 41 | 16:9 desktop in landscape, auto zoom switched off, or a zoom restored by "remember zoom" | any | 1 / Z | any | no auto zoom | `…aSixteenByNineDesktopInLandscapeIsNotZoomed`, `…withTheSwitchOffTheStripStays`, `…aRestoredZoomIsTheUsersAndIsKept` |
 | 42 | The user pinches after an auto zoom (in or all the way out) | any | A→Z | any | their zoom wins for the rest of the stream: later echoes and rotations do not re-zoom | `…aUserWhoPinchesOutStaysOut` |
 | 43 | Native-touch tap inside the edge band | direct | Z | any | no scroll: a contact is followed only once it has travelled 24 px (a drag), so the lift reaches the host where the finger went down | `…aNativeTouchTapInTheEdgeBandIsNotDraggedByAPan`, `CursorFollowControllerTest.aTapInTheEdgeBandDoesNotScrollTheView` |
@@ -218,8 +218,16 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
   cursor zoom (rows 40-42) now starts such a stream zoomed. `adb logcat -s MeowFollow` prints
   the zoom at stream start and every auto zoom, which settles the next report.
 * **Auto zoom does not remember a zoom per host or orientation.** The user's pinch holds for
-  the stream; the next stream measures again. "Remember zoom" restores a zoom as before, and
-  a restored zoom is never auto-zoomed over.
+  the stream; the next stream measures again -- unless "Remember zoom" (off by default) is
+  on: it saves whatever zoom the stream ended at, auto zoom included, and a restored zoom is
+  the user's, never auto-zoomed over, so rotation no longer adapts it either.
+* **A stream that is itself a strip may zoom twice at start** against a meow host: once at
+  stream start, measured against the whole frame, and again at the first echo, which knows
+  the desktop's box and size. Stock hosts send no echo and zoom once.
+* **Rotation is exercised by reasoning, not a test**: the resize path re-measures unless the
+  user has zoomed. Robolectric does not lay out the decor view, so the keyboard/overlay test
+  (`…theKeyboardOrAnOverlayDoesNotReZoom`) passes with or without the fix; the guarantee is
+  that `StreamViewportBinder.window()` returns the parent's own box.
 
 * **The soft keyboard row is not exercised in a unit test.** Robolectric does not dispatch
   IME insets. The visible-area arithmetic is the tested `windowFromLocationInWindow`, fed a

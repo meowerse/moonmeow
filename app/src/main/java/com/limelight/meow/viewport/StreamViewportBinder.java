@@ -744,7 +744,10 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
     }
 
-    /** The window the parent is seen through, {left, top, right, bottom}, parent pixels. */
+    /**
+     * The parent's own box, {0, 0, width, height}: deliberately not shortened by the soft
+     * keyboard or an overlay, so typing does not change what auto zoom measures.
+     */
     @Override
     public boolean window(float[] out) {
         int parentWidth = parent.getWidth();
@@ -752,8 +755,11 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         if (!streamStarted || parentWidth <= 0 || parentHeight <= 0) {
             return false;
         }
-        System.arraycopy(windowInParentCoords(parentWidth, parentHeight), 0, out, 0, 4);
-        return out[2] > out[0] && out[3] > out[1];
+        out[0] = 0f;
+        out[1] = 0f;
+        out[2] = parentWidth;
+        out[3] = parentHeight;
+        return true;
     }
 
     /** {originX, originY, parentPxPerReferenceX, parentPxPerReferenceY, zoom}. */

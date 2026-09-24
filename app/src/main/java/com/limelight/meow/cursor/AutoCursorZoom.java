@@ -32,6 +32,8 @@ public final class AutoCursorZoom {
     static final float FILL_THRESHOLD = 0.6f;
     /** Auto zoom stops where one desktop pixel spans this many screen pixels. */
     static final float MAX_SCREEN_PX_PER_DESKTOP_PX = 2f;
+    /** {@code PanZoomHandler.MAX_SCALE}: a target past it could never be reached. */
+    static final float MAX_ZOOM = 10f;
 
     private AutoCursorZoom() {
     }
@@ -77,6 +79,6 @@ public final class AutoCursorZoom {
         if (densest > 0f) {
             zoom = Math.min(zoom, MAX_SCREEN_PX_PER_DESKTOP_PX / densest);
         }
-        return Math.max(1f, zoom);
+        return Math.max(1f, Math.min(zoom, MAX_ZOOM));
     }
 }

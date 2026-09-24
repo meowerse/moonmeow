@@ -53,6 +53,13 @@ public class AutoCursorZoomTest {
     }
 
     @Test
+    public void neverPastWhatPinchZoomCanReach() {
+        // Four monitors side by side on an upright phone: a 7% strip.
+        assertEquals(AutoCursorZoom.MAX_ZOOM,
+                AutoCursorZoom.targetZoom(1220f, 150f, 1220f, 2169f, 0.05f, 0.05f), 0f);
+    }
+
+    @Test
     public void neverBelowOne() {
         assertEquals(1f, AutoCursorZoom.targetZoom(1220f, 300f, 1220f, 2169f, 4f, 4f), 0f);
     }

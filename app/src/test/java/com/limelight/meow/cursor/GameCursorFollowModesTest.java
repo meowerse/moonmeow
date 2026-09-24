@@ -910,6 +910,28 @@ public class GameCursorFollowModesTest {
     }
 
     @Test
+    public void theKeyboardOrAnOverlayDoesNotReZoom() throws Exception {
+        wideDesktopOnAnUprightPhone();
+        autoZoom = true;
+        launch("2", false, false, false);
+        float zoom = panZoom.getScaleFactor();
+        assertTrue(zoom > 5f);
+        trackpadStroke(400f, 0f);
+        settle();
+        binder.setBottomObstruction(900);
+        idle();
+        echoAgain();
+        settle();
+        assertEquals(zoom, panZoom.getScaleFactor(), 0f);
+        // A re-centre would move the view by hundreds of pixels; the follower's own easing
+        // toward the shortened area may still move it by a few.
+        float x = panZoom.getChildX();
+        echoAgain();
+        settle();
+        assertEquals("nor re-centres on each echo", x, panZoom.getChildX(), 5f);
+    }
+
+    @Test
     public void aUserWhoPinchesOutStaysOut() throws Exception {
         wideDesktopOnAnUprightPhone();
         autoZoom = true;

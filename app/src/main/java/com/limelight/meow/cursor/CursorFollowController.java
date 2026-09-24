@@ -115,8 +115,8 @@ public final class CursorFollowController
         boolean transform(float[] out);
 
         /**
-         * The window the view is seen through, {left, top, right, bottom} in parent pixels
-         * (above the soft keyboard and any docked overlay).
+         * The box the view is shown in, {left, top, right, bottom} in parent pixels, ignoring
+         * the soft keyboard and docked overlays (they come and go while typing).
          *
          * @return false before the views are laid out or the stream has started
          */
@@ -191,6 +191,8 @@ public final class CursorFollowController
     private final float[] bounds = new float[4];
     private final float[] transform = new float[5];
     private final float[] scratchWindow = new float[4];
+    /** What auto zoom last measured: content w/h, window w/h, screen px per desktop px x/y. */
+    private final float[] measuredGeometry = new float[6];
     /** The current touch contact, UI thread: where it went down, and whether it is a drag. */
     private float touchDownX;
     private float touchDownY;
@@ -296,6 +298,7 @@ public final class CursorFollowController
         haveTransform = view.transform(lastTransform);
         // A zoom already in place (rememberZoomPan restored it) is the user's choice.
         userZoomed = haveTransform && lastTransform[4] > UNZOOMED;
+        java.util.Arrays.fill(measuredGeometry, -1f);
         ignoreHostReportsUntilMs = NEVER;
         hostProvenAtMs = NEVER;
         streamStarted = true;
@@ -322,8 +325,9 @@ public final class CursorFollowController
     public void onDesktopExtent(int desktopWidth, int desktopHeight) {
         cursor.setDesktopExtent(desktopWidth, desktopHeight);
         // The echo also told the binder where the desktop sits in the frame: now the strip
-        // can be measured. Every later echo lands here too and finds nothing to change.
-        autoZoomIfStrip("desktop " + desktopWidth + "x" + desktopHeight);
+        // can be measured. Every later echo lands here too; the latch in autoZoomIfStrip
+        // makes those free, since the geometry it measures has not changed.
+        autoZoomIfStrip("desktop extent");
     }
 
     /**
@@ -343,9 +347,26 @@ public final class CursorFollowController
         float pxY = transform[3] / zoom;
         float windowW = scratchWindow[2] - scratchWindow[0];
         float windowH = scratchWindow[3] - scratchWindow[1];
-        float target = AutoCursorZoom.targetZoom(
-                (bounds[2] - bounds[0]) * pxX, (bounds[3] - bounds[1]) * pxY, windowW, windowH,
-                pxX * cursor.desktopToReferenceX(), pxY * cursor.desktopToReferenceY());
+        float contentW = (bounds[2] - bounds[0]) * pxX;
+        float contentH = (bounds[3] - bounds[1]) * pxY;
+        float perDesktopX = pxX * cursor.desktopToReferenceX();
+        float perDesktopY = pxY * cursor.desktopToReferenceY();
+        // Measure once per geometry: only a new desktop box, a new desktop size or a resize
+        // re-zooms, never an echo that changed nothing (which would re-centre the view under
+        // the user on every crop) nor a target the handler cannot reach.
+        if (measuredGeometry[0] == contentW && measuredGeometry[1] == contentH
+                && measuredGeometry[2] == windowW && measuredGeometry[3] == windowH
+                && measuredGeometry[4] == perDesktopX && measuredGeometry[5] == perDesktopY) {
+            return;
+        }
+        measuredGeometry[0] = contentW;
+        measuredGeometry[1] = contentH;
+        measuredGeometry[2] = windowW;
+        measuredGeometry[3] = windowH;
+        measuredGeometry[4] = perDesktopX;
+        measuredGeometry[5] = perDesktopY;
+        float target = AutoCursorZoom.targetZoom(contentW, contentH, windowW, windowH,
+                perDesktopX, perDesktopY);
         if (Math.abs(target - zoom) < 0.01f * target) {
             return;
         }
@@ -720,6 +741,9 @@ public final class CursorFollowController
         }
         float x = fractionX * streamWidth;
         float y = fractionY * streamHeight;
+        // The estimate always takes the point: a tap is where the host pointer went, and what
+        // the keyboard opening or the next mouse move must keep in view.
+        cursor.onTouchPoint(x, y);
         if (eventType == CursorInputTap.TOUCH_DOWN) {
             touchDownX = x;
             touchDownY = y;
@@ -735,7 +759,6 @@ public final class CursorFollowController
             }
             touchDragging = true;
         }
-        cursor.onTouchPoint(x, y);
         arm();
     }
 
