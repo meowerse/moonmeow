@@ -521,7 +521,7 @@ Ordered by what is actually uncovered, not by what sounds important:
 
 ```bash
 ./gradlew assembleNonRoot_gameRelease     # release build, lintVital runs here
-./gradlew testNonRoot_gameReleaseUnitTest # 294 tests (2026-09-24), all must pass
+./gradlew testNonRoot_gameReleaseUnitTest # 295 tests (2026-09-24), all must pass
 ```
 
 Then the runtime check in §5. Red gate → nothing gets pushed.
