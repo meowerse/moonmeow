@@ -3,7 +3,7 @@ package com.limelight.meow.cursor;
 /**
  * One frame of the view chasing the cursor, per axis. Pure arithmetic, no allocation.
  *
- * <p>The target is {@link CursorFollowPlanner}'s: the smallest shift of the visible rectangle
+ * <p>The target is the smallest shift of the visible rectangle
  * that brings the cursor back inside a margin from its edges, clamped so the view never leaves
  * the desktop. What this adds is how the view gets there: an exponential ease with time
  * constant {@link #TAU_SECONDS}, capped at {@link #MAX_VIEWS_PER_SECOND} view-widths a

@@ -79,6 +79,8 @@ public final class ReceiverReporter {
      */
     public void start(long nowMs, boolean automatic, int maxKbps) {
         running = true;
+        appliedKbps = 0;
+        stableKbps = 0;
         report.autoBitrate = automatic;
         report.maxKbps = Math.max(0, maxKbps);
         reportsSent = 0;
@@ -113,15 +115,25 @@ public final class ReceiverReporter {
         }
 
         report.setNetwork(previous, current, intervalMs);
-        report.setRtt(stats.rttInfo());
+        boolean rttKnown = report.setRtt(stats.rttInfo());
         report.decodeQueueFrames = Math.max(0, stats.decodeQueueFrames());
         report.avgDecodeMs = Math.max(0, stats.averageDecodeMs());
         swap();
+        if (!rttKnown) {
+            // No RTT estimate yet this session. A report would have to say 0 ms, which the
+            // host would take as its RTT baseline; say nothing until there is one.
+            return true;
+        }
 
         int result = sender.send(report);
         if (result == LI_NO_PACKET_TYPE || result == LI_LIBRARY_UNAVAILABLE) {
             running = false;
             return false;
+        }
+        if (result != 0) {
+            // Transient (ENet queue full, control stream down): not the host's silence, so it
+            // does not count toward giving up on the host.
+            return true;
         }
         reportsSent++;
         if (!appliedEver && reportsSent >= GIVE_UP_AFTER_REPORTS) {
@@ -148,6 +160,14 @@ public final class ReceiverReporter {
     public void stop(long nowMs) {
         updateStable(nowMs);
         running = false;
+    }
+
+    /**
+     * True when the host was reported to for the full give-up window and never answered: it
+     * does not adapt this client's bitrate, whatever an earlier session found.
+     */
+    public boolean hostNeverAdapted() {
+        return !appliedEver && reportsSent >= GIVE_UP_AFTER_REPORTS;
     }
 
     /** The bitrate the host last said it applied, or 0 if it never has. */

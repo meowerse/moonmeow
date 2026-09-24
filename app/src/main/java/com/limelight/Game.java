@@ -518,7 +518,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                     streamContainer.getSurfaceView(), streamContainer);
             // The preference governs what we tell the *host* (bitrate cropping, which needs a
             // host that implements it). Cursor-follow only moves our own view, so it is not
-            // gated on it -- see StreamViewportBinder.handleCursorViewPosition.
+            // gated on it -- see CursorFollowController.
             viewportBinder.setEnabled(ViewportPreference.isEnabled(this));
             // The binder composes the user's zoom with the host's crop (no double
             // magnification) and absolute input is mapped through the same logical transform.
@@ -843,7 +843,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 .setResolutionScaleFactor(prefConfig.resolutionScaleFactor)
                 .setApp(app)
                 .setEnableUltraLowLatency(prefConfig.enableUltraLowLatency)
-                .setBitrate(BitrateSession.negotiate(bitrateSession, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate)) // MEOW-TOUCH(auto-bitrate)
+                .setBitrate(BitrateSession.negotiate(bitrateSession, isMetered, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate)) // MEOW-TOUCH(auto-bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
                 .setMaxPacketSize(1392)

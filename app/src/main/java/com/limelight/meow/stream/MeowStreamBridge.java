@@ -19,7 +19,7 @@ package com.limelight.meow.stream;
  *
  * <p><b>Capability.</b> Neither message announces itself. A return of 0 from a send means the
  * library queued it, not that the host understood it. Callers only send once the host has
- * proven it is a meow host (a viewport echo arrived); see {@code MeowHostSession}.
+ * proven it is a meow host (a viewport echo arrived); see {@code StreamViewportBinder#addHostProvenTask}.
  *
  * <p>Callbacks arrive on moonlight-common-c's async callback thread through static listener
  * slots, because the native callbacks are bare C function pointers with no context. As with

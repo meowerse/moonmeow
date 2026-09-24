@@ -43,13 +43,21 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
 
     private volatile int configuredKbps;
     private volatile int negotiatedKbps;
+    private volatile boolean metered;
+
+    /**
+     * Set when the stream stops, cleared when the next one starts. A host-proven signal that
+     * was already queued on the viewport thread when teardown began must not start reports
+     * after this session drained: the next send would race {@code LiStopConnection}.
+     */
+    private volatile boolean stopped = true;
 
     private final Runnable tick = this::onTick;
     private final Runnable start = this::onHostProven;
 
     /** The bitrate to negotiate: {@code session.negotiate()} or the setting when there is none. */
-    public static int negotiate(BitrateSession session, int configuredKbps) {
-        return session != null ? session.negotiate(configuredKbps) : configuredKbps;
+    public static int negotiate(BitrateSession session, boolean metered, int configuredKbps) {
+        return session != null ? session.negotiate(metered, configuredKbps) : configuredKbps;
     }
 
     public BitrateSession(Context context, String hostUuid, boolean automatic) {
@@ -78,9 +86,10 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
      * Records the user's setting as the ceiling and returns the bitrate to start at: the last
      * stable bitrate on this host within bounds, or the setting.
      */
-    public int negotiate(int configuredKbps) {
+    public int negotiate(boolean metered, int configuredKbps) {
+        this.metered = metered;
         this.configuredKbps = configuredKbps;
-        int start = StartingBitrate.choose(automatic, configuredKbps, memory.get(hostUuid));
+        int start = StartingBitrate.choose(automatic, configuredKbps, memory.get(hostUuid, metered));
         this.negotiatedKbps = start;
         if (start != configuredKbps) {
             LimeLog.info("Bitrate: starting at " + start + " kbps (last stable on this host), "
@@ -102,11 +111,18 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
     public void onStreamStarted() {
         DecodeTimeWindow.reset();
         BitrateOverlay.clear();
+        stopped = false;
         MeowStreamBridge.setBitrateListener(this);
     }
 
     private void onHostProven() {
+        if (stopped) {
+            return;
+        }
         handler.post(() -> {
+            if (stopped) {
+                return;
+            }
             reporter.start(SystemClock.uptimeMillis(), automatic, configuredKbps);
             handler.removeCallbacks(tick);
             handler.postDelayed(tick, ReceiverReporter.INTERVAL_MS);
@@ -114,7 +130,7 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
     }
 
     private void onTick() {
-        if (reporter.tick(SystemClock.uptimeMillis())) {
+        if (!stopped && reporter.tick(SystemClock.uptimeMillis())) {
             handler.postDelayed(tick, ReceiverReporter.INTERVAL_MS);
         }
     }
@@ -132,6 +148,7 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
      * session's own.
      */
     public void onStreamStopped() {
+        stopped = true;
         MeowStreamBridge.clearBitrateListener(this);
         BitrateOverlay.clear();
         final CountDownLatch drained = new CountDownLatch(1);
@@ -139,8 +156,12 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
             try {
                 handler.removeCallbacks(tick);
                 reporter.stop(SystemClock.uptimeMillis());
-                if (automatic) {
-                    memory.put(hostUuid, reporter.stableKbps());
+                if (automatic && reporter.hostNeverAdapted()) {
+                    // A remembered start would cap every later session below the user's
+                    // setting with nothing to climb back: forget it.
+                    memory.clear(hostUuid, metered);
+                } else if (automatic) {
+                    memory.put(hostUuid, metered, reporter.stableKbps());
                 }
             } finally {
                 drained.countDown();

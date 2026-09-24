@@ -53,6 +53,16 @@ public class ReceiverReportTest {
     }
 
     @Test
+    public void anUnknownRttIsNeverReportedAsZero() {
+        ReceiverReport r = new ReceiverReport();
+        assertEquals(false, r.setRtt(ReceiverReport.RTT_UNKNOWN));
+        assertEquals(true, r.setRtt((42L << 32) | 7L));
+        assertEquals(true, r.setRtt(ReceiverReport.RTT_UNKNOWN));
+        assertEquals(42, r.rttMs);
+        assertEquals(7, r.rttVarianceMs);
+    }
+
+    @Test
     public void rttInfoIsSplitIntoRttAndVariance() {
         ReceiverReport r = new ReceiverReport();
         r.setRtt((42L << 32) | 7L);

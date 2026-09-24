@@ -54,23 +54,30 @@ public class BitratePreferencesAndMemoryTest {
     @Test
     public void theStableBitrateIsRememberedPerHost() {
         BitrateMemory memory = new BitrateMemory(context);
-        memory.put("host-a", 12000);
-        memory.put("host-b", 7000);
-        assertEquals(12000, new BitrateMemory(context).get("host-a"));
-        assertEquals(7000, new BitrateMemory(context).get("host-b"));
-        assertEquals(0, memory.get("host-c"));
+        memory.put("host-a", false, 12000);
+        memory.put("host-b", false, 7000);
+        memory.put("host-a", true, 3000);
+        assertEquals(12000, new BitrateMemory(context).get("host-a", false));
+        assertEquals("metered sessions are remembered apart",
+                3000, new BitrateMemory(context).get("host-a", true));
+        assertEquals(7000, new BitrateMemory(context).get("host-b", false));
+        assertEquals(0, memory.get("host-c", false));
+        memory.clear("host-a", false);
+        assertEquals(0, memory.get("host-a", false));
+        assertEquals(3000, memory.get("host-a", true));
     }
 
     @Test
     public void nonsenseIsNeverRemembered() {
         BitrateMemory memory = new BitrateMemory(context);
-        memory.put("host-a", 12000);
-        memory.put("host-a", 0);
-        memory.put(null, 5000);
-        memory.put("", 5000);
-        assertEquals(12000, memory.get("host-a"));
-        assertEquals(0, memory.get(null));
-        assertEquals(0, memory.get(""));
+        memory.put("host-a", false, 12000);
+        memory.put("host-a", false, 0);
+        memory.put(null, false, 5000);
+        memory.put("", false, 5000);
+        memory.clear(null, false);
+        assertEquals(12000, memory.get("host-a", false));
+        assertEquals(0, memory.get(null, false));
+        assertEquals(0, memory.get("", false));
     }
 
     @Test

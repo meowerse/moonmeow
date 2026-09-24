@@ -720,8 +720,13 @@ so nothing reads the zoom back off the view — `LocalCursorScaler` included.
 **What remains inexact, stated.** The echo is rounded to whole reference pixels and does not
 carry the desktop-space source, so the recovered mapping is within one reference pixel for 99%
 of crops and within 1.75 for all (`HostCropPlanTest`). The swap is aligned to the frame the
-renderer *releases*; in balanced frame pacing that is up to one display frame before the
-frame reaches the screen.
+renderer hands to the display path, and a `SurfaceView` property change is not latched with
+the codec buffer, so the swap is within one or two display frames, not frame-exact: in balanced
+frame pacing the hook fires when a buffer enters the renderer's two-deep output queue, up to
+two vsyncs before `doFrame` releases it. The spec's "exact frame" wording is stronger than the
+Android surface pipeline can guarantee; A1 on hardware is where a one-frame pop at a crop swap
+would show. A stream stop keeps the presented crop so the frozen last frame is not magnified
+twice; the next stream start resets.
 
 Tested by `CropCompositionTest` (F1 end to end: 4x zoom, honoured crop, presented at 1:1 —
 red without the compositor), `ViewportCompositorTest` (the single-magnification invariant in
@@ -754,8 +759,16 @@ New code in `meow/bitrate/`: `StartingBitrate`, `ReceiverReport`, `ReceiverRepor
 
 **Stopping is ordered.** `BitrateSession.onStreamStopped()` runs from the binder on `Game`'s
 teardown worker, before `conn.stop()`, and blocks (bounded, 250 ms) until no report can still
-be in flight: sending after `LiStopConnection` is a use-after-free. It also persists the
-stable bitrate (an APPLIED value held for ten seconds).
+be in flight: sending after `LiStopConnection` is a use-after-free. A `stopped` latch keeps a
+host-proven signal that was still queued on the viewport thread from restarting reports after
+that drain. It persists the stable bitrate (an APPLIED value held for ten seconds), keyed per
+host *and* per metered/unmetered network, and forgets it when a proven host never answered
+this session, so a host that stopped adapting cannot keep capping later sessions.
+
+**No report without an RTT.** The wire has no "unknown" RTT and a 0 would become the host's
+windowed-minimum baseline (N4), so reports wait for ENet's first estimate and carry the last
+known one through a dropout. Only a report the library accepted counts toward the five-report
+give-up; a transient ENet failure does not.
 
 **`CONN_STATUS_POOR` is untouched** (`BitrateWiringTest.thePoorConnectionWarningIsUntouched`),
 and the Tailscale packet-size path is pinned by `meow/net/TailnetPacketSizeTest` (N3).

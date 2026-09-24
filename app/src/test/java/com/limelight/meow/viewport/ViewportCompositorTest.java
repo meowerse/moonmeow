@@ -239,8 +239,10 @@ public class ViewportCompositorTest {
     public void aReconnectNeverInheritsACrop() {
         zoomInto480x270();
         hostAppliesQuarter(0);
+        FrameMapping crop = compositor.presentedMapping();
         compositor.onStreamStopped();
-        assertSingleMagnification(FrameMapping.IDENTITY);
+        // The frozen last frame is still the crop.
+        assertSingleMagnification(crop);
         compositor.onStreamStarted(STREAM_W, STREAM_H);
         assertSingleMagnification(FrameMapping.IDENTITY);
         assertEquals(4f, view.getScaleX(), 0f);

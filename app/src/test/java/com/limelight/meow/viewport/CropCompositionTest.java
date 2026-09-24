@@ -146,9 +146,13 @@ public class CropCompositionTest {
     }
 
     @Test
-    public void stoppingTheStreamReturnsToTheLogicalTransform() {
+    public void theFrozenLastFrameKeepsItsCropAtStopAndANewStreamStartsUncropped() {
         zoomAndHonour();
         binder.onStreamStopped();
+        drain();
+        // The last decoded frame is still the crop: showing it at 4x would magnify it twice.
+        assertEquals(1f, streamView.getScaleX(), 1e-3f);
+        binder.onStreamStarted(STREAM_W, STREAM_H);
         drain();
         assertEquals(4f, streamView.getScaleX(), 0f);
     }

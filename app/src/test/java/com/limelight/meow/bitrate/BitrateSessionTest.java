@@ -67,7 +67,7 @@ public class BitrateSessionTest {
                 return true;
             }
 
-            @Override public long rttInfo() { return 0L; }
+            @Override public long rttInfo() { return 20L << 32; }
             @Override public int decodeQueueFrames() { return 0; }
             @Override public int averageDecodeMs() { return 0; }
         });
@@ -80,17 +80,17 @@ public class BitrateSessionTest {
 
     @Test
     public void theFirstSessionNegotiatesTheSettingAndLaterOnesTheRememberedValue() {
-        assertEquals(20000, session(true).negotiate(20000));
-        new BitrateMemory(context).put("host-a", 11000);
+        assertEquals(20000, session(true).negotiate(false, 20000));
+        new BitrateMemory(context).put("host-a", false, 11000);
         session.release();
-        assertEquals(11000, session(true).negotiate(20000));
+        assertEquals(11000, session(true).negotiate(false, 20000));
         assertEquals(11000, session.negotiatedKbps());
-        assertEquals(20000, BitrateSession.negotiate(null, 20000));
+        assertEquals(20000, BitrateSession.negotiate(null, false, 20000));
     }
 
     @Test
     public void nothingIsSentUntilTheHostIsProven() {
-        session(true).negotiate(20000);
+        session(true).negotiate(false, 20000);
         session.onStreamStarted();
         run(5000);
         assertTrue(sent.isEmpty());
@@ -105,7 +105,7 @@ public class BitrateSessionTest {
 
     @Test
     public void withTheOffSwitchReportsSayNotToAdaptAndNothingIsRemembered() {
-        session(false).negotiate(20000);
+        session(false).negotiate(false, 20000);
         session.onStreamStarted();
         session.startTask().run();
         run(1500);
@@ -115,12 +115,12 @@ public class BitrateSessionTest {
         run(12_000);
         session.onStreamStopped();
         run(100);
-        assertEquals(0, new BitrateMemory(context).get("host-a"));
+        assertEquals(0, new BitrateMemory(context).get("host-a", false));
     }
 
     @Test
     public void whereTheSessionSettledIsRememberedForTheNextOne() {
-        session(true).negotiate(20000);
+        session(true).negotiate(false, 20000);
         session.onStreamStarted();
         session.startTask().run();
         run(1100);
@@ -130,12 +130,12 @@ public class BitrateSessionTest {
 
         session.onStreamStopped();
         run(100);
-        assertEquals(13000, new BitrateMemory(context).get("host-a"));
+        assertEquals(13000, new BitrateMemory(context).get("host-a", false));
     }
 
     @Test
     public void stoppingEndsTheReports() {
-        session(true).negotiate(20000);
+        session(true).negotiate(false, 20000);
         session.onStreamStarted();
         session.startTask().run();
         MeowStreamBridgeAccess.bitrateApplied(13000);
@@ -145,5 +145,43 @@ public class BitrateSessionTest {
         run(5000);
         assertEquals(before, sent.size());
         assertTrue(SystemClock.uptimeMillis() > 0);
+    }
+
+    @Test
+    public void aHostProvenSignalQueuedBehindTheStopNeverStartsReports() {
+        // Teardown drains this session before the viewport thread, so a first echo already
+        // queued there can still announce the host afterwards.
+        session(true).negotiate(false, 20000);
+        session.onStreamStarted();
+        session.onStreamStopped();
+        session.startTask().run();
+        run(5000);
+        assertTrue(sent.isEmpty());
+        // The next stream reports normally.
+        session.onStreamStarted();
+        session.startTask().run();
+        run(1500);
+        assertEquals(1, sent.size());
+    }
+
+    @Test
+    public void aHostThatStoppedAdaptingIsForgotten() {
+        new BitrateMemory(context).put("host-a", false, 6000);
+        assertEquals(6000, session(true).negotiate(false, 20000));
+        session.onStreamStarted();
+        session.startTask().run();
+        run((ReceiverReporter.GIVE_UP_AFTER_REPORTS + 2) * 1000L);
+        session.onStreamStopped();
+        run(100);
+        assertEquals("the next session starts at the setting again",
+                0, new BitrateMemory(context).get("host-a", false));
+    }
+
+    @Test
+    public void meteredAndUnmeteredStartsAreIndependent() {
+        new BitrateMemory(context).put("host-a", true, 3000);
+        assertEquals(20000, session(true).negotiate(false, 20000));
+        session.release();
+        assertEquals(3000, session(true).negotiate(true, 8000));
     }
 }

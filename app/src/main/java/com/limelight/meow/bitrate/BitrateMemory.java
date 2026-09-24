@@ -18,19 +18,35 @@ public final class BitrateMemory {
         this.prefs = context.getSharedPreferences(FILE, Context.MODE_PRIVATE);
     }
 
-    /** @return the remembered bitrate for {@code hostUuid}, or 0 */
-    public int get(String hostUuid) {
+    /**
+     * Metered and unmetered sessions are remembered apart: they have different ceilings, and a
+     * cellular session's settling point must not start the next Wi-Fi one.
+     */
+    private static String key(String hostUuid, boolean metered) {
+        return KEY_PREFIX + hostUuid + (metered ? "_metered" : "");
+    }
+
+    /** @return the remembered bitrate for {@code hostUuid} on this kind of network, or 0 */
+    public int get(String hostUuid, boolean metered) {
         if (hostUuid == null || hostUuid.isEmpty()) {
             return 0;
         }
-        return Math.max(0, prefs.getInt(KEY_PREFIX + hostUuid, 0));
+        return Math.max(0, prefs.getInt(key(hostUuid, metered), 0));
     }
 
-    /** Remembers {@code kbps} for {@code hostUuid}; ignores nonsense. */
-    public void put(String hostUuid, int kbps) {
+    /** Remembers {@code kbps}; ignores nonsense. */
+    public void put(String hostUuid, boolean metered, int kbps) {
         if (hostUuid == null || hostUuid.isEmpty() || kbps <= 0) {
             return;
         }
-        prefs.edit().putInt(KEY_PREFIX + hostUuid, kbps).apply();
+        prefs.edit().putInt(key(hostUuid, metered), kbps).apply();
+    }
+
+    /** Forgets the remembered bitrate, so the next session starts at the user's setting. */
+    public void clear(String hostUuid, boolean metered) {
+        if (hostUuid == null || hostUuid.isEmpty()) {
+            return;
+        }
+        prefs.edit().remove(key(hostUuid, metered)).apply();
     }
 }

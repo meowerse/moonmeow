@@ -30,8 +30,8 @@ import com.limelight.meow.gesture.InlinePinchZoomController;
  *       do;</li>
  *   <li>a revocation (the host back on the full desktop) is just another crop — the identity
  *       — and swaps the same way;</li>
- *   <li>stream start and stop reset to the identity, so a reconnect never inherits a crop.
- *       </li>
+ *   <li>stream start resets to the identity, so a reconnect never inherits a crop; stream
+ *       stop keeps the crop the frozen last frame was encoded with.</li>
  * </ul>
  * Rotation, PiP and an external display all reach this through the same
  * {@code constrainToBounds()} notification, and the presented transform is recomputed from
@@ -110,10 +110,14 @@ public final class ViewportCompositor {
         present(FrameMapping.IDENTITY);
     }
 
-    /** The stream is going away; show the last frame under the plain logical transform. */
+    /**
+     * The stream is going away. Pending swaps are dropped, but the presented mapping is kept:
+     * the last decoded frame stays on the surface, and it is still the crop it was, so
+     * resetting to the identity here would show that frozen frame magnified twice. The next
+     * {@link #onStreamStarted} resets.
+     */
     public void onStreamStopped() {
         clearPending();
-        present(FrameMapping.IDENTITY);
     }
 
     /**

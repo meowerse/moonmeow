@@ -14,6 +14,7 @@ public class ReceiverReporterTest {
 
     private final List<int[]> sent = new ArrayList<>();
     private int sendResult;
+    private long rttInfo = (25L << 32) | 3L;
     private long received;
     private long expected;
     private long bytes;
@@ -30,7 +31,7 @@ public class ReceiverReporterTest {
                 return true;
             }
 
-            @Override public long rttInfo() { return (25L << 32) | 3L; }
+            @Override public long rttInfo() { return rttInfo; }
             @Override public int decodeQueueFrames() { return 2; }
             @Override public int averageDecodeMs() { return 6; }
         };
@@ -98,6 +99,42 @@ public class ReceiverReporterTest {
         assertFalse(reporter.isRunning());
         second(2000);
         assertEquals(1, sent.size());
+    }
+
+    @Test
+    public void noReportGoesOutBeforeThereIsAnRttEstimate() {
+        // An unknown RTT would have to go out as 0 ms and become the host's RTT baseline.
+        rttInfo = ReceiverReport.RTT_UNKNOWN;
+        reporter.start(0, true, 20000);
+        second(1000);
+        second(2000);
+        assertTrue(sent.isEmpty());
+        assertTrue("silence without an estimate is not the host's silence", reporter.isRunning());
+        rttInfo = (30L << 32) | 4L;
+        second(3000);
+        assertEquals(1, sent.size());
+        // A later dropout of the estimate keeps the last known one.
+        rttInfo = ReceiverReport.RTT_UNKNOWN;
+        second(4000);
+        assertEquals(2, sent.size());
+        assertEquals(30, sent.get(1)[2]);
+    }
+
+    @Test
+    public void transientSendFailuresDoNotCountTowardGivingUp() {
+        sendResult = -1;
+        reporter.start(0, true, 20000);
+        for (int s = 1; s <= 10; s++) {
+            second(s * 1000L);
+        }
+        assertTrue(reporter.isRunning());
+        assertFalse(reporter.hostNeverAdapted());
+        sendResult = 0;
+        for (int s = 11; s <= 15; s++) {
+            second(s * 1000L);
+        }
+        assertFalse(reporter.isRunning());
+        assertTrue(reporter.hostNeverAdapted());
     }
 
     @Test

@@ -45,9 +45,26 @@ public final class ReceiverReport {
         receivedKbps = intervalMs > 0 ? (int) Math.min(Integer.MAX_VALUE, bytes * 8L / intervalMs) : 0;
     }
 
-    /** Splits {@code LiGetEstimatedRttInfo()}: RTT in the high word, variance in the low. */
-    public void setRtt(long rttInfo) {
-        rttMs = (int) (rttInfo >>> 32);
-        rttVarianceMs = (int) rttInfo;
+    /** {@code MoonBridge.getEstimatedRttInfo()} when ENet has no estimate yet. */
+    public static final long RTT_UNKNOWN = -1L;
+
+    /**
+     * Splits {@code LiGetEstimatedRttInfo()}: RTT in the high word, variance in the low.
+     *
+     * <p>The wire has no "unknown" value, and a 0 ms RTT would become the host's windowed
+     * minimum RTT baseline (N4), after which every real RTT looks like queueing delay. So an
+     * unknown estimate keeps the last known one instead.
+     *
+     * @return whether {@link #rttMs} now holds a real estimate (this one or an earlier one)
+     */
+    public boolean setRtt(long rttInfo) {
+        if (rttInfo != RTT_UNKNOWN) {
+            rttMs = (int) (rttInfo >>> 32);
+            rttVarianceMs = (int) rttInfo;
+            rttKnown = true;
+        }
+        return rttKnown;
     }
+
+    private boolean rttKnown;
 }
