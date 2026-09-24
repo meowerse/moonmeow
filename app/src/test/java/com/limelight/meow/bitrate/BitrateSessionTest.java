@@ -184,4 +184,22 @@ public class BitrateSessionTest {
         session.release();
         assertEquals(3000, session(true).negotiate(true, 8000));
     }
+
+    @Test
+    public void aPoorConnectionOnAnAdaptingHostSaysSoInsteadOfAskingTheUserToLowerTheBitrate() {
+        assertEquals(null, BitrateSession.poorConnectionText(null, context));
+        session(true).negotiate(false, 20000);
+        session.onStreamStarted();
+        assertEquals("the host has not adapted anything yet: keep the advice",
+                null, BitrateSession.poorConnectionText(session, context));
+        MeowStreamBridgeAccess.bitrateApplied(6200);
+        assertEquals("Connection slow · adapting bitrate (6.2 Mbps)",
+                BitrateSession.poorConnectionText(session, context));
+        session.release();
+        session(false).negotiate(false, 20000);
+        session.onStreamStarted();
+        MeowStreamBridgeAccess.bitrateApplied(6200);
+        assertEquals("automatic bitrate off: keep the advice",
+                null, BitrateSession.poorConnectionText(session, context));
+    }
 }

@@ -744,6 +744,17 @@ files; the hooks keep their line endings. Everything else is in `meow/viewport/`
 `ReferencePointer`. `ZoomTarget` gained the three logical getters `PanZoomHandler` already had,
 so nothing reads the zoom back off the view — `LocalCursorScaler` included.
 
+**Guard band (2026-09-24).** The binder no longer asks for exactly the visible rectangle V:
+`GuardBand` asks for V plus a margin at the encode surface's aspect ratio, clamped into the
+desktop -- 10% a side at rest, growing with pan speed up to 35%, tightened back 300 ms after
+the view stops. The request is kept while V stays inside it (with 2% slack) and it is not more
+than 1.25x the size the margin calls for, so small pans and cursor-follow steps are shown sharp
+from pixels already received (the compositor presents V inside the applied crop at one
+magnification) instead of re-cropping the host every frame. The cost is 1/(1+2m) of the
+encoder's pixels per axis for V: 83% at rest. `GuardBandTest`,
+`StreamViewportBinderTest.smallPansInsideTheGuardBandDoNotChangeTheCrop`,
+`CropCompositionTest.aCropWithAGuardBandShowsTheViewAtOneMagnificationAndSmallPansStaySharp`.
+
 **What remains inexact, stated.** The echo is rounded to whole reference pixels and does not
 carry the desktop-space source, so the recovered mapping is within one reference pixel for 99%
 of crops and within 1.75 for all (`HostCropPlanTest`). The swap is aligned to the frame the
@@ -797,8 +808,30 @@ windowed-minimum baseline (N4), so reports wait for ENet's first estimate and ca
 known one through a dropout. Only a report the library accepted counts toward the five-report
 give-up; a transient ENet failure does not.
 
-**`CONN_STATUS_POOR` is untouched** (`BitrateWiringTest.thePoorConnectionWarningIsUntouched`),
+**`CONN_STATUS_POOR`**, `Game.connectionStatusUpdate`, 2 lines: when automatic bitrate is
+on and the host has adapted this session (an APPLIED arrived), the "slow connection -- lower
+the bitrate" advice is replaced by a short "Connection slow · adapting bitrate (X Mbps)" in the
+same non-blocking overlay line; the host is already lowering it. Stock hosts, and automatic
+bitrate off, keep the original advice (`BitrateSessionTest.aPoorConnectionOnAnAdaptingHost…`,
+`BitrateWiringTest.thePoorConnectionWarningIsUntouched`),
 and the Tailscale packet-size path is pinned by `meow/net/TailnetPacketSizeTest` (N3).
+
+---
+
+## `MEOW-TOUCH(auto-av1)`
+
+**Feature:** "automatic" codec selection offers AV1 on a hardware, whitelisted AV1 decoder
+with a low-latency path (`FEATURE_LowLatency`, or a dedicated `*.lowlatency` codec as
+MediaTek ships). The RTSP negotiation already prefers AV1 whenever both sides offer it, and
+AV1 needs fewer bits than HEVC for the same desktop detail. Upstream offers AV1 only when
+forced.
+
+| File | Site | Edit |
+| --- | --- | --- |
+| `binding/video/MediaCodecDecoderRenderer.java` | `findAv1Decoder`, the "only when forced" guard | `&& !AutoCodecPolicy.av1InAuto(prefs)` appended; CRLF kept |
+
+New code: `meow/video/AutoCodecPolicy.java` (the decision is the pure `offerAv1(...)`),
+tested by `AutoCodecPolicyTest`. On a device without such a decoder nothing changes.
 
 ---
 

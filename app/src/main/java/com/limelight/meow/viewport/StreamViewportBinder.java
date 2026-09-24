@@ -108,6 +108,12 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     /** Follows the host cursor while zoomed. Null until {@link #setCursorFollow}. */
     private CursorFollowController cursorFollow;
 
+    /** V plus a margin, with hysteresis: what to ask the host to crop to. UI thread. */
+    private final GuardBand guardBand = new GuardBand();
+    /** How long the view must be still before the guard band is tightened. */
+    static final long SETTLE_DELAY_MS = 300L;
+    private final Runnable settleCheck = this::onViewSettled;
+
     /** Automatic bitrate. Null until {@link #setBitrateSession}. */
     private BitrateSession bitrateSession;
 
@@ -270,10 +276,42 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         // Posted directly rather than through onZoomTransformChanged(), because `live` is
         // written on the reporter's thread and has not caught up yet; the handler queue is
         // what guarantees this lands after the reset above.
-        final ViewportRect restored = computeVisibleHostRect();
+        guardBand.reset();
+        final ViewportRect restored = requestFor(computeVisibleHostRect(), false);
         if (restored != null) {
             post(() -> {
                 reporter.onVisibleRectChanged(restored);
+                live = reporter.isLive();
+            });
+        }
+    }
+
+    /**
+     * The crop to ask for when the user sees {@code visible}: the visible rectangle plus a
+     * guard band ({@link GuardBand}), or null when the current request still serves. UI thread.
+     */
+    private ViewportRect requestFor(ViewportRect visible, boolean settled) {
+        if (visible == null) {
+            return null;
+        }
+        ViewportReferenceFrame frame = contentFrame;
+        ViewportRect bounds = frame != null ? frame.fullContent()
+                : ViewportRect.full(streamWidth, streamHeight);
+        return settled
+                ? guardBand.onSettled(visible, bounds, streamWidth, streamHeight)
+                : guardBand.onVisible(visible, android.os.SystemClock.uptimeMillis(), bounds,
+                        streamWidth, streamHeight);
+    }
+
+    /** Motion stopped a moment ago: tighten the guard band back to its rest size. */
+    private void onViewSettled() {
+        if (!live || !streamStarted) {
+            return;
+        }
+        final ViewportRect rect = requestFor(computeVisibleHostRect(), true);
+        if (rect != null) {
+            post(() -> {
+                reporter.onVisibleRectChanged(rect);
                 live = reporter.isLive();
             });
         }
@@ -389,7 +427,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         if (!live) {
             return;
         }
-        final ViewportRect rect = computeVisibleHostRect();
+        mainHandler.removeCallbacks(settleCheck);
+        mainHandler.postDelayed(settleCheck, SETTLE_DELAY_MS);
+        final ViewportRect rect = requestFor(computeVisibleHostRect(), false);
         if (rect == null) {
             return;
         }

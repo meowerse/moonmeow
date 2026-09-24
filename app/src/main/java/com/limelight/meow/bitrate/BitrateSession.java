@@ -102,6 +102,27 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
         return negotiatedKbps;
     }
 
+    /**
+     * The line to show on {@code CONN_STATUS_POOR} instead of "slow connection, lower the
+     * bitrate", or null to keep that advice. When automatic bitrate is on and the host has
+     * shown it adapts (an APPLIED arrived), lowering the bitrate is already happening, so the
+     * advice is wrong; a short "adapting" line with the current bitrate says what is going on
+     * without asking the user to do anything. Any thread.
+     */
+    public static String poorConnectionText(BitrateSession session, Context context) {
+        if (session == null || !session.automatic || context == null) {
+            return null;
+        }
+        int kbps = session.hostAdaptingKbps;
+        if (kbps <= 0) {
+            return null;
+        }
+        return context.getString(com.limelight.R.string.meow_bitrate_adapting, kbps / 1000f);
+    }
+
+    /** The last APPLIED bitrate this stream, or 0 before the host has adapted. */
+    private volatile int hostAdaptingKbps;
+
     /** Runs once the host has proven it is a meow host. Any thread. */
     public Runnable startTask() {
         return start;
@@ -112,6 +133,7 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
         DecodeTimeWindow.reset();
         BitrateOverlay.clear();
         stopped = false;
+        hostAdaptingKbps = 0;
         MeowStreamBridge.setBitrateListener(this);
     }
 
@@ -138,6 +160,7 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
     /** The library's callback thread. */
     @Override
     public void onBitrateApplied(final int kbps) {
+        hostAdaptingKbps = kbps;
         BitrateOverlay.publish(kbps, automatic);
         handler.post(() -> reporter.onApplied(kbps, SystemClock.uptimeMillis()));
     }

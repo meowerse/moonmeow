@@ -39,11 +39,19 @@ public final class ReceiverReport {
         long received = (current[PACKETS_RECEIVED] - previous[PACKETS_RECEIVED]) & 0xFFFFFFFFL;
         long bytes = (current[BYTES_RECEIVED] - previous[BYTES_RECEIVED]) & 0xFFFFFFFFL;
 
-        int lost = Math.max(0, (int) (expected - received));
+        // A packet reordered across the snapshot is counted as received in one interval and
+        // expected in the next, which reads as a surplus now and as loss next time -- a clean
+        // link reporting a few permille of loss every other second. Carry the surplus forward.
+        int balance = (int) (expected - received) + carriedSurplus;
+        carriedSurplus = Math.min(0, balance);
+        int lost = Math.max(0, balance);
         lossPermille = expected > 0 ? (int) Math.min(1000L, lost * 1000L / expected) : 0;
         // bytes * 8 bits over ms is kilobits per second.
         receivedKbps = intervalMs > 0 ? (int) Math.min(Integer.MAX_VALUE, bytes * 8L / intervalMs) : 0;
     }
+
+    /** Packets received beyond those expected, owed against the next interval's count. */
+    private int carriedSurplus;
 
     /** {@code MoonBridge.getEstimatedRttInfo()} when ENet has no estimate yet. */
     public static final long RTT_UNKNOWN = -1L;

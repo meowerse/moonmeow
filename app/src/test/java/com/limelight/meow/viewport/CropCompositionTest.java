@@ -156,4 +156,22 @@ public class CropCompositionTest {
         drain();
         assertEquals(4f, streamView.getScaleX(), 0f);
     }
+
+    @Test
+    public void aCropWithAGuardBandShowsTheViewAtOneMagnificationAndSmallPansStaySharp() {
+        panZoom.pinchBy(4f, VIEW_W / 2f, VIEW_H / 2f);
+        drain();
+        // The host applies the band around the view (720, 405, 480, 270): 576x324.
+        binder.onViewportApplied(672, 378, 576, 324, 0, 0, 0);
+        drain();
+        // The decoded frame shows 1.2x the view, so it is presented at 4 / (1920 / 576).
+        assertEquals(4f * 576f / 1920f, streamView.getScaleX(), 1e-3f);
+        // A small pan inside the band moves over pixels already received: the presented
+        // transform follows the logical one and nothing new is needed from the host.
+        float before = streamView.getX();
+        panZoom.panBy(-80f, 0f);
+        drain();
+        assertEquals(before - 80f, streamView.getX(), 0.5f);
+        assertEquals(4f * 576f / 1920f, streamView.getScaleX(), 1e-3f);
+    }
 }

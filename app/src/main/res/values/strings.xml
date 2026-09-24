@@ -706,6 +706,7 @@
     <string name="summary_checkbox_remember_zoom_pan">Save changes to zoom and pan position between sessions</string>
     <string name="title_checkbox_meow_auto_bitrate">Automatic bitrate</string>
     <string name="summary_checkbox_meow_auto_bitrate">Let the host adapt the bitrate to the connection, up to the bitrate set above, and start each stream where the last one on that host settled. Needs a host that supports it; with this off the bitrate above is used as is.</string>
+    <string name="meow_bitrate_adapting">Connection slow · adapting bitrate (%1$.1f Mbps)</string>
     <string name="perf_overlay_meow_applied_bitrate_auto">Bitrate: applied %1$.1f Mbps (auto)</string>
     <string name="perf_overlay_meow_applied_bitrate_host">Bitrate: applied %1$.1f Mbps (host)</string>
     <string name="title_checkbox_meow_cursor_follow">Follow the cursor when zoomed in</string>

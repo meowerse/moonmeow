@@ -184,20 +184,40 @@ public class StreamViewportBinderTest {
 
         drain();
         assertEquals(1, sender.sent.size());
-        assertEquals(STREAM_W / 2, sender.last().width);
+        // The visible half plus the resting guard band (10% each side).
+        assertEquals(Math.round(STREAM_W / 2 * 1.2f), sender.last().width);
     }
 
     @Test
-    public void everyTransformChangeReachesTheWireOnceTheHostIsSupported() {
-        // No throttle of our own -- the library coalesces. See ViewportReporter.
+    public void smallPansInsideTheGuardBandDoNotChangeTheCrop() {
+        // The band exists so that small pans are shown sharp from pixels already received;
+        // re-cropping for each of them would cost the host a change per input frame.
         startSupported();
         sender.sent.clear();
+        streamView.setScaleX(2f);
+        streamView.setScaleY(2f);
+        streamView.setX(-VIEW_W / 2f);
+        streamView.setY(-VIEW_H / 2f);
+        binder.onZoomTransformChanged();
+        drain();
+        assertEquals(1, sender.sent.size());
+        ViewportRect band = sender.last();
         for (int i = 1; i <= 5; i++) {
-            streamView.setX(-i);
+            streamView.setX(-VIEW_W / 2f - i);
             binder.onZoomTransformChanged();
         }
         drain();
-        assertEquals(5, sender.sent.size());
+        assertEquals("pans inside the band send nothing", 1, sender.sent.size());
+        // A pan that takes the view to the band's edge does.
+        streamView.setX(-VIEW_W / 2f - VIEW_W * 0.25f);
+        binder.onZoomTransformChanged();
+        drain();
+        assertEquals(2, sender.sent.size());
+        ViewportRect visible = binder.computeVisibleHostRect();
+        ViewportRect next = sender.last();
+        assertTrue("the new crop contains the view", next.x <= visible.x
+                && next.x + next.width >= visible.x + visible.width);
+        assertTrue(next.x != band.x);
     }
 
     @Test
@@ -401,8 +421,8 @@ public class StreamViewportBinderTest {
 
         binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
         drain();
-        assertEquals("the restored crop must reach the host",
-                STREAM_W / 4, sender.last().width);
+        assertEquals("the restored crop, with its guard band, must reach the host",
+                Math.round(STREAM_W / 4 * 1.2f), sender.last().width);
     }
 
     @Test

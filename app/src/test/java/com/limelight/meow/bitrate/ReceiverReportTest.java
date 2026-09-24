@@ -69,4 +69,32 @@ public class ReceiverReportTest {
         assertEquals(42, r.rttMs);
         assertEquals(7, r.rttVarianceMs);
     }
+
+    @Test
+    public void aCleanLinkWithReorderingAcrossSnapshotsNeverLooksLossy() {
+        // Data and FEC parity all arrive (received == expected over time), but each snapshot
+        // catches a few packets of the next interval early and the one after that late.
+        ReceiverReport r = new ReceiverReport();
+        long received = 0;
+        long expected = 0;
+        int[] previous = counters(0, 0, 0);
+        for (int second = 0; second < 20; second++) {
+            expected += 1000;
+            received += 1000 + (second % 2 == 0 ? 7 : -7);
+            int[] current = counters(received, expected, received * 1200);
+            r.setNetwork(previous, current, 1000);
+            assertEquals("second " + second, 0, r.lossPermille);
+            previous = current;
+        }
+    }
+
+    @Test
+    public void realLossAfterASurplusIsStillReported() {
+        ReceiverReport r = new ReceiverReport();
+        r.setNetwork(counters(0, 0, 0), counters(1005, 1000, 0), 1000);
+        assertEquals(0, r.lossPermille);
+        // 25 packets really lost this second: 5 were counted early, 20 are real loss.
+        r.setNetwork(counters(1005, 1000, 0), counters(1980, 2000, 0), 1000);
+        assertEquals(20, r.lossPermille);
+    }
 }

@@ -3755,6 +3755,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 }
 
                 if (connectionStatus == MoonBridge.CONN_STATUS_POOR) {
+                    String adapting = BitrateSession.poorConnectionText(bitrateSession, Game.this); // MEOW-TOUCH(auto-bitrate)
+                    if (adapting != null) notificationOverlayView.setText(adapting); else // MEOW-TOUCH(auto-bitrate)
                     if (prefConfig.bitrate > 5000) {
                         notificationOverlayView.setText(getResources().getString(R.string.slow_connection_msg));
                     }
