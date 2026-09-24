@@ -18,7 +18,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | Fn layer | a **Super** key (a lone Super press: Start menu / KDE launcher) and Super+L, F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |
 | Above the system keyboard | a one-row strip: Esc, Tab, Ctrl, Alt, Super, ← ↑ ↓ →, and a key to switch to the full PC keyboard (Termux's extra-keys idea). Setting: *PC keys above the system keyboard* |
 | Stream | slides up out from under any keyboard (system, strip or PC) and back when it closes. Setting: *Move the stream above the keyboard* |
-| Quick bar (toolbar) | **always on screen** by default — across the bottom in portrait (in the letterbox below the stream), down the right-hand side in landscape (in the letterbox beside a 16:9 stream on a 19.5–20:9 phone). The stream is kept clear of it: where the bar does overlap the stream (a keyboard is open, or the letterbox is too narrow), the stream moves up or left out from under it, never shrinks. Setting *Auto-hide toolbar* (off by default) restores the old 3-second collapse to a handle line; then the bar is a transient overlay and the stream does not move for it. A two-finger tap still toggles it either way |
+| Quick bar (toolbar) | **always on screen** by default, placed where the letterbox actually is: in the bottom letterbox if it is deep enough (portrait), else down the right-hand one (landscape, a 16:9 stream on a 19.5–20:9 phone). The stream is kept clear of it: where it does overlap (a portrait keyboard is open), the stream moves up out from under it, never shrinks. Where no letterbox can hold it (a 16:9 or 16:10 window), and above a keyboard in landscape (the band is too thin to share), it behaves as with *Auto-hide toolbar*: collapses to a handle and the stream does not move for it. *Auto-hide toolbar* (off by default) restores the old 3-second collapse everywhere. A two-finger tap toggles it either way |
 | System bars | in full screen, only the status bar hides; the navigation bar stays and the window is laid out above it. Setting: *Keep the navigation bar visible* (off = the old immersive mode) |
 
 ## Modifier behaviour (Ctrl, Alt, Shift, Super, Fn)
@@ -187,8 +187,8 @@ horizontal bar, right or left for a vertical one — only where it actually over
 (`PcKeyboardController.clearOf`). The stream then lifts (`StreamLift.liftFor`) or slides left
 into spare letterbox (`StreamLift.shiftFor`). The published `KeyboardVisibleArea` includes the
 bar, so PR #16's `setBottomObstruction` consumer gets it for free. The bar lives inside the
-content view, which with the navigation bar kept is laid out above that bar, so the two never
-overlap.
+content view, which with *Keep the navigation bar visible* on is laid out above that bar, so the
+two never overlap; with it off the navigation bar only appears transiently, over everything.
 
 **No defaults migration.** The setting is new: no install has a stored value, so every existing
 install reads the default (off = always visible) exactly like a new one, and nothing collides
@@ -201,9 +201,13 @@ on-screen-keyboard configure buttons are fixed translucent buttons with no timer
 
 ## Known limits
 
-- In landscape on a 16:10 or wider stream (or a tablet), the letterbox is too narrow for the
-  bar, and the stream can only slide left as far as its own left letterbox allows; the rest of
-  the overlap stays covered.
+- Where no letterbox fits the bar (16:9/16:10 windows, tablets, split-screen), it falls back to
+  auto-hiding rather than covering the stream for good. Owner decision if that should change.
+- Clearing the stream of the bar follows *Move the stream above the keyboard*; with that off, or
+  on an external display (no keyboard controller), the permanent bar may cover the stream.
+- A permanent bar also sits above the Artemis on-screen controls (virtual gamepad, custom
+  keys, the Artemis keyboard layout) where they overlap; users of those may prefer
+  *Auto-hide toolbar*. Not changed: they are positioned by the user.
 
 - Before the cursor has been seen (no pointer input since the stream started), landscape lifts
   with no point of interest: the bottom of the stream on the keyboard.

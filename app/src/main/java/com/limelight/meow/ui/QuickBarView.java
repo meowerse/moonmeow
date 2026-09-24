@@ -218,7 +218,8 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     }
 
     public void destroy() {
-        handler.removeCallbacks(autoHideRunnable);
+        handler.removeCallbacksAndMessages(null);
+        obstructionChanged = null;
     }
 
     public void onConfigurationChanged(Configuration newConfig) {
@@ -226,7 +227,18 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     }
 
     private void applyOrientation(Configuration cfg) {
-        landscape = cfg.orientation == Configuration.ORIENTATION_LANDSCAPE;
+        // Until the keyboard controller arranges it for the real stream box, the bar stands
+        // across the bottom, as it always did.
+        setVertical(false);
+    }
+
+    /** Across the bottom, or down the right-hand side. No-op when unchanged. */
+    private void setVertical(boolean vertical) {
+        if (layoutKnown && vertical == landscape) {
+            return;
+        }
+        layoutKnown = true;
+        landscape = vertical;
         FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) barContainer.getLayoutParams();
         FrameLayout bar = (FrameLayout) barContainer;
         ViewGroup from = landscape ? scrollView : verticalScrollView;
@@ -286,6 +298,62 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
         notifyObstructionChangedAfterLayout();
     }
 
+    private boolean layoutKnown;
+    /** No place to stand without covering the stream: behave as auto-hide for now. */
+    private boolean transientBar;
+
+    /**
+     * Where to stand, decided from where the letterbox actually is rather than from the
+     * orientation:
+     * <ul>
+     *   <li>a keyboard is open in portrait: across the bottom, ridden up above the keyboard;</li>
+     *   <li>a keyboard is open in landscape: across the bottom, but transient — the band above
+     *       a landscape keyboard is too thin to give a permanent bar a share of it, and the
+     *       keyboard has its own hide key;</li>
+     *   <li>otherwise: in the bottom letterbox if it is deep enough, else in the right-hand one
+     *       if it is wide enough, else (a 16:9 or 16:10 window with no letterbox) across the
+     *       bottom as a transient bar, exactly as with "auto-hide toolbar" on, rather than
+     *       covering the stream for good.</li>
+     * </ul>
+     */
+    @Override
+    public void arrange(Rect stream, int contentRight, int contentBottom, int keyboardTopInWindow) {
+        int need = dp(BAR_SPACE_DP);
+        boolean keyboard = keyboardTopInWindow < contentBottom - 1;
+        boolean landscapeWindow = getWidth() > getHeight();
+        boolean vertical;
+        boolean nowTransient;
+        if (keyboard) {
+            vertical = false;
+            nowTransient = landscapeWindow;
+        } else if (contentBottom - stream.bottom >= need) {
+            vertical = false;
+            nowTransient = false;
+        } else if (contentRight - stream.right >= need) {
+            vertical = true;
+            nowTransient = false;
+        } else {
+            vertical = false;
+            nowTransient = true;
+        }
+        setVertical(vertical);
+        if (nowTransient != transientBar) {
+            transientBar = nowTransient;
+            if (transientBar) {
+                scheduleAutoHide();
+            } else if (getVisibility() == VISIBLE && !barVisible) {
+                showBar();
+            }
+        }
+    }
+
+    /** The room a bar needs beside or below the stream, margins included. */
+    static final int BAR_SPACE_DP = 84;
+
+    private boolean isTransient() {
+        return autoHide || transientBar;
+    }
+
     /** Whether the bar collapses to a handle on its own (the "auto-hide toolbar" setting). */
     public boolean isAutoHide() {
         return autoHide;
@@ -340,7 +408,7 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
 
     private void scheduleAutoHide() {
         handler.removeCallbacks(autoHideRunnable);
-        if (autoHide && barVisible && getVisibility() == VISIBLE) {
+        if (isTransient() && barVisible && getVisibility() == VISIBLE) {
             handler.postDelayed(autoHideRunnable, AUTO_HIDE_MS);
         }
     }
@@ -416,7 +484,7 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
      */
     @Override
     public boolean obstructionInWindow(int keyboardTopInWindow, Rect out) {
-        if (autoHide || !barVisible || getVisibility() != VISIBLE
+        if (isTransient() || !barVisible || getVisibility() != VISIBLE
                 || barContainer.getVisibility() != VISIBLE || barContainer.getWidth() == 0) {
             return false;
         }
@@ -439,7 +507,10 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
         }
     }
 
-    /** After the next layout, when the bar's new bounds are known. */
+    /**
+     * Soon, not synchronously: the caller is mid-change. The bounds after the next layout
+     * reach the controller anyway, through its global-layout listener.
+     */
     private void notifyObstructionChangedAfterLayout() {
         // The handler, not View.post: that queue only runs once attached.
         handler.post(this::notifyObstructionChanged);

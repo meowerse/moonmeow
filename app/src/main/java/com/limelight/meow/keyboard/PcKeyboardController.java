@@ -442,6 +442,7 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
         containerRect(container);
         for (int i = 0; i < obstructions.size(); i++) {
             KeyboardVisibleArea.Obstruction o = obstructions.get(i);
+            o.arrange(container, location[0] + content.getWidth(), contentBottom, pip ? windowHeight : keyboardTop);
             o.placeAboveKeyboards(pip ? windowHeight : keyboardTop);
             if (pip || !o.obstructionInWindow(keyboardTop, obstruction)) {
                 continue;

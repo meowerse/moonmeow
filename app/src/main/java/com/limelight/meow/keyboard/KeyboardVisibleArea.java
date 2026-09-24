@@ -1,5 +1,6 @@
 package com.limelight.meow.keyboard;
 
+import android.graphics.Rect;
 import android.view.View;
 
 import com.limelight.R;
@@ -38,6 +39,13 @@ public final class KeyboardVisibleArea {
      * content view's children.
      */
     public interface Obstruction {
+        /**
+         * Chooses where to stand for this stream box and keyboard state, before
+         * {@link #placeAboveKeyboards}. Window pixels; {@code contentRight}/{@code contentBottom}
+         * are where the window's content area ends (the navigation bar lies beyond).
+         */
+        void arrange(Rect streamInWindow, int contentRight, int contentBottom, int keyboardTopInWindow);
+
         /** Keyboards cover the window from this row down: move above it (animated). */
         void placeAboveKeyboards(int keyboardTopInWindow);
 

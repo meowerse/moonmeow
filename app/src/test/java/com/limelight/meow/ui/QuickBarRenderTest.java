@@ -43,6 +43,17 @@ public class QuickBarRenderTest {
         bar.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
                 View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
         bar.layout(0, 0, w, h);
+        float sw0 = w;
+        float sh0 = sw0 * 9f / 16f;
+        if (sh0 > h) {
+            sh0 = h;
+            sw0 = sh0 * 16f / 9f;
+        }
+        bar.arrange(new android.graphics.Rect(Math.round((w - sw0) / 2f), Math.round((h - sh0) / 2f),
+                Math.round((w + sw0) / 2f), Math.round((h + sh0) / 2f)), w, h, h);
+        bar.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
+        bar.layout(0, 0, w, h);
 
         Bitmap bitmap = Bitmap.createBitmap(w, h, Bitmap.Config.ARGB_8888);
         Canvas canvas = new Canvas(bitmap);
