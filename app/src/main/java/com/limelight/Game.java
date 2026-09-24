@@ -851,7 +851,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 .setResolutionScaleFactor(prefConfig.resolutionScaleFactor)
                 .setApp(app)
                 .setEnableUltraLowLatency(prefConfig.enableUltraLowLatency)
-                .setBitrate(BitrateSession.negotiate(bitrateSession, isMetered, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate)) // MEOW-TOUCH(auto-bitrate)
+                .setBitrate(BitrateSession.negotiate(bitrateSession, isMetered, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate, displayWidth, displayHeight, Math.round(chosenFrameRate))) // MEOW-TOUCH(auto-bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
                 .setMaxPacketSize(1392)

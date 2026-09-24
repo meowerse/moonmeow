@@ -56,8 +56,10 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
     private final Runnable start = this::onHostProven;
 
     /** The bitrate to negotiate: {@code session.negotiate()} or the setting when there is none. */
-    public static int negotiate(BitrateSession session, boolean metered, int configuredKbps) {
-        return session != null ? session.negotiate(metered, configuredKbps) : configuredKbps;
+    public static int negotiate(BitrateSession session, boolean metered, int configuredKbps,
+                                int width, int height, int fps) {
+        return session != null
+                ? session.negotiate(metered, configuredKbps, width, height, fps) : configuredKbps;
     }
 
     public BitrateSession(Context context, String hostUuid, boolean automatic) {
@@ -86,10 +88,11 @@ public final class BitrateSession implements MeowStreamBridge.BitrateListener {
      * Records the user's setting as the ceiling and returns the bitrate to start at: the last
      * stable bitrate on this host within bounds, or the setting.
      */
-    public int negotiate(boolean metered, int configuredKbps) {
+    public int negotiate(boolean metered, int configuredKbps, int width, int height, int fps) {
         this.metered = metered;
         this.configuredKbps = configuredKbps;
-        int start = StartingBitrate.choose(automatic, configuredKbps, memory.get(hostUuid, metered));
+        int start = StartingBitrate.choose(automatic, configuredKbps, memory.get(hostUuid, metered),
+                width, height, fps);
         this.negotiatedKbps = start;
         if (start != configuredKbps) {
             LimeLog.info("Bitrate: starting at " + start + " kbps (last stable on this host), "

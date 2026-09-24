@@ -165,6 +165,17 @@ public final class HostCursor {
     }
 
     /**
+     * A direct touch at (x, y), reference pixels: in the direct-touch modes the finger is the
+     * pointer. Not marked exact -- a host may or may not move its pointer to a touch.
+     */
+    public void onTouchPoint(float x, float y) {
+        known = true;
+        exact = false;
+        this.x = clamp(x, boundsLeft, boundsRight);
+        this.y = clamp(y, boundsTop, boundsBottom);
+    }
+
+    /**
      * The client just placed the pointer at (x, y): keep that exact position rather than the
      * library's quantised copy of it. Reference pixels, already clamped by the caller.
      */

@@ -48,10 +48,12 @@ public final class CursorInputTap {
         void onMoveAsPosition(int deltaX, int deltaY, int referenceWidth, int referenceHeight);
 
         /**
-         * A native touch or pen event: the user is pointing at the screen directly. It carries
-         * no mouse position, but a host cursor that moves now is under the finger.
+         * A native touch or pen event: the user is pointing at the screen directly, at
+         * ({@code fractionX}, {@code fractionY}) of the reference frame (already mapped
+         * through the user's view). NaN when the event carries no position to follow (a lift,
+         * a cancel, a second finger).
          */
-        void onDirectPointing();
+        void onDirectPointing(float fractionX, float fractionY);
     }
 
     private static volatile Listener listener;
@@ -89,12 +91,18 @@ public final class CursorInputTap {
         }
     }
 
-    /** Hook in {@code NvConnection.sendTouchEvent} and {@code sendPenEvent}. */
-    public static void touch() {
+    /**
+     * Hook in {@code NvConnection.sendTouchEvent} and {@code sendPenEvent}. Only the first
+     * pointer's hover, down and move events carry a position worth following.
+     */
+    public static void touch(byte eventType, int pointerId, float x, float y) {
         Listener l = listener;
-        if (l != null) {
-            l.onDirectPointing();
+        if (l == null) {
+            return;
         }
+        boolean follows = pointerId == 0 && (eventType == 0x00 /* HOVER */
+                || eventType == 0x01 /* DOWN */ || eventType == 0x03 /* MOVE */);
+        l.onDirectPointing(follows ? x : Float.NaN, follows ? y : Float.NaN);
     }
 
     /** Hook in {@code NvConnection.sendMouseMoveAsMousePosition}. */

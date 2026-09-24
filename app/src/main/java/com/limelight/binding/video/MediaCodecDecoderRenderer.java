@@ -306,8 +306,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     private MediaCodecInfo findAv1Decoder(PreferenceConfiguration prefs) {
         // For now, don't use AV1 unless explicitly requested
-        // MEOW-TOUCH(auto-av1): ...or automatic on a hardware, low-latency AV1 decoder
-        if (prefs.videoFormat != PreferenceConfiguration.FormatOption.FORCE_AV1 && !com.limelight.meow.video.AutoCodecPolicy.av1InAuto(prefs)) {
+        if (prefs.videoFormat != PreferenceConfiguration.FormatOption.FORCE_AV1) {
             return null;
         }
 

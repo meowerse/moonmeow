@@ -80,17 +80,17 @@ public class BitrateSessionTest {
 
     @Test
     public void theFirstSessionNegotiatesTheSettingAndLaterOnesTheRememberedValue() {
-        assertEquals(20000, session(true).negotiate(false, 20000));
+        assertEquals(20000, session(true).negotiate(false, 20000, 1280, 720, 30));
         new BitrateMemory(context).put("host-a", false, 11000);
         session.release();
-        assertEquals(11000, session(true).negotiate(false, 20000));
+        assertEquals(11000, session(true).negotiate(false, 20000, 1280, 720, 30));
         assertEquals(11000, session.negotiatedKbps());
-        assertEquals(20000, BitrateSession.negotiate(null, false, 20000));
+        assertEquals(20000, BitrateSession.negotiate(null, false, 20000, 1280, 720, 30));
     }
 
     @Test
     public void nothingIsSentUntilTheHostIsProven() {
-        session(true).negotiate(false, 20000);
+        session(true).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         run(5000);
         assertTrue(sent.isEmpty());
@@ -105,7 +105,7 @@ public class BitrateSessionTest {
 
     @Test
     public void withTheOffSwitchReportsSayNotToAdaptAndNothingIsRemembered() {
-        session(false).negotiate(false, 20000);
+        session(false).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         session.startTask().run();
         run(1500);
@@ -120,7 +120,7 @@ public class BitrateSessionTest {
 
     @Test
     public void whereTheSessionSettledIsRememberedForTheNextOne() {
-        session(true).negotiate(false, 20000);
+        session(true).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         session.startTask().run();
         run(1100);
@@ -135,7 +135,7 @@ public class BitrateSessionTest {
 
     @Test
     public void stoppingEndsTheReports() {
-        session(true).negotiate(false, 20000);
+        session(true).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         session.startTask().run();
         MeowStreamBridgeAccess.bitrateApplied(13000);
@@ -151,7 +151,7 @@ public class BitrateSessionTest {
     public void aHostProvenSignalQueuedBehindTheStopNeverStartsReports() {
         // Teardown drains this session before the viewport thread, so a first echo already
         // queued there can still announce the host afterwards.
-        session(true).negotiate(false, 20000);
+        session(true).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         session.onStreamStopped();
         session.startTask().run();
@@ -167,7 +167,7 @@ public class BitrateSessionTest {
     @Test
     public void aHostThatStoppedAdaptingIsForgotten() {
         new BitrateMemory(context).put("host-a", false, 6000);
-        assertEquals(6000, session(true).negotiate(false, 20000));
+        assertEquals(6000, session(true).negotiate(false, 20000, 1280, 720, 30));
         session.onStreamStarted();
         session.startTask().run();
         run((ReceiverReporter.GIVE_UP_AFTER_REPORTS + 2) * 1000L);
@@ -180,15 +180,15 @@ public class BitrateSessionTest {
     @Test
     public void meteredAndUnmeteredStartsAreIndependent() {
         new BitrateMemory(context).put("host-a", true, 3000);
-        assertEquals(20000, session(true).negotiate(false, 20000));
+        assertEquals(20000, session(true).negotiate(false, 20000, 1280, 720, 30));
         session.release();
-        assertEquals(3000, session(true).negotiate(true, 8000));
+        assertEquals(3000, session(true).negotiate(true, 8000, 1280, 720, 30));
     }
 
     @Test
     public void aPoorConnectionOnAnAdaptingHostSaysSoInsteadOfAskingTheUserToLowerTheBitrate() {
         assertEquals(null, BitrateSession.poorConnectionText(null, context));
-        session(true).negotiate(false, 20000);
+        session(true).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         assertEquals("the host has not adapted anything yet: keep the advice",
                 null, BitrateSession.poorConnectionText(session, context));
@@ -196,7 +196,7 @@ public class BitrateSessionTest {
         assertEquals("Connection slow · adapting bitrate (6.2 Mbps)",
                 BitrateSession.poorConnectionText(session, context));
         session.release();
-        session(false).negotiate(false, 20000);
+        session(false).negotiate(false, 20000, 1280, 720, 30);
         session.onStreamStarted();
         MeowStreamBridgeAccess.bitrateApplied(6200);
         assertEquals("automatic bitrate off: keep the advice",

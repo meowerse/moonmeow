@@ -145,6 +145,7 @@ public final class CursorFollowController
 
     private PointerSink sink;
     private TouchMode touchMode = () -> false;
+    private final FollowLog log;
 
     /** Written by the stream lifecycle, which may run on the teardown worker. */
     private volatile boolean streamStarted;
@@ -194,6 +195,12 @@ public final class CursorFollowController
     public CursorFollowController(ViewportView view,
                                   InlinePinchZoomController.ZoomTarget panTarget,
                                   boolean enabled, Frames frames) {
+        this(view, panTarget, enabled, frames, new FollowLog());
+    }
+
+    /** Test seam: inject the diagnostics log (plain JVM tests have no android.util.Log). */
+    CursorFollowController(ViewportView view, InlinePinchZoomController.ZoomTarget panTarget,
+                           boolean enabled, Frames frames, FollowLog log) {
         if (view == null || panTarget == null || frames == null) {
             throw new IllegalArgumentException("view, panTarget and frames are required");
         }
@@ -201,6 +208,7 @@ public final class CursorFollowController
         this.panTarget = panTarget;
         this.enabled = enabled;
         this.frames = frames;
+        this.log = log;
     }
 
     public boolean isEnabled() {
@@ -233,7 +241,8 @@ public final class CursorFollowController
     private void subscribeIfEnabled() {
         if (enabled) {
             hostProvenAtMs = frames.uptimeMillis();
-            MeowStreamBridge.subscribeCursor(true);
+            int result = MeowStreamBridge.subscribeCursor(true);
+            log.state("host proven (viewport echo); cursor subscription sent, result " + result);
         }
     }
 
@@ -266,6 +275,10 @@ public final class CursorFollowController
             CursorInputTap.install(this);
             MeowStreamBridge.setCursorListener(this);
         }
+        log.state("stream start " + streamWidth + "x" + streamHeight + ": follow "
+                + (enabled ? "on" : "OFF") + ", touch mode "
+                + (touchMode.isDirectTouch() ? "direct" : "pointer")
+                + ", sink " + (sink != null) + ", zoom " + (haveTransform ? lastTransform[4] : -1f));
     }
 
     /** Any thread. Stops listening; the view is left where it is. */
@@ -329,6 +342,12 @@ public final class CursorFollowController
             }
         }
         remember();
+        if ((zoomed || resized) && log.activityAllowed(frames.uptimeMillis())) {
+            view.visibleReferenceRect(visible);
+            log.activity("view " + (resized ? "resized" : "zoom " + oldZoom + "->" + newZoom)
+                    + " (" + (direct ? "direct: fingers anchor" : "pointer: cursor anchor")
+                    + ") cursor " + describeCursor() + " visible " + describeVisible());
+        }
         // A resize changes what is on screen under a still cursor: bring it back. After a
         // zoom or pan the cursor kept its screen position, so only a cursor that is somehow
         // off screen (the view clamped at a desktop edge) needs the follower; pulling an
@@ -486,6 +505,13 @@ public final class CursorFollowController
                 || !frames.isUiThread() || !view.transform(transform)
                 || transform[4] <= UNZOOMED
                 || !view.visibleReferenceRect(visible)) {
+            if (enabled && streamStarted && transform[4] > UNZOOMED
+                    && log.activityAllowed(frames.uptimeMillis())) {
+                log.activity("relative move sent as relative: sink " + (sink != null)
+                        + ", host reporting " + cursor.isHostReporting()
+                        + ", waiting for first report " + !mayOwnPointer()
+                        + ", ui thread " + frames.isUiThread() + ", cursor " + describeCursor());
+            }
             return false;
         }
         float left = Math.max(visible[0], cursor.boundsLeft());
@@ -579,9 +605,41 @@ public final class CursorFollowController
     }
 
     @Override
-    public void onDirectPointing() {
-        // Any thread; it only selects the margin, so the volatile store is all it needs.
+    public void onDirectPointing(final float fractionX, final float fractionY) {
+        // Any thread. The finger is the pointer here: edge-scroll only (the margin), and the
+        // view follows it when it is dragged into the edge band.
         lastAbsoluteInputMs = frames.uptimeMillis();
+        if (Float.isNaN(fractionX) || Float.isNaN(fractionY)) {
+            return;
+        }
+        if (frames.isUiThread()) {
+            applyTouchPoint(fractionX, fractionY);
+        } else {
+            frames.postToUi(() -> applyTouchPoint(fractionX, fractionY));
+        }
+    }
+
+    private void applyTouchPoint(float fractionX, float fractionY) {
+        if (!streamStarted || cursor.isHostReporting()) {
+            // A reporting host says where its pointer went (if touch moved it at all).
+            return;
+        }
+        cursor.onTouchPoint(fractionX * streamWidth, fractionY * streamHeight);
+        arm();
+    }
+
+    private String describeCursor() {
+        if (!cursor.isKnown()) {
+            return "unknown";
+        }
+        return Math.round(cursor.x()) + "," + Math.round(cursor.y())
+                + (cursor.isHostReporting() ? " (host)" : cursor.isExact() ? " (exact)" : " (guess)")
+                + (cursor.isVisible() ? "" : " hidden");
+    }
+
+    private String describeVisible() {
+        return Math.round(visible[0]) + "," + Math.round(visible[1]) + " "
+                + Math.round(visible[2]) + "x" + Math.round(visible[3]);
     }
 
     private void scheduleDrain() {
@@ -604,8 +662,12 @@ public final class CursorFollowController
                     frames.postToUiDelayed(drain, wait);
                 }
             } else {
+                boolean first = !cursor.isHostReporting();
                 cursor.onHostPosition((int) (packed >>> 32) & 0xFFFF,
                         (int) (packed >>> 16) & 0xFFFF, (packed & 1L) != 0);
+                if (first) {
+                    log.state("first host cursor report (0x3004): " + describeCursor());
+                }
                 arm();
             }
         }
@@ -711,6 +773,11 @@ public final class CursorFollowController
             stepY = CursorFollowMotion.step(needY, velocityY, dt);
         }
 
+        if (log.activityAllowed(frames.uptimeMillis())) {
+            log.activity("follow pan " + stepX + "," + stepY + " of " + needX + "," + needY
+                    + " (margin " + margin + ") cursor " + describeCursor()
+                    + " visible " + describeVisible());
+        }
         // Moving the visible rectangle right means moving the content left.
         moveView(-stepX * transform[2], -stepY * transform[3]);
         remember();

@@ -63,6 +63,13 @@ public class GameCursorFollowModesTest {
     private static final int H = 1080;
 
     /** The fake host's desktop and pointer acceleration; the default fills the stream. */
+    /** The stream container on screen, and the negotiated stream; by default both W x H. */
+    private int cw = W;
+    private int ch = H;
+    private int sw = W;
+    private int sh = H;
+    /** A zoom restored by rememberZoomPan before the stream starts, or 0 for none. */
+    private float restoredZoom;
     private int desktopW = W;
     private int desktopH = H;
     private float hostAcceleration = 1f;
@@ -130,22 +137,30 @@ public class GameCursorFollowModesTest {
         assertNotNull("2D render mode builds the binder", binder);
 
         View surface = container.getSurfaceView();
-        container.layout(0, 0, W, H);
-        surface.layout(0, 0, W, H);
+        container.layout(0, 0, cw, ch);
+        surface.layout(0, 0, cw, ch);
 
         InputCaptureProvider capture = field("inputCaptureProvider");
         capture.enableCapture();
 
+        if (restoredZoom > 0f) {
+            // rememberZoomPan: Game.onCreate posts setInitialZoomAndPan, which runs long
+            // before the connection is up.
+            panZoom.setInitialZoomAndPan(restoredZoom,
+                    -(restoredZoom - 1f) * cw / 2f, -(restoredZoom - 1f) * ch / 2f);
+            idle();
+        }
+
         // connectionStarted() and a meow host's first echo.
         ShadowMoonBridgeWithHost.reset(hostReports);
-        ShadowMoonBridgeWithHost.configure(desktopW, desktopH, W, H, hostAcceleration);
-        binder.onStreamStarted(W, H);
+        ShadowMoonBridgeWithHost.configure(desktopW, desktopH, sw, sh, hostAcceleration);
+        binder.onStreamStarted(sw, sh);
         idle();
         // The echo of a full-frame probe: the desktop's content box, and its size.
-        float scalar = Math.min((float) W / desktopW, (float) H / desktopH);
+        float scalar = Math.min((float) sw / desktopW, (float) sh / desktopH);
         int contentW = (int) (desktopW * scalar);
         int contentH = (int) (desktopH * scalar);
-        binder.onViewportApplied((W - contentW) / 2, (H - contentH) / 2, contentW, contentH,
+        binder.onViewportApplied((sw - contentW) / 2, (sh - contentH) / 2, contentW, contentH,
                 desktopW, desktopH, 0);
         drainBinder();
         idle();
@@ -629,8 +644,8 @@ public class GameCursorFollowModesTest {
 
     /** One trackpad stroke of (dx, dy) screen pixels, one sample per frame. */
     private void trackpadStroke(float dx, float dy) {
-        float x0 = W / 2f - dx / 2f;
-        float y0 = H / 2f - dy / 2f;
+        float x0 = cw / 2f - dx / 2f;
+        float y0 = ch / 2f - dy / 2f;
         game.onTouch(container, event(MotionEvent.ACTION_DOWN, InputDevice.SOURCE_TOUCHSCREEN,
                 MotionEvent.TOOL_TYPE_FINGER, x0, y0, 0f, 0f));
         for (int i = 1; i <= 20; i++) {
@@ -689,5 +704,108 @@ public class GameCursorFollowModesTest {
         pushToEdge(400f, 400f);
         assertTrue(ShadowMoonBridgeWithHost.cursorX >= desktopW - 20f
                 && ShadowMoonBridgeWithHost.cursorY >= desktopH - 20f);
+    }
+
+    // ---- device session 2026-09-24, build 601cff94: old host (echo v1, no 0x3004) --------
+
+    /**
+     * The user's session: trackpad mode, an old sunmeow (echo v1 with desktop size, never a
+     * 0x3004 report), 5360x1440 desktop letterboxed into the stream, host pointer
+     * acceleration. They move the cursor around unzoomed first, then pinch in, then work.
+     */
+    private void deviceSession(String mode) throws Exception {
+        desktopW = 5360;
+        desktopH = 1440;
+        hostAcceleration = 1.8f;
+        launch(mode, false, false, false);
+        // Unzoomed: a few strokes, relative and accelerated on the host.
+        for (int s = 0; s < 3; s++) {
+            trackpadStroke(-300f, 120f);
+        }
+        // Pinch in over the middle of the screen.
+        pinch(cw / 2f, ch / 2f, 60f, 240f, 0f, 0f, 20);
+        settle();
+        assertTrue("zoomed: " + panZoom.getScaleFactor(), panZoom.getScaleFactor() > 3f);
+        assertHostCursorOnScreen();
+        float[][] strokes = {{400f, 0f}, {-400f, 0f}, {0f, 300f}, {0f, -300f},
+                {400f, 0f}, {400f, 0f}, {-400f, 0f}, {-400f, 0f}};
+        for (float[] stroke : strokes) {
+            float before = panZoom.getChildX() + panZoom.getChildY();
+            trackpadStroke(stroke[0], stroke[1]);
+            settle();
+            assertHostCursorOnScreen();
+        }
+    }
+
+    @Test
+    public void deviceSessionTrackpadNaturalAgainstAnOldHost() throws Exception {
+        deviceSession("2");
+    }
+
+    @Test
+    public void deviceSessionTrackpadGamingAgainstAnOldHost() throws Exception {
+        deviceSession("3");
+    }
+
+    /** The phone's real geometry: a 2160x3840 portrait stream in a 1220x2169 container. */
+    private void portraitPhone() {
+        sw = 2160;
+        sh = 3840;
+        cw = 1220;
+        ch = 2169;
+    }
+
+    @Test
+    public void deviceSessionPortraitTrackpadNaturalAgainstAnOldHost() throws Exception {
+        portraitPhone();
+        deviceSession("2");
+    }
+
+    @Test
+    public void deviceSessionPortraitTrackpadGamingAgainstAnOldHost() throws Exception {
+        portraitPhone();
+        deviceSession("3");
+    }
+
+    /**
+     * Build 2's input log: no two-finger event in either session, so no pinch. A zoomed view
+     * there can only have come from rememberZoomPan, restored before the stream starts.
+     */
+    private void restoredZoomSession(String mode) throws Exception {
+        portraitPhone();
+        desktopW = 5360;
+        desktopH = 1440;
+        hostAcceleration = 1.8f;
+        restoredZoom = 4f;
+        launch(mode, false, false, false);
+        assertEquals(4f, panZoom.getScaleFactor(), 0.01f);
+        float[][] strokes = {{400f, 0f}, {400f, 0f}, {400f, 0f}, {-400f, 0f}, {-400f, 0f},
+                {-400f, 0f}, {-400f, 0f}, {0f, 300f}, {0f, -300f}};
+        for (float[] stroke : strokes) {
+            trackpadStroke(stroke[0], stroke[1]);
+            settle();
+            assertHostCursorOnScreen();
+        }
+    }
+
+    @Test
+    public void aZoomRestoredBeforeTheStreamIsFollowedTrackpadNatural() throws Exception {
+        restoredZoomSession("2");
+    }
+
+    @Test
+    public void aZoomRestoredBeforeTheStreamIsFollowedTrackpadGaming() throws Exception {
+        restoredZoomSession("3");
+    }
+
+    @Test
+    public void multiTouchAgainstAnOldHostEdgeScrollsWithTheFinger() throws Exception {
+        // Mode 0 (the install default): native touch, and no 0x3004 to say where the host
+        // pointer went. The finger is the pointer: dragging it into the edge band scrolls.
+        launch("0", false, false);
+        float before = panZoom.getChildX();
+        touchDrag(1600f, 540f, W - 2f, 30);
+        settle();
+        assertTrue("the view scrolled toward the finger", panZoom.getChildX() < before);
     }
 }

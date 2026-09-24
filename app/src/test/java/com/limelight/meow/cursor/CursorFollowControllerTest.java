@@ -129,7 +129,7 @@ public class CursorFollowControllerTest {
     public void setUp() {
         view = new FakeView();
         frames = new Frames();
-        controller = new CursorFollowController(view, new Pan(), true, frames);
+        controller = new CursorFollowController(view, new Pan(), true, frames, new FollowLog(line -> { }));
         controller.onStreamStarted(1920, 1080);
     }
 
@@ -186,7 +186,7 @@ public class CursorFollowControllerTest {
     @Test
     public void aDisabledControllerNeverSubscribesOrPans() {
         CursorFollowController off =
-                new CursorFollowController(view, new Pan(), false, frames);
+                new CursorFollowController(view, new Pan(), false, frames, new FollowLog(line -> { }));
         off.onStreamStarted(1920, 1080);
         off.subscribeTask().run();
         off.onAbsolutePosition(1900, 540, 1920, 1080);
@@ -198,7 +198,7 @@ public class CursorFollowControllerTest {
     public void directPointingSelectsTheEdgeMargin() {
         // A host that moves its pointer to a native touch 10% in from the right edge: inside
         // the edge band's reach, outside the comfort margin's.
-        controller.onDirectPointing();
+        controller.onDirectPointing(Float.NaN, Float.NaN);
         controller.onCursorPosition(1152, 540, true, 1);
         frames.runUi();
         float before = view.x;
@@ -398,5 +398,27 @@ public class CursorFollowControllerTest {
             assertEquals(perEvent + " px per event", expected,
                     controller.cursor().x() - start, 0.5f);
         }
+    }
+
+    @Test
+    public void aFingerDraggedIntoTheEdgeBandScrollsTheViewInADirectTouchMode() {
+        controller.setTouchMode(() -> true);
+        // A native-touch drag toward the right edge of the visible box (720..1200).
+        float before = view.x;
+        controller.onDirectPointing(1000f / 1920f, 0.5f);
+        frames.settle();
+        assertEquals("inside the view, away from the edge: nothing moves", before, view.x, 0f);
+        controller.onDirectPointing(1195f / 1920f, 0.5f);
+        frames.settle();
+        assertTrue("dragged into the 4% edge band: the view scrolls", view.x > before);
+        assertTrue(1195f <= view.x + 480f);
+    }
+
+    @Test
+    public void aSecondFingerOrALiftCarriesNoPositionToFollow() {
+        controller.setTouchMode(() -> true);
+        controller.onDirectPointing(Float.NaN, Float.NaN);
+        assertEquals(0, frames.settle());
+        assertFalse(controller.cursor().isKnown());
     }
 }

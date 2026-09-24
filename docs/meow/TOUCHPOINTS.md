@@ -659,7 +659,9 @@ Removed from `Game.java` in the same change: the `RelativeCursorTracker` field, 
 
 One line each, first statement of `sendMouseMove`, `sendMousePosition`,
 `sendMouseMoveAsMousePosition`, `sendTouchEvent` and `sendPenEvent`: a call into
-`CursorInputTap`. In `sendMouseMove` it is `if (CursorInputTap.relative(...)) return;`: while
+`CursorInputTap`. The touch and pen hooks pass the event type, pointer id and the normalised
+position, so in the direct-touch modes the first finger is followed into the edge band even
+against a host that never reports its cursor. In `sendMouseMove` it is `if (CursorInputTap.relative(...)) return;`: while
 zoomed against a host that does not report its cursor, the follower has already sent the move
 as an absolute position and the relative one must not also go out. This is the one funnel every input mode already goes through, and the only
 place where "every relative-send path" is true by construction. Fully-qualified, no import.
@@ -683,10 +685,21 @@ The visible rectangle then ends above it, for cursor follow and for the host cro
 `checkbox_meow_cursor_follow`, default `true` — the explicit off switch.
 `CursorFollowPreferenceTest` checks the XML default against `CursorFollowPreference.DEFAULT`.
 
+### Diagnostics: `adb logcat -s MeowFollow`
+
+`FollowLog` writes, in release builds (no proguard rule strips `android.util.Log`, pinned by
+`FollowLogTest`): at stream start the follow switch, touch-mode family, whether a pointer sink
+is wired and the zoom; when the host is proven and the subscription result; the first 0x3004
+report; and, rate-limited to one line per 250 ms with a count of what was dropped, each zoom or
+resize with the cursor estimate (exact/guess/host) and the visible rectangle, each follow pan
+with its step, need and margin, and every zoomed-in relative move the controller did *not*
+take over, with the reason. Nothing is formatted for a dropped line.
+
 ### New code (additive, in `meow/cursor/`)
 
 | File | Android? | What it is |
 | --- | --- | --- |
+| `FollowLog.java` | Log | the `MeowFollow` diagnostics, rate limited |
 | `CursorFollowController.java` | Choreographer | arming, vsync stepping, margins, cross-thread inbox |
 | `CursorFollowMotion.java` | no | the per-axis target and the eased, speed-capped step |
 | `HostCursor.java` | no | host-reported or dead-reckoned cursor in reference pixels |
@@ -811,6 +824,12 @@ windowed-minimum baseline (N4), so reports wait for ENet's first estimate and ca
 known one through a dropout. Only a report the library accepted counts toward the five-report
 give-up; a transient ENet failure does not.
 
+**Starting bitrate floor.** `StartingBitrate` never starts a remembered session below what
+keeps a desktop readable for the negotiated resolution and frame rate (0.04 bits per pixel per
+frame: ~5 Mbps at 1080p60, ~10 Mbps at 2160x3840x30), nor below a quarter of the setting, nor
+above the setting. A first session on a host always starts at the setting. `Game` passes
+`displayWidth, displayHeight, chosenFrameRate` on the same `setBitrate` line.
+
 **`CONN_STATUS_POOR`**, `Game.connectionStatusUpdate`, 2 lines: when automatic bitrate is
 on and the host has adapted this session (an APPLIED arrived), the "slow connection -- lower
 the bitrate" advice is replaced by a short "Connection slow · adapting bitrate (X Mbps)" in the
@@ -821,26 +840,18 @@ and the Tailscale packet-size path is pinned by `meow/net/TailnetPacketSizeTest`
 
 ---
 
-## `MEOW-TOUCH(auto-av1)`
+## AV1 in automatic codec selection — tried and withdrawn (2026-09-24)
 
-**Feature:** "automatic" codec selection offers AV1 on a hardware, whitelisted AV1 decoder
-with a low-latency path (`FEATURE_LowLatency`, or a dedicated `*.lowlatency` codec as
-MediaTek ships). The RTSP negotiation already prefers AV1 whenever both sides offer it, and
-AV1 needs fewer bits than HEVC for the same desktop detail. Upstream offers AV1 only when
-forced.
+An earlier commit in this PR let "automatic" offer AV1 on a hardware, low-latency AV1 decoder
+with RFI. On the owner's phone (MediaTek, `c2.mtk.*`) it negotiated `av1_nvenc` at 15 Mbps on
+an 11 ms direct Tailscale path and the picture was **pixelated and unreadable**; the next build
+negotiated `hevc_nvenc` at the same 15 Mbps and was clear. Bandwidth was not the cause. So
+automatic is back to upstream's behaviour exactly (AV1 only when the user forces it in
+Settings, then HEVC > H.264), the renderer line is byte-identical to upstream again, and there
+is no `MEOW-TOUCH(auto-av1)` site any more. Re-adding it needs a per-device allowlist backed by
+an on-device quality check, not a capability probe.
 
-| File | Site | Edit |
-| --- | --- | --- |
-| `binding/video/MediaCodecDecoderRenderer.java` | `findAv1Decoder`, the "only when forced" guard | `&& !AutoCodecPolicy.av1InAuto(prefs)` appended; CRLF kept |
-
-New code: `meow/video/AutoCodecPolicy.java` (the decision is the pure `offerAv1(...)`),
-tested by `AutoCodecPolicyTest`. It also requires AV1 reference-frame invalidation (else every
-loss costs an IDR) and, with HDR on, AV1 Main10 (the negotiation prefers AV1 Main8 over HEVC
-Main10 and would silently drop HDR). On a device without such a decoder nothing changes.
-Whether this phone's MediaTek decoder qualifies is **not verified** (it needs a stream, which
-was not run here); the log line "Automatic codec: AV1 offered/not offered" says on the first.
-
-### Decoder latency and pacing: audit, no change (2026-09-24)
+## Decoder latency and pacing: audit, no change (2026-09-24)
 
 Read, not measured (measuring needs a live stream on the phone, which this change did not run):
 `MediaCodecHelper` already sets `KEY_LOW_LATENCY` where `FEATURE_LowLatency` is present and the

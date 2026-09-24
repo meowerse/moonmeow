@@ -550,7 +550,7 @@ public class NvConnection {
 
     public int sendTouchEvent(byte eventType, int pointerId, float x, float y, float pressureOrDistance,
                               float contactAreaMajor, float contactAreaMinor, short rotation) {
-        com.limelight.meow.cursor.CursorInputTap.touch(); // MEOW-TOUCH(cursor-follow)
+        com.limelight.meow.cursor.CursorInputTap.touch(eventType, pointerId, x, y); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             return MoonBridge.sendTouchEvent(eventType, pointerId, x, y, pressureOrDistance,
                     contactAreaMajor, contactAreaMinor, rotation);
@@ -563,7 +563,7 @@ public class NvConnection {
     public int sendPenEvent(byte eventType, byte toolType, byte penButtons, float x, float y,
                             float pressureOrDistance, float contactAreaMajor, float contactAreaMinor,
                             short rotation, byte tilt) {
-        com.limelight.meow.cursor.CursorInputTap.touch(); // MEOW-TOUCH(cursor-follow)
+        com.limelight.meow.cursor.CursorInputTap.touch(eventType, (byte) 0, x, y); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             return MoonBridge.sendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
                     contactAreaMajor, contactAreaMinor, rotation, tilt);

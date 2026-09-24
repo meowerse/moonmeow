@@ -19,7 +19,8 @@ public class BitrateWiringTest {
     public void theNegotiatedBitrateComesFromTheSession() throws IOException {
         String game = code("app/src/main/java/com/limelight/Game.java");
         assertTrue(game.contains(".setBitrate(BitrateSession.negotiate(bitrateSession, "
-                + "isMetered, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate))"));
+                + "isMetered, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate, "
+                + "displayWidth, displayHeight, Math.round(chosenFrameRate)))"));
         assertTrue(game.contains("viewportBinder.setBitrateSession(bitrateSession)"));
         assertTrue("both extensions need the meow-host proof",
                 game.contains("viewportBinder.setCapabilityProbe(true)"));

@@ -55,7 +55,11 @@ At a desktop edge the view clamps; the cursor then moves on screen but stays on 
 frame still covers the screen), and the follower settles it back inside the comfort margin.
 
 In **direct-touch modes** zoom anchors on the fingers, as before: the fingers are the
-pointer, and a user who pinches over a spot wants that spot.
+pointer, and a user who pinches over a spot wants that spot. The pointer is still kept
+visible there: the first finger (or the pen) is followed when it is dragged into the 4% edge
+band, and a pointer moved by anything else -- a mouse, the host itself -- is followed with the
+comfort margin. Only the zoom and pan gestures themselves never chase it, since zooming away
+from the last tap is what the fingers asked for.
 
 ### 3. A manual pan carries the cursor (pointer modes)
 
@@ -175,7 +179,7 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 14 | Gamepad mouse emulation, on-screen keyboard mouse keys | pointer | Z | any | same path as a stroke (both send on the main thread) | via 11 |
 | 15 | Local cursor (hover) | pointer | Z | any | pointer under the Android pointer; edge-scroll only at the very edge | `…localCursorHover` |
 | 16 | Absolute touch (tap / drag) | direct | Z | any | edge-scroll only: only a tap or drag within 4% of an edge scrolls; a tap elsewhere never moves the view | `…absoluteTouch`, `…aTapInsideTheEdgeBandDoesNotMoveTheView` (a tap 22% in) |
-| 17 | Native multi-touch, stylus (pen events) | direct | Z | any | mapped through the view (C3); marks direct pointing (edge band) | `…multiTouch` |
+| 17 | Native multi-touch, stylus (pen events) | direct | Z | any | mapped through the view (C3); the first finger or the pen is the pointer: dragged into the 4% edge band it scrolls the view, also against a host that never reports its cursor | `…multiTouch`, `…multiTouchAgainstAnOldHostEdgeScrollsWithTheFinger`, `CursorFollowControllerTest.aFingerDraggedIntoTheEdgeBandScrollsTheViewInADirectTouchMode` |
 | 18 | Host teleports the cursor (dialog, warp), or it jumps to the other monitor of the 5360x1440 union | any | Z | H | fast regime; back on screen within ~0.6 s for a 4-view jump | `…aHostTeleportToTheOtherEndOfTheDesktopIsFollowedQuickly`, `CursorFollowMotionTest.theGentleRegimeSettlesSmoothlyAndTheFastOneQuickly` |
 | 19 | Host moves its own mouse (someone at the desktop) | any | Z | H | as 18 | as 18 |
 | 20 | Host cursor hidden (video, game) | any | Z | H | not chased while hidden | `CursorFollowBindingTest.aHiddenCursorIsNotFollowed` |
@@ -195,6 +199,8 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 35 | Moving left vs right, all four edges and corners, letterboxed 5360x1440 desktop, host acceleration 1.8x (the second report) | pointer | Z | DR | the same everywhere: the cursor stays on screen, and view and cursor reach every edge and corner (within 20 desktop px on all four sides) | `…everyEdgeAndCornerIsReachedWithTheCursorOnScreen` (fails without the client-owned pointer: `host cursor 352 off screen: visible 550..1030`), `CursorFollowControllerTest.pushingLeftAndRightIsSymmetric` |
 | 36 | Slow drag in gaming touch mode at a sensitivity other than 100% | pointer | any | any | no motion lost: the sub-pixel remainder is carried (at 150% a 1-px-per-sample drag used to send two thirds of it; at 70% nothing) | `TouchDeltaAccumulationTest.gamingTouchModeLosesNoMotionAtAnySensitivity`, `SubPixelAccumulatorTest` |
 | 37 | An on-screen overlay (PC keyboard) covers the bottom of the stream | pointer | Z | any | visible area ends above it; cursor kept above it; host crop moves with it | `CursorFollowBindingTest.anOverlayOverTheBottomOfTheStreamKeepsTheCursorAboveIt` |
+| 38 | Trackpad natural and gaming against an old host (echo v1, no 0x3004), portrait 2160x3840 stream in a 1220x2169 container, 5360x1440 desktop, 1.8x acceleration: unzoomed moves, pinch, strokes both ways | pointer | 1→Z | DR | cursor on screen after every stroke | `…deviceSession*AgainstAnOldHost` (landscape and portrait) |
+| 39 | The same with the zoom restored by "remember zoom" before the stream starts (no pinch) | pointer | Z | DR | as 38 | `…aZoomRestoredBeforeTheStreamIsFollowed*` |
 | 34 | External-display controller (phone as trackpad for a second screen) | pointer | any | any | *Assumed, not traced:* its input reaches the host through the same `NvConnection` methods, so rows 6 / 11 apply; its own Pan/Zoom toggle mirrors `Game.toggleZoomMode` | — |
 
 ## Known limits, stated
