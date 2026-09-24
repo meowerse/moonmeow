@@ -59,8 +59,9 @@ public class CursorFollowControllerTest {
     private final class Pan implements InlinePinchZoomController.ZoomTarget {
         @Override public void pinchBy(float s, float fx, float fy) { }
         @Override public void panBy(float dx, float dy) {
-            view.x -= dx / 4f;
-            view.y -= dy / 4f;
+            // Clamped to the frame, as PanZoomHandler.constrainToBounds does.
+            view.x = Math.max(0f, Math.min(view.x - dx / 4f, 1920f - 480f));
+            view.y = Math.max(0f, Math.min(view.y - dy / 4f, 1080f - 270f));
         }
         @Override public float getScaleFactor() { return 4f; }
         @Override public float getChildX() { return -view.x * 4f; }
@@ -80,6 +81,26 @@ public class CursorFollowControllerTest {
         @Override public void postToUi(Runnable task) { ui.add(task); }
         boolean animations = true;
         @Override public boolean animationsEnabled() { return animations; }
+        final java.util.List<Object[]> delayed = new java.util.ArrayList<>();
+        @Override public void postToUiDelayed(Runnable task, long delayMs) {
+            delayed.add(new Object[] {now + delayMs, task});
+        }
+
+        /** Advances the clock and runs what came due. */
+        void advance(long ms) {
+            now += ms;
+            java.util.List<Object[]> due = new java.util.ArrayList<>();
+            for (Object[] d : delayed) {
+                if ((long) d[0] <= now) {
+                    due.add(d);
+                }
+            }
+            delayed.removeAll(due);
+            for (Object[] d : due) {
+                ((Runnable) d[1]).run();
+            }
+            runUi();
+        }
 
         void runUi() {
             while (!ui.isEmpty()) {
@@ -202,9 +223,11 @@ public class CursorFollowControllerTest {
         withSink();
         assertTrue(controller.onRelativeMove(100000, 0));
         assertEquals(1, placed.size());
-        // Clamped just inside the right edge of the visible box (720..1200), at 4x precision.
+        // The view scrolled as far as the desktop goes, and the cursor stopped inside the right
+        // edge, far enough in that its sprite (24 screen px = 6 reference px at 4x) is seen.
+        assertEquals(1440f, view.x, 0f);
         float x = controller.cursor().x();
-        assertTrue("x " + x, x <= 1200f && x >= 1198f);
+        assertTrue("x " + x, x <= 1914.5f && x >= 1913f);
         assertTrue(controller.cursor().isExact());
         assertEquals(1920 * 4, placed.get(0)[2]);
     }
@@ -239,19 +262,50 @@ public class CursorFollowControllerTest {
     }
 
     @Test
-    public void aStaleHostReportJustAfterTheClientMovedThePointerIsIgnored() {
+    public void aHostReportJustAfterTheClientMovedThePointerWaitsOutTheGraceWindow() {
         withSink();
         controller.onCursorPosition(900, 500, true, 1);
         frames.runUi();
         controller.onAbsolutePosition(1100, 600, 1920, 1080);
-        // The host's report of the old position arrives a moment later.
-        controller.onCursorPosition(900, 500, true, 2);
+        // A report arrives a moment later: maybe stale, maybe the host's correction.
+        controller.onCursorPosition(1090, 600, true, 2);
         frames.runUi();
-        assertEquals(1100f / 1919f * 1920f, controller.cursor().x(), 0.01f);
-        frames.now += CursorFollowController.HOST_REPORT_GRACE_MS + 1;
-        controller.onCursorPosition(905, 500, true, 3);
-        frames.runUi();
-        assertEquals(905f, controller.cursor().x(), 0f);
+        assertEquals("not taken inside the window",
+                1100f / 1919f * 1920f, controller.cursor().x(), 0.01f);
+        frames.advance(CursorFollowController.HOST_REPORT_GRACE_MS + 1);
+        assertEquals("but not lost either", 1090f, controller.cursor().x(), 0f);
+    }
+
+    @Test
+    public void aProvenHostGetsTimeToReportBeforeTheClientMovesThePointer() {
+        withSink();
+        controller.subscribeTask().run();
+        assertFalse("within the first-report wait, relative stays relative",
+                controller.onRelativeMove(10, 0));
+        frames.advance(CursorFollowController.FIRST_REPORT_WAIT_MS);
+        assertTrue("a proven host that never reported: the client owns the pointer",
+                controller.onRelativeMove(10, 0));
+        view.zoom = 1f;
+        assertTrue("even unzoomed, since the echo gave the desktop size",
+                controller.onRelativeMove(10, 0));
+    }
+
+    @Test
+    public void aPlacementThatCarriesTheCursorDoesNotArmTheFollower() {
+        withSink();
+        // A tap puts the cursor inside the 15% comfort band but outside the 4% edge band
+        // (visible 720..1200): nothing moves.
+        controller.onAbsolutePosition(1170, 540, 1919, 1079);
+        frames.settle();
+        assertEquals(720f, view.x, 0f);
+        frames.advance(CursorFollowController.ABSOLUTE_INPUT_WINDOW_MS + 1);
+        // The user pans 40 ref px right; the cursor is carried to stay put on screen, so it is
+        // still in the comfort band. The follower must not start pulling against the fingers.
+        view.x += 40f;
+        controller.onViewTransformChanged();
+        assertEquals(1171.2f + 40f, controller.cursor().x(), 0.6f);
+        assertEquals("the carry does not start the follower mid-gesture", 0, frames.settle());
+        assertEquals(760f, view.x, 0f);
     }
 
     @Test
@@ -288,5 +342,43 @@ public class CursorFollowControllerTest {
         controller.onViewTransformChanged();
         frames.settle();
         assertTrue(900f >= view.x && 900f <= view.x + 480f);
+    }
+
+    @Test
+    public void pushingPastTheEdgeScrollsTheViewAtFingerSpeed() {
+        withSink();
+        controller.onAbsolutePosition(1190, 540, 1919, 1079);   // near the right edge
+        float cursorBefore = controller.cursor().x();
+        float viewBefore = view.x;
+        assertTrue(controller.onRelativeMove(30, 0));
+        float moved = controller.cursor().x() - cursorBefore;
+        // The whole move happened in this event, not over the next frames...
+        assertEquals(30f, moved, 1f);
+        // ...and the view scrolled by the part that would have left it.
+        assertEquals(moved - (1194f - cursorBefore), view.x - viewBefore, 1f);
+        assertTrue(controller.cursor().x() <= view.x + 480f);
+    }
+
+    @Test
+    public void pushingLeftAndRightIsSymmetric() {
+        withSink();
+        controller.onAbsolutePosition(960, 540, 1919, 1079);
+        float start = controller.cursor().x();
+        float viewStart = view.x;
+        for (int i = 0; i < 20; i++) {
+            controller.onRelativeMove(-37, 0);
+        }
+        float leftTravel = start - controller.cursor().x();
+        float leftPan = viewStart - view.x;
+        for (int i = 0; i < 20; i++) {
+            controller.onRelativeMove(37, 0);
+        }
+        assertEquals("back where it started", start, controller.cursor().x(), 1f);
+        for (int i = 0; i < 20; i++) {
+            controller.onRelativeMove(37, 0);
+        }
+        float rightTravel = controller.cursor().x() - start;
+        assertEquals("the same travel either way", leftTravel, rightTravel, 1f);
+        assertTrue(leftPan > 0f);
     }
 }

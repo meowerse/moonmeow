@@ -664,6 +664,20 @@ zoomed against a host that does not report its cursor, the follower has already 
 as an absolute position and the relative one must not also go out. This is the one funnel every input mode already goes through, and the only
 place where "every relative-send path" is true by construction. Fully-qualified, no import.
 
+### `app/src/main/java/com/limelight/binding/input/touch/RelativeTouchContext.java` — 2 sites
+
+A `SubPixelAccumulator` field, and the gaming-mode `sendMouseMove` line routed through it.
+Upstream truncated `delta * sensitivity` per sample and dropped the fraction: at 150% a slow
+drag sent two thirds of its motion and at 70% none (`TouchDeltaAccumulationTest`, red before).
+CRLF file; the edit keeps its line endings.
+
+### `app/src/main/java/com/limelight/meow/viewport/StreamViewportBinder.java` — API for overlays
+
+Not an upstream site, recorded here because another feature is meant to call it:
+`setBottomObstruction(int windowPx)` declares that an on-screen overlay (the PC keyboard on
+`feat/pc-keyboard`) covers the bottom of the stream, and `onVisibleAreaChanged()` re-checks.
+The visible rectangle then ends above it, for cursor follow and for the host crop alike.
+
 ### `app/src/main/res/xml/preferences.xml` — 1 site
 
 `checkbox_meow_cursor_follow`, default `true` — the explicit off switch.

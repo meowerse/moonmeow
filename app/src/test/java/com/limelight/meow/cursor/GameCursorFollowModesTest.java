@@ -54,12 +54,18 @@ import java.time.Duration;
  * <p>The stream is started by hand (the binder's {@code onStreamStarted} and a viewport echo
  * that proves the host), exactly what {@code connectionStarted()} and the first echo do.
  */
-@Config(sdk = {33}, shadows = {ShadowMoonBridgeWithHost.class, ShadowGameManager.class})
+@Config(sdk = {33}, shadows = {ShadowMoonBridgeWithHost.class, ShadowGameManager.class,
+        com.limelight.shadows.ShadowMeowViewportBridge.class})
 @RunWith(RobolectricTestRunner.class)
 public class GameCursorFollowModesTest {
 
     private static final int W = 1920;
     private static final int H = 1080;
+
+    /** The fake host's desktop and pointer acceleration; the default fills the stream. */
+    private int desktopW = W;
+    private int desktopH = H;
+    private float hostAcceleration = 1f;
 
     private ActivityController<Game> controller;
     private Game game;
@@ -132,10 +138,26 @@ public class GameCursorFollowModesTest {
 
         // connectionStarted() and a meow host's first echo.
         ShadowMoonBridgeWithHost.reset(hostReports);
+        ShadowMoonBridgeWithHost.configure(desktopW, desktopH, W, H, hostAcceleration);
         binder.onStreamStarted(W, H);
         idle();
-        binder.onViewportApplied(0, 0, W, H, W, H, 0);
+        // The echo of a full-frame probe: the desktop's content box, and its size.
+        float scalar = Math.min((float) W / desktopW, (float) H / desktopH);
+        int contentW = (int) (desktopW * scalar);
+        int contentH = (int) (desktopH * scalar);
+        binder.onViewportApplied((W - contentW) / 2, (H - contentH) / 2, contentW, contentH,
+                desktopW, desktopH, 0);
+        drainBinder();
         idle();
+        if (hostReports) {
+            // A reporting host answers the subscription with its position at once.
+            MeowStreamBridgeAccess.cursor(Math.round(ShadowMoonBridgeWithHost.referenceX()),
+                    Math.round(ShadowMoonBridgeWithHost.referenceY()), 1);
+            idle();
+        }
+        // Let the first-report wait pass, as it does in the first seconds of a real session.
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(
+                Duration.ofMillis(CursorFollowController.FIRST_REPORT_WAIT_MS + 100));
 
         eventTime = SystemClock.uptimeMillis();
         if (zoomToCentre) {
@@ -143,6 +165,14 @@ public class GameCursorFollowModesTest {
             panZoom.pinchBy(4f, W / 2f, H / 2f);
             idle();
         }
+    }
+
+    /** Runs the binder's reporter thread, where the host-proven tasks (subscribe) run. */
+    private void drainBinder() throws Exception {
+        Field handler = StreamViewportBinder.class.getDeclaredField("handler");
+        handler.setAccessible(true);
+        Looper looper = ((android.os.Handler) handler.get(binder)).getLooper();
+        Shadows.shadowOf(looper).idle();
     }
 
     @SuppressWarnings("unchecked")
@@ -267,8 +297,8 @@ public class GameCursorFollowModesTest {
     }
 
     private void assertHostCursorOnScreen() {
-        float x = ShadowMoonBridgeWithHost.cursorX;
-        float y = ShadowMoonBridgeWithHost.cursorY;
+        float x = ShadowMoonBridgeWithHost.referenceX();
+        float y = ShadowMoonBridgeWithHost.referenceY();
         float[] v = visible();
         assertTrue("host cursor " + x + "," + y + " off screen: visible " + v[0] + "+" + v[2]
                         + ", " + v[1] + "+" + v[3],
@@ -572,5 +602,92 @@ public class GameCursorFollowModesTest {
                     200f, 0f, 200f, 0f));
             assertHostCursorOnScreen();
         }
+    }
+
+    @Test
+    public void aDeadReckoningHostZoomsWhereTheCursorIsNotToTheMiddle() throws Exception {
+        // The user's host: a proven meow host that does not report its cursor.
+        launch("2", false, false, false);
+        // Unzoomed, the user moves the cursor to the top-left with the trackpad.
+        touchDrag(1500f, 800f, 1300f, 20);
+        idle();
+        float cx = ShadowMoonBridgeWithHost.cursorX;
+        float cy = ShadowMoonBridgeWithHost.cursorY;
+        assertTrue("cursor went left: " + cx, cx < 800f && cx > 50f);
+        // Then pinches somewhere else entirely.
+        pinch(1500f, 700f, 60f, 240f, 0f, 0f, 20);
+        settle();
+        assertTrue(panZoom.getScaleFactor() > 3f);
+        assertEquals("the host pointer was not dragged to the middle",
+                cx, ShadowMoonBridgeWithHost.cursorX, 30f);
+        assertEquals(cy, ShadowMoonBridgeWithHost.cursorY, 30f);
+        assertHostCursorOnScreen();
+    }
+
+    // ---- the second report: "when I move to the left I need to move more for it to move so
+    // ---- it hides behind the screen, when right it moves not in the corner" ---------------
+
+    /** One trackpad stroke of (dx, dy) screen pixels, one sample per frame. */
+    private void trackpadStroke(float dx, float dy) {
+        float x0 = W / 2f - dx / 2f;
+        float y0 = H / 2f - dy / 2f;
+        game.onTouch(container, event(MotionEvent.ACTION_DOWN, InputDevice.SOURCE_TOUCHSCREEN,
+                MotionEvent.TOOL_TYPE_FINGER, x0, y0, 0f, 0f));
+        for (int i = 1; i <= 20; i++) {
+            game.onTouch(container, event(MotionEvent.ACTION_MOVE,
+                    InputDevice.SOURCE_TOUCHSCREEN, MotionEvent.TOOL_TYPE_FINGER,
+                    x0 + dx * i / 20, y0 + dy * i / 20, 0f, 0f));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(17));
+        }
+        game.onTouch(container, event(MotionEvent.ACTION_UP, InputDevice.SOURCE_TOUCHSCREEN,
+                MotionEvent.TOOL_TYPE_FINGER, x0 + dx, y0 + dy, 0f, 0f));
+        idle();
+    }
+
+    /**
+     * Drives the cursor to one edge of the desktop with trackpad strokes and checks, after
+     * every stroke, that it is on screen -- and at the end that the view reached that edge.
+     */
+    private void pushToEdge(float dx, float dy) {
+        for (int stroke = 0; stroke < 25; stroke++) {
+            trackpadStroke(dx, dy);
+            settle();
+            assertHostCursorOnScreen();
+        }
+    }
+
+    @Test
+    public void everyEdgeAndCornerIsReachedWithTheCursorOnScreen() throws Exception {
+        // The user's topology: a 5360x1440 desktop letterboxed into the stream, and a host
+        // that accelerates relative motion and does not report its cursor.
+        desktopW = 5360;
+        desktopH = 1440;
+        hostAcceleration = 1.8f;
+        launch("2", false, false);
+        float[] v;
+
+        pushToEdge(-400f, 0f);
+        v = visible();
+        assertTrue("left: the view reached the desktop's left edge, at " + v[0], v[0] <= 1f);
+        assertTrue("left: and so did the cursor", ShadowMoonBridgeWithHost.cursorX <= 20f);
+
+        pushToEdge(400f, 0f);
+        v = visible();
+        assertTrue("right: the view reached the right edge", v[0] + v[2] >= W - 1f);
+        assertTrue("right: and so did the cursor, at " + ShadowMoonBridgeWithHost.cursorX,
+                ShadowMoonBridgeWithHost.cursorX >= desktopW - 60f);
+
+        pushToEdge(0f, -400f);
+        assertTrue("top: the cursor reached the top", ShadowMoonBridgeWithHost.cursorY <= 20f);
+        pushToEdge(0f, 400f);
+        assertTrue("bottom: the cursor reached the bottom, at " + ShadowMoonBridgeWithHost.cursorY,
+                ShadowMoonBridgeWithHost.cursorY >= desktopH - 60f);
+
+        // And the two corners the report is about.
+        pushToEdge(-400f, -400f);
+        assertTrue(ShadowMoonBridgeWithHost.cursorX <= 20f && ShadowMoonBridgeWithHost.cursorY <= 20f);
+        pushToEdge(400f, 400f);
+        assertTrue(ShadowMoonBridgeWithHost.cursorX >= desktopW - 60f
+                && ShadowMoonBridgeWithHost.cursorY >= desktopH - 60f);
     }
 }

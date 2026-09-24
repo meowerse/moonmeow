@@ -61,6 +61,9 @@ public class CursorFollowBindingTest {
         @Override public boolean isUiThread() { return true; }
         @Override public void postToUi(Runnable task) { task.run(); }
         @Override public boolean animationsEnabled() { return true; }
+        @Override public void postToUiDelayed(Runnable task, long delayMs) {
+            // Nothing in this suite waits out the host-report grace window.
+        }
 
         /** Runs one vsync, if one was asked for. */
         void frame() {
@@ -297,6 +300,9 @@ public class CursorFollowBindingTest {
     public void relativeDeltasFromAnyModeMoveTheEstimate() {
         wire(true, true);
         hostEchoes();
+        // A proven host that never sends a report: after the first-report wait, the client
+        // owns the pointer.
+        frames.nowMs += CursorFollowController.FIRST_REPORT_WAIT_MS;
         zoomTo4x();
         // Trackpad, gaming touch, captured mouse and gamepad all send through here, one
         // event per display frame. Zoomed in with no host reports, the client owns the
@@ -325,5 +331,28 @@ public class CursorFollowBindingTest {
         frames.settle();
         assertEquals(before, panZoom.getChildX(), 0f);
         assertFalse(follow.cursor().isHostReporting());
+    }
+
+    @Test
+    public void anOverlayOverTheBottomOfTheStreamKeepsTheCursorAboveIt() {
+        wire(true, true);
+        hostEchoes();
+        zoomTo4x();
+        // Visible (720, 405, 480, 270); the host cursor sits in the lower part of it.
+        follow.onCursorPosition(960, 640, true, 1);
+        frames.settle();
+        assertCursorVisible(960, 640);
+        // An on-screen keyboard covers the bottom half of the window.
+        binder.setBottomObstruction(VIEW_H / 2);
+        drain();
+        frames.settle();
+        float[] v = new float[4];
+        assertTrue(binder.visibleReferenceRect(v));
+        assertEquals("the visible rectangle ends at the overlay", 135f, v[3], 0.5f);
+        assertCursorVisible(960, 640);
+        binder.setBottomObstruction(0);
+        drain();
+        assertTrue(binder.visibleReferenceRect(v));
+        assertEquals(270f, v[3], 0.5f);
     }
 }

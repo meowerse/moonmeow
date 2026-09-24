@@ -16,8 +16,25 @@ import org.robolectric.annotation.Implements;
 @Implements(value = com.limelight.nvstream.jni.MoonBridge.class, isInAndroidSdk = false)
 public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
 
+    /**
+     * The fake desktop. By default it is the size of the stream and fills it, with no pointer
+     * acceleration, so {@link #cursorX}/{@link #cursorY} are also reference coordinates.
+     * {@link #configure} gives it a real layout: a desktop letterboxed into the stream (as
+     * Sunshine pads to preserve aspect) and pointer acceleration on relative motion (as
+     * libinput's adaptive profile or Windows' pointer precision apply) -- the two things the
+     * client cannot see.
+     */
     public static int desktopWidth = 1920;
     public static int desktopHeight = 1080;
+    private static int streamWidth = 1920;
+    private static int streamHeight = 1080;
+    private static float contentX;
+    private static float contentY;
+    private static float contentWidth = 1920;
+    private static float contentHeight = 1080;
+    private static float acceleration = 1f;
+
+    /** Host cursor in DESKTOP pixels. With the default layout, also reference pixels. */
     public static float cursorX;
     public static float cursorY;
     public static boolean reporting;
@@ -27,13 +44,38 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
     private static int seq;
 
     public static void reset(boolean reportPositions) {
-        cursorX = desktopWidth / 2f;
-        cursorY = desktopHeight / 2f;
+        configure(1920, 1080, 1920, 1080, 1f);
+        reporting = reportPositions;
+    }
+
+    /** A desktop of the given size, letterboxed into the stream, with relative acceleration. */
+    public static void configure(int desktopW, int desktopH, int streamW, int streamH,
+                                 float relativeAcceleration) {
+        desktopWidth = desktopW;
+        desktopHeight = desktopH;
+        streamWidth = streamW;
+        streamHeight = streamH;
+        float scalar = Math.min((float) streamW / desktopW, (float) streamH / desktopH);
+        contentWidth = (int) (desktopW * scalar);
+        contentHeight = (int) (desktopH * scalar);
+        contentX = (streamW - contentWidth) / 2f;
+        contentY = (streamH - contentHeight) / 2f;
+        acceleration = relativeAcceleration;
+        cursorX = desktopW / 2f;
+        cursorY = desktopH / 2f;
         libraryFractionX = 0.5f;
         libraryFractionY = 0.5f;
-        reporting = reportPositions;
         sends = 0;
         seq = 0;
+    }
+
+    /** Where the host cursor is in the uncropped reference frame (stream pixels). */
+    public static float referenceX() {
+        return contentX + cursorX * contentWidth / desktopWidth;
+    }
+
+    public static float referenceY() {
+        return contentY + cursorY * contentHeight / desktopHeight;
     }
 
     private static void moved() {
@@ -41,14 +83,22 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
         cursorX = Math.max(0, Math.min(cursorX, desktopWidth - 1));
         cursorY = Math.max(0, Math.min(cursorY, desktopHeight - 1));
         if (reporting) {
-            MeowStreamBridgeAccess.cursor((int) cursorX, (int) cursorY, ++seq);
+            MeowStreamBridgeAccess.cursor(Math.round(referenceX()), Math.round(referenceY()),
+                    ++seq);
         }
     }
 
     @Implementation
     protected static void sendMouseMove(short deltaX, short deltaY) {
-        cursorX += deltaX;
-        cursorY += deltaY;
+        cursorX += deltaX * acceleration;
+        cursorY += deltaY * acceleration;
+        moved();
+    }
+
+    /** An absolute position: a fraction of the reference frame, padding included. */
+    private static void positionAt(float fractionX, float fractionY) {
+        cursorX = (fractionX * streamWidth - contentX) * desktopWidth / contentWidth;
+        cursorY = (fractionY * streamHeight - contentY) * desktopHeight / contentHeight;
         moved();
     }
 
@@ -57,9 +107,7 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
                                             short referenceHeight) {
         libraryFractionX = Math.max(0, Math.min(x, referenceWidth - 1)) / (float) (referenceWidth - 1);
         libraryFractionY = Math.max(0, Math.min(y, referenceHeight - 1)) / (float) (referenceHeight - 1);
-        cursorX = libraryFractionX * desktopWidth;
-        cursorY = libraryFractionY * desktopHeight;
-        moved();
+        positionAt(libraryFractionX, libraryFractionY);
     }
 
     @Implementation
@@ -77,9 +125,7 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
                                         float pressure, float contactAreaMajor,
                                         float contactAreaMinor, short rotation) {
         // A host that moves its pointer to the touch, as a desktop compositor does.
-        cursorX = x * desktopWidth;
-        cursorY = y * desktopHeight;
-        moved();
+        positionAt(x, y);
         return 0;
     }
 }

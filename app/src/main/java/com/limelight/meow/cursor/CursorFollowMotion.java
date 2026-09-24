@@ -96,6 +96,11 @@ public final class CursorFollowMotion {
         float desired = remaining / tau;
         desired = Math.max(-cap, Math.min(desired, cap));
         float maxChange = accel * dtSeconds;
+        if (!offScreen && Math.abs(previousVelocity) > GENTLE_VIEWS_PER_SECOND * views) {
+            // Just back on screen at fast-regime speed: brake at the fast rate, or the gentle
+            // limit cannot shed the speed in time and the move ends in a hard stop.
+            maxChange = Math.max(maxChange, FAST_VIEWS_PER_SECOND_SQUARED * views * dtSeconds);
+        }
         return Math.max(previousVelocity - maxChange,
                 Math.min(desired, previousVelocity + maxChange));
     }

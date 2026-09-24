@@ -73,6 +73,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     private final float[] scratchWindow = new float[4];
     private final int[] scratchLocation = new int[2];
 
+    /** Window pixels at the bottom covered by an overlay; see {@link #setBottomObstruction}. */
+    private volatile int bottomObstructionPx;
+
     /**
      * Mirrors {@code reporter.isLive()} for the UI thread, so a gesture does not have to
      * touch reporter state that lives on another thread. Only ever written from the
@@ -543,7 +546,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         // The soft keyboard covers the bottom of the window without resizing it here (the
         // stream window is fullscreen): what is under it is not visible.
         return windowFromLocationInWindow(loc[0], loc[1], parentWidth, parentHeight,
-                decorWidth, Math.max(1, decorHeight - imeBottomInset(decor)), scratchWindow);
+                decorWidth,
+                Math.max(1, decorHeight - Math.max(imeBottomInset(decor), bottomObstructionPx)),
+                scratchWindow);
     }
 
     /** Height of the soft keyboard over the window, or 0. No allocation (a single type). */
@@ -712,11 +717,26 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     }
 
     /**
-     * The window stopped matching what the parent shows (the soft keyboard opened or
-     * closed): report the new visible rectangle and bring the cursor back above it. Any
-     * thread; the work runs on the UI thread.
+     * <b>API for on-screen overlays</b> (an on-screen PC keyboard, a toolbar docked over the
+     * stream): {@code heightPx} window pixels at the bottom of the window cover the stream.
+     * The visible rectangle -- what cursor follow keeps the cursor inside, and what the host
+     * is asked to crop to -- then ends above it, exactly as it does for the system soft
+     * keyboard. Pass 0 when the overlay goes away. Any thread.
      */
-    void onVisibleAreaChanged() {
+    public void setBottomObstruction(int heightPx) {
+        int clamped = Math.max(0, heightPx);
+        if (bottomObstructionPx != clamped) {
+            bottomObstructionPx = clamped;
+            onVisibleAreaChanged();
+        }
+    }
+
+    /**
+     * The window stopped matching what the parent shows (the soft keyboard opened or closed,
+     * an overlay appeared): report the new visible rectangle and bring the cursor back into
+     * it. Any thread; the work runs on the UI thread.
+     */
+    public void onVisibleAreaChanged() {
         mainHandler.post(() -> {
             if (!streamStarted) {
                 return;
