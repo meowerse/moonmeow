@@ -108,6 +108,23 @@ public final class StreamViewportBinder
 
     private final CursorFollowPlanner cursorPlanner = new CursorFollowPlanner();
 
+    /** Posts the host's echo to the UI thread, where the compositor lives. */
+    private final Handler mainHandler = new Handler(Looper.getMainLooper());
+
+    /**
+     * The user's logical zoom over the reference frame ({@code PanZoomHandler}). Once the host
+     * crops, the stream view carries the <em>presented</em> transform instead, so the visible
+     * rectangle must never be read back off the view. Null only in tests that drive the view
+     * directly and never compose. UI thread.
+     */
+    private InlinePinchZoomController.ZoomTarget transformSource;
+
+    /** Composes the logical transform with the host's crop. UI thread; null until wired. */
+    private ViewportCompositor compositor;
+
+    /** Scratch for {@link #logicalTransform}. UI thread. */
+    private final float[] scratchTransform = new float[3];
+
     public StreamViewportBinder(View streamView, View parent) {
         this(streamView, parent, null, null);
     }
@@ -143,6 +160,26 @@ public final class StreamViewportBinder
     }
 
     /**
+     * Wires the user's logical transform and starts composing it with the host's crop. Call
+     * once, on the UI thread, before the stream starts.
+     */
+    public void setTransformSource(InlinePinchZoomController.ZoomTarget source) {
+        setTransformSource(source, source != null ? new ViewportCompositor(streamView, source) : null);
+    }
+
+    /** Test seam: inject the compositor. */
+    void setTransformSource(InlinePinchZoomController.ZoomTarget source,
+                            ViewportCompositor compositor) {
+        this.transformSource = source;
+        this.compositor = compositor;
+    }
+
+    /** The compositor, or null when no transform source is wired. UI thread. */
+    public ViewportCompositor compositor() {
+        return compositor;
+    }
+
+    /**
      * @param streamWidth  negotiated stream width in host pixels ({@code Game.displayWidth})
      * @param streamHeight negotiated stream height in host pixels
      */
@@ -151,6 +188,9 @@ public final class StreamViewportBinder
         this.streamHeight = Math.max(1, streamHeight);
         this.streamStarted = true;
         this.contentFrame = null;
+        if (compositor != null) {
+            compositor.onStreamStarted(this.streamWidth, this.streamHeight);
+        }
         MeowViewportBridge.setEchoListener(this);
         post(() -> {
             reporter.onStreamStarted(streamWidth, streamHeight);
@@ -196,6 +236,10 @@ public final class StreamViewportBinder
         MeowViewportBridge.clearEchoListener(this);
         live = false;
         streamStarted = false;
+        final ViewportCompositor presenting = compositor;
+        if (presenting != null) {
+            mainHandler.post(presenting::onStreamStopped);
+        }
 
         if (Looper.myLooper() == handler.getLooper()) {
             // Only reachable when the reporter was given the caller's own looper (tests, or
@@ -256,6 +300,12 @@ public final class StreamViewportBinder
 
     @Override
     public void onZoomTransformChanged() {
+        // PanZoomHandler has just written the logical transform to the view; replace it with
+        // the presented one before anything draws. Unconditional: composition is about what
+        // the decoder shows, not about whether we are still reporting to the host.
+        if (compositor != null) {
+            compositor.onLogicalTransformChanged();
+        }
         if (!live) {
             return;
         }
@@ -275,9 +325,31 @@ public final class StreamViewportBinder
                                   final int desktopWidth, final int desktopHeight,
                                   final int frameIndex) {
         post(() -> {
-            reporter.onViewportApplied(x, y, width, height, desktopWidth, desktopHeight);
+            boolean accepted =
+                    reporter.onViewportApplied(x, y, width, height, desktopWidth, desktopHeight);
             live = reporter.isLive();
             contentFrame = reporter.referenceFrame();
+            if (accepted) {
+                // Composed from what the reporter validated, so a rectangle outside the
+                // stream frame never reaches the view: appliedRect() is null for it and the
+                // compositor keeps what it has.
+                forwardCrop(reporter.appliedRect(), reporter.desktopWidth(),
+                        reporter.desktopHeight(), frameIndex);
+            }
+        });
+    }
+
+    /** Reporter thread: hand the applied crop to the compositor on the UI thread. */
+    private void forwardCrop(final ViewportRect applied, final int desktopWidth,
+                             final int desktopHeight, final int frameIndex) {
+        final ViewportCompositor presenting = compositor;
+        if (presenting == null || applied == null) {
+            return;
+        }
+        mainHandler.post(() -> {
+            if (streamStarted) {
+                presenting.onCropApplied(applied, desktopWidth, desktopHeight, frameIndex);
+            }
         });
     }
 
@@ -302,12 +374,32 @@ public final class StreamViewportBinder
         }
 
         float[] window = windowInParentCoords(parentWidth, parentHeight);
+        float[] transform = logicalTransform();
 
         return ViewportGeometry.visibleHostRect(
-                streamView.getX(), streamView.getY(),
-                viewWidth * streamView.getScaleX(), viewHeight * streamView.getScaleY(),
+                transform[1], transform[2],
+                viewWidth * transform[0], viewHeight * transform[0],
                 window[0], window[1], window[2], window[3],
                 streamWidth, streamHeight);
+    }
+
+    /**
+     * {scale, x, y} of the reference frame in the parent under the user's logical transform.
+     * Read from the transform source when wired; the view's own properties are only the
+     * logical transform while nothing composes onto them.
+     */
+    private float[] logicalTransform() {
+        InlinePinchZoomController.ZoomTarget source = transformSource;
+        if (source != null) {
+            scratchTransform[0] = source.getScaleFactor();
+            scratchTransform[1] = source.getChildX();
+            scratchTransform[2] = source.getChildY();
+        } else {
+            scratchTransform[0] = streamView.getScaleX();
+            scratchTransform[1] = streamView.getX();
+            scratchTransform[2] = streamView.getY();
+        }
+        return scratchTransform;
     }
 
     /**
@@ -478,10 +570,11 @@ public final class StreamViewportBinder
         if (visible == null) {
             return false;
         }
-        float childX = streamView.getX();
-        float childY = streamView.getY();
-        float childW = streamView.getWidth() * streamView.getScaleX();
-        float childH = streamView.getHeight() * streamView.getScaleY();
+        float[] transform = logicalTransform();
+        float childX = transform[1];
+        float childY = transform[2];
+        float childW = streamView.getWidth() * transform[0];
+        float childH = streamView.getHeight() * transform[0];
         if (!(childW > 0f) || !(childH > 0f)) {
             return false;
         }
@@ -509,8 +602,9 @@ public final class StreamViewportBinder
         if (visible == null) {
             return false;
         }
-        float childW = streamView.getWidth() * streamView.getScaleX();
-        float childH = streamView.getHeight() * streamView.getScaleY();
+        float scale = logicalTransform()[0];
+        float childW = streamView.getWidth() * scale;
+        float childH = streamView.getHeight() * scale;
         if (!(childW > 0f) || !(childH > 0f)) {
             return false;
         }

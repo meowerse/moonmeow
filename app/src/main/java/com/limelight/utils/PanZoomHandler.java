@@ -202,8 +202,10 @@ public class PanZoomHandler implements InlinePinchZoomController.ZoomTarget {
     // which is the negation of the movement delta this takes.
     @Override
     public void panBy(float dx, float dy) {
-        childX = streamView.getX() + dx;
-        childY = streamView.getY() + dy;
+        // MEOW-TOUCH(viewport-compose): pan from our own logical position, not the view's --
+        // once the host crops, the view carries the presented transform (ViewComposition).
+        childX = childX + dx;
+        childY = childY + dy;
 
         streamView.setX(childX);
         streamView.setY(childY);

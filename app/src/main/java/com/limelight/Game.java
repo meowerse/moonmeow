@@ -33,6 +33,7 @@ import com.limelight.meow.cursor.LocalCursorScaler;
 import com.limelight.meow.cursor.RelativeCursorTracker;
 import com.limelight.meow.ui.QuickBarView;
 import com.limelight.meow.viewport.StreamViewportBinder;
+import com.limelight.meow.viewport.ReferencePointer;
 import com.limelight.meow.viewport.ViewportPreference;
 import com.limelight.nvstream.NvConnection;
 import com.limelight.nvstream.NvConnectionListener;
@@ -516,6 +517,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             // host that implements it). Cursor-follow only moves our own view, so it is not
             // gated on it -- see StreamViewportBinder.handleCursorViewPosition.
             viewportBinder.setEnabled(ViewportPreference.isEnabled(this));
+            // The binder composes the user's zoom with the host's crop (no double
+            // magnification) and absolute input is mapped through the same logical transform.
+            viewportBinder.setTransformSource(panZoomHandler);
+            ReferencePointer.install(panZoomHandler);
             panZoomHandler.setZoomTransformObserver(viewportBinder);
             // MEOW-CURSOR: enlarge local cursor at low zoom (overview). This used to sit behind
             // the viewport preference by accident of nesting, which meant
@@ -523,7 +528,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             // off. It is its own preference and LocalCursorScaler is inert when that is unset,
             // so honouring it for every 2D stream is the behaviour the setting always promised.
             try {
-                localCursorScaler = new LocalCursorScaler(streamContainer.getSurfaceView(), inputCaptureProvider);
+                localCursorScaler = new LocalCursorScaler(panZoomHandler, inputCaptureProvider);
                 panZoomHandler.addZoomTransformObserver(localCursorScaler);
                 inputCaptureProvider.setEnlargeAtLowZoomEnabled(prefConfig.enableEnlargeCursorAtLowZoom);
                 localCursorScaler.refresh();
@@ -1749,6 +1754,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         // registration holding this Activity. See docs/meow/TOUCHPOINTS.md
         if (viewportBinder != null) {
             viewportBinder.release();
+            ReferencePointer.uninstall(panZoomHandler);
         }
         if (localCursorScaler != null) {
             try { panZoomHandler.removeZoomTransformObserver(localCursorScaler); } catch (Throwable ignored) {}
@@ -3551,7 +3557,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         eventX = Math.min(Math.max(eventX, 0), streamContainer.getWidth());
         eventY = Math.min(Math.max(eventY, 0), streamContainer.getHeight());
 
-        conn.sendMousePosition((short)eventX, (short)eventY, (short) streamContainer.getWidth(), (short) streamContainer.getHeight());
+        // MEOW-TOUCH(viewport-compose): through the user's view into the uncropped frame
+        conn.sendMousePosition(ReferencePointer.x(eventX, streamContainer.getWidth()), ReferencePointer.y(eventY, streamContainer.getHeight()), (short) streamContainer.getWidth(), (short) streamContainer.getHeight());
 
         // MEOW-TOUCH(cursor-follow): edge-scroll and catch-up. Same planner handles both;
         // call on every position update so the cursor stays pinned to the margin while content

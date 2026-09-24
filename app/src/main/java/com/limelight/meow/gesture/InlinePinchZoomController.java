@@ -66,6 +66,20 @@ public final class InlinePinchZoomController {
 
         /** Translate the zoomed view by the given pixel delta. */
         void panBy(float dx, float dy);
+
+        /**
+         * The user's zoom over the <em>uncropped</em> reference frame. This is the logical
+         * transform: once the host streams a crop, the transform actually put on the stream
+         * view differs from it (see {@code ViewComposition}), so nothing may read the view's
+         * own scale or position back as the user's zoom.
+         */
+        float getScaleFactor();
+
+        /** Left edge of the reference frame in parent pixels, under the logical transform. */
+        float getChildX();
+
+        /** Top edge of the reference frame in parent pixels, under the logical transform. */
+        float getChildY();
     }
 
     /**

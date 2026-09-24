@@ -126,7 +126,8 @@ public class AbsoluteTouchContext implements TouchContext {
         eventX = Math.min(Math.max(eventX, 0), targetView.getWidth());
         eventY = Math.min(Math.max(eventY, 0), targetView.getHeight());
 
-        conn.sendMousePosition((short)eventX, (short)eventY, (short)targetView.getWidth(), (short)targetView.getHeight());
+        // MEOW-TOUCH(viewport-compose): through the user's view into the uncropped frame
+        conn.sendMousePosition(com.limelight.meow.viewport.ReferencePointer.x(eventX, targetView.getWidth()), com.limelight.meow.viewport.ReferencePointer.y(eventY, targetView.getHeight()), (short)targetView.getWidth(), (short)targetView.getHeight());
     }
 
     @Override

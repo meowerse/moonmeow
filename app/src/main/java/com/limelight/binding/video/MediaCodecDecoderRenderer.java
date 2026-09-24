@@ -83,6 +83,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     // Update stats using real decode time: enqueue->dequeue, instead of uptime - PTS
     private void updateDecodeLatencyStats(long presentationTimeUs) {
+        com.limelight.meow.viewport.DecodedFrameGate.onFramePresented(presentationTimeUs); // MEOW-TOUCH(viewport-compose)
         Long enqNs = enqueueNsByPtsUs.get(presentationTimeUs);
         if (enqNs != null) {
             enqueueNsByPtsUs.delete(presentationTimeUs);
@@ -2031,6 +2032,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             timestampUs = lastTimestampUs + 1;
         }
         lastTimestampUs = timestampUs;
+        com.limelight.meow.viewport.DecodedFrameGate.onFrameQueued(frameNumber, timestampUs); // MEOW-TOUCH(viewport-compose)
 
         numFramesIn++;
 
