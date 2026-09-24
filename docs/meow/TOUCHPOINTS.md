@@ -1026,11 +1026,29 @@ returns `Vibrator`.
 
 **On a future merge:** keep the null check.
 
-### Blocked, not skipped: the Android 16.1 back-ports
+### `MEOW-TOUCH(upstream-backport 5c0c2390)` — `res/values/strings.xml`
+
+*Added 2026-09-24.* Upstream's `local_network_rationale` begins "Moonlight requires ...".
+Our default `strings.xml` contains no other "Moonlight" (`CLAUDE.md` §1, Branding), so the
+string says "Moonmeow". The name and the rest of the text are upstream's.
+
+**On a future merge:** keep "Moonmeow".
+
+### Formerly blocked: the Android 16.1 back-ports (unblocked 2026-09-24)
 
 `ddb674a9` (native keyboard capture) and `6d4c64a5` (disable surface producer
 throttling) need `compileSdk 37`. Both were ported, compiled and then **reverted**,
-because raising `compileSdk` from 36 to 37 breaks the unit-test gate:
+because raising `compileSdk` from 36 to 37 breaks the unit-test gate.
+
+*Update 2026-09-24: unblocked.* OkHttp 5.5 (`98c12beb`) forced the question — its
+`okhttp-android` AAR refuses to build against anything below `compileSdk 37` — and
+Robolectric 4.17 supports SDK 37, so `compileSdk` is now 37 with Robolectric 4.17 and the
+suite green. `6d4c64a5` went in verbatim, so it has no row. `ddb674a9`'s logging hunk went
+in on 2026-09-03; its keyboard-capture half (`WindowManager.LayoutParams
+.setKeyboardCaptureEnabled` behind `SDK_INT_FULL >= BAKLAVA_1`, plus the
+`CAPTURE_KEYBOARD` permission) now compiles but is still out: it changes what the keyboard
+grab captures and adds a manifest permission, and the test phone is API 36, so nobody can
+verify it on a device here. It wants its own PR. The original failure, for the record:
 
 ```
 app/src/test/java/com/limelight/meow/viewport/CursorFollowBindingTest.java:107:
