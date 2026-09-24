@@ -45,6 +45,13 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
      * thread, as the library's callback thread does; 0 delivers at once on the caller.
      */
     public static long reportLatencyMs;
+    /**
+     * Off (the default) sends as sunmeow's coalescer does: one report when the cursor hides,
+     * none while it stays hidden. On re-sends every hidden move, as another host might.
+     */
+    public static boolean resendWhileHidden;
+    private static boolean lastSentVisible = true;
+    private static boolean sentAny;
     public static int sends;
     private static float libraryFractionX;
     private static float libraryFractionY;
@@ -55,6 +62,9 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
         reporting = reportPositions;
         hideAtEdge = false;
         reportLatencyMs = 0L;
+        resendWhileHidden = false;
+        sentAny = false;
+        lastSentVisible = true;
     }
 
     /** A desktop of the given size, letterboxed into the stream, with relative acceleration. */
@@ -78,6 +88,14 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
         seq = 0;
     }
 
+    /** The subscription's forced first report, recorded like any other send. */
+    public static void reportOnSubscribe(boolean visible) {
+        sentAny = true;
+        lastSentVisible = visible;
+        MeowStreamBridgeAccess.cursor(Math.round(referenceX()), Math.round(referenceY()),
+                visible, ++seq);
+    }
+
     /** Where the host cursor is in the uncropped reference frame (stream pixels). */
     public static float referenceX() {
         return contentX + cursorX * contentWidth / desktopWidth;
@@ -97,6 +115,11 @@ public class ShadowMoonBridgeWithHost extends ShadowMoonBridge {
             final boolean visible = !hideAtEdge
                     || (cursorX > 0 && cursorX < desktopWidth - 1
                         && cursorY > 0 && cursorY < desktopHeight - 1);
+            if (!visible && sentAny && !lastSentVisible && !resendWhileHidden) {
+                return;  // Moved while hidden: sunmeow sends nothing.
+            }
+            sentAny = true;
+            lastSentVisible = visible;
             final int s = ++seq;
             if (reportLatencyMs <= 0L) {
                 MeowStreamBridgeAccess.cursor(x, y, visible, s);

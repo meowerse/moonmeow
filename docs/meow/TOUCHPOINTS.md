@@ -705,7 +705,11 @@ decided per report so a follow in progress finishes. A cursor a game or
 video hid, or one hidden and wandering, is still never chased
 (`cursor-follow-ux.md` rows 20 and 44). The resume variant is
 `GameCursorFollowModesTest.aResumedSessionFollowsACursorLeftHiddenAtTheEdge`, which fails
-without the pinned rule. The Game-level reproduction is
+without the pinned rule. sunmeow's coalescer sends one report when the cursor hides and none
+while it stays hidden (`src/meow/cursor.h`, `coalescer_t::due`), so in the resumed case the
+first report arrives before any input and no driven report ever follows; the user's first
+relative move decides instead (`onDrivenWhileHostReports`). The fake host sends the same
+way by default, with `resendWhileHidden` for a host that does not. The Game-level reproduction is
 `GameCursorFollowModesTest.aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt`: the
 fake host reports 40 ms late from a callback thread and hides the cursor at the edge, and
 the test fails with the old rule (the view stopped at 734+304 of 1080). The emulator's

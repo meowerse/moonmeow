@@ -889,13 +889,15 @@ public final class CursorFollowController
         if (stayed) {
             return true;
         }
-        // The last desktop pixel lands a whole desktop pixel inside the content edge.
-        float bandX = Math.max(1f, cursor.desktopToReferenceX()) + 1f;
-        float bandY = Math.max(1f, cursor.desktopToReferenceY()) + 1f;
-        boolean pinned = !seenVisible
-                && (x <= cursor.boundsLeft() + bandX - 1f || x >= cursor.boundsRight() - bandX
-                    || y <= cursor.boundsTop() + bandY - 1f || y >= cursor.boundsBottom() - bandY);
-        if (driven && (wasVisible || pinned)) {
+        // A follow already decided slides along the edge the user drives it against (a
+        // diagonal swipe into the right edge moves y), for a host that re-sends while hidden.
+        boolean slid = followHidden && driven
+                && ((onVerticalEdge(followHiddenX) && onVerticalEdge(x)
+                        && Math.abs(x - followHiddenX) <= 1f)
+                    || (onHorizontalEdge(followHiddenY) && onHorizontalEdge(y)
+                        && Math.abs(y - followHiddenY) <= 1f));
+        boolean pinned = !seenVisible && (onVerticalEdge(x) || onHorizontalEdge(y));
+        if (slid || (driven && (wasVisible || pinned))) {
             followHiddenX = x;
             followHiddenY = y;
             return true;
@@ -903,9 +905,46 @@ public final class CursorFollowController
         return false;
     }
 
+    /** Against the desktop's left or right edge: the last desktop pixel, in reference px. */
+    private boolean onVerticalEdge(float x) {
+        float band = Math.max(1f, cursor.desktopToReferenceX()) + 1f;
+        return x <= cursor.boundsLeft() + band - 1f || x >= cursor.boundsRight() - band;
+    }
+
+    private boolean onHorizontalEdge(float y) {
+        float band = Math.max(1f, cursor.desktopToReferenceY()) + 1f;
+        return y <= cursor.boundsTop() + band - 1f || y >= cursor.boundsBottom() - band;
+    }
+
+    /**
+     * A relative move against a reporting host whose cursor is hidden. The host sends one
+     * report when its cursor hides and none while it stays hidden (sunmeow's coalescer:
+     * "moved while hidden: nothing the client can use"), so a resumed session whose first
+     * report is the cursor hidden at the edge would never get a driven report to decide on.
+     * The move itself decides: before the host has shown its cursor this stream, a hidden
+     * cursor pinned against the desktop edge that the user now drives is followed.
+     */
+    private void onDrivenWhileHostReports() {
+        if (followHidden || seenVisible || cursor.isVisible() || !cursor.isKnown()) {
+            return;
+        }
+        float x = cursor.x();
+        float y = cursor.y();
+        if (onVerticalEdge(x) || onHorizontalEdge(y)) {
+            followHidden = true;
+            followHiddenX = x;
+            followHiddenY = y;
+            arm();
+        }
+    }
+
     private void applyRelative(int deltaX, int deltaY) {
-        if (!streamStarted || cursor.isHostReporting()) {
+        if (!streamStarted) {
+            return;
+        }
+        if (cursor.isHostReporting()) {
             // With host reports, the host's own answer (a round trip later) moves the cursor.
+            onDrivenWhileHostReports();
             return;
         }
         if (!cursor.isKnown() && view.visibleReferenceRect(visible)) {

@@ -691,10 +691,49 @@ public class CursorFollowControllerTest {
     }
 
     @Test
+    public void aHiddenCursorSlidAlongTheEdgeByADiagonalSwipeStaysFollowed() {
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        controller.onRelativeMove(40, 5);
+        controller.onCursorPosition(1919, 540, false, 2);
+        frames.runUi();
+        for (int i = 0; i < 10; i++) {
+            // One frame of the follow, then the host re-sends the hidden cursor lower down.
+            Choreographer.FrameCallback f = frames.frame;
+            frames.frame = null;
+            frames.now += 17;
+            if (f != null) {
+                f.doFrame(frames.nanos += 16_666_667L);
+            }
+            controller.onRelativeMove(40, 5);
+            controller.onCursorPosition(1919, 545 + 5 * i, false, i + 3);
+            frames.runUi();
+        }
+        frames.settle();
+        assertTrue("followed to the edge: " + view.x, 1919f <= view.x + 480f);
+    }
+
+    @Test
     public void aResumedCursorHiddenAtTheEdgeIsFollowedWhenDriven() {
-        // A new stream's first report is the cursor still hidden where it was left.
+        // A host that re-sends while hidden: the driven report itself decides.
         controller.onRelativeMove(40, 0);
         controller.onCursorPosition(1919, 540, false, 1);
+        frames.runUi();
+        frames.settle();
+        assertTrue(1919f <= view.x + 480f);
+    }
+
+    @Test
+    public void aResumedCursorHiddenAtTheEdgeIsFollowedOnTheFirstMoveThoughTheHostSendsNoMore() {
+        // sunmeow sends one report when the cursor hides and none while it stays hidden: the
+        // resumed stream's first report is all there is, and it arrives before any input.
+        controller.onCursorPosition(1919, 540, false, 1);
+        frames.runUi();
+        float before = view.x;
+        frames.settle();
+        assertEquals("not driven yet", before, view.x, 0f);
+        controller.onRelativeMove(40, 0);
         frames.runUi();
         frames.settle();
         assertTrue(1919f <= view.x + 480f);
