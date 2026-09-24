@@ -226,8 +226,10 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
   ignores; in both cases the resumed view is not pulled to the edge until the cursor shows.
   Better fixed on the host (report no position it never saw); verify with
   `adb logcat -s MeowFollow` ("first host cursor report").
-* **A resending host turning a corner** between two reports drops the slide along the
-  edge; sunmeow does not re-send while hidden, so it does not arise there.
+* **A resending host's slide along the edge holds only while the follow is under way**: once
+  the view has reached the hidden cursor the follow ends, and a later hidden report further
+  along the edge is not followed; turning a corner between two reports drops it too.
+  sunmeow does not re-send while hidden, so neither arises there.
 * **The hidden-cursor "pinned" rule (row 44) is judged against the whole desktop's box.**
   On a multi-monitor desktop a cursor left hidden at an *inner* edge (the bottom of the
   shorter monitor) is not seen as pinned, and before the viewport echo arrives the box is

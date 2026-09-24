@@ -713,7 +713,8 @@ desktop origin, which is sunmeow's placeholder for a cursor its capture never sa
 (`cursor_pipewire.h` starts at (0, 0) and only updates x/y while visible). Whether the
 resumed case works against real sunmeow therefore depends on the host reporting where the
 cursor actually is; `cursor-follow-ux.md` "Known limits" has the details. The fake host sends the same
-way by default, with `resendWhileHidden` for a host that does not. The Game-level reproduction is
+way by default; its `resendWhileHidden` knob models a host that does not, and no Game-level
+test uses it any more (the controller tests pin the slide rule). The Game-level reproduction is
 `GameCursorFollowModesTest.aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt`: the
 fake host reports 40 ms late from a callback thread and hides the cursor at the edge, and
 the test fails with the old rule (the view stopped at 734+304 of 1080). The emulator's
