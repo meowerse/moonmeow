@@ -1067,3 +1067,49 @@ weakening an inherited test to get a green gate, so the bump was dropped instead
 **The prerequisite is a Robolectric upgrade, not more porting effort.** Verified along
 the way: AGP 9.3.2 accepts `compileSdk 37`, the `android-37.0` platform is installed, and
 both back-ports compile against it — only the test compile fails.
+
+---
+
+## `MEOW-TOUCH(green-brand)`
+
+*Added 2026-09-24.* The launcher, shortcut, notification, TV and store art recoloured to
+meowerse green (`#00ff82` on the dark `#0d0d0d` plate, per meowerse
+`packages/ui/src/styles/tokens.css`), with the Artemis aperture replaced by a **moon**
+(owner decision: sunmeow keeps a sun, moonmeow a moon).
+
+**One master, everything generated.** `store-assets/meow/moonmeow.svg` is the only
+hand-authored artwork; `bash store-assets/meow/build.sh` regenerates every file below
+from it. Never hand-edit a PNG or a generated vector drawable — change the master and
+re-run. After an upstream sync that touches any of these files, re-run the script and
+commit the result rather than resolving the binary conflict by hand.
+
+Why layers 1–3 do not apply: the manifest (`android:icon`, `android:banner`),
+`ShortcutHelper` (`R.mipmap.ic_pc_scut`), `TvChannelHelper` (`R.drawable.ic_channel`)
+and `ExternalDisplayControlActivity` (`R.drawable.app_icon`) reference these resource
+**names**. Replacing the bytes under the same name touches zero lines of code; renaming
+would edit four upstream sources and the manifest.
+
+### Replaced in place (upstream files)
+
+| File(s) | Marker | What changed |
+| --- | --- | --- |
+| `res/values/ic_launcher_background.xml`, `res/values/ic_pc_scut_background.xml` | XML comment | one colour value each (`#000000` / `#FFFFFF` → `#0D0D0D`) plus the marker line; upstream's CRLF line endings preserved, so the diff is exactly those two lines. The generator re-inserts the marker if an upstream sync drops it. An additive `values-v26` override was rejected: with minSdk 26 aapt2 strips the `-v26` qualifier and the two definitions would collide |
+| `res/mipmap-{m,h,xh,xxh,xxxh}dpi/ic_launcher.png`, `ic_launcher_foreground.png`, `ic_pc_scut.png`, `ic_pc_scut_foreground.png` (20 files) | _(binary — this row)_ | regenerated. **Not reachable on any supported device** (minSdk 26: the anydpi XML wins), so this is not forced by layers 1–3 — it is a deliberate choice, made so the tree and the APK carry no stale Artemis art. Cost: 20 binary conflict points on a sync that touches them; resolution is "re-run the script" |
+| `res/drawable/app_icon.png` | _(binary — this row)_ | white moon on transparent. Also unreachable on minSdk 26 (`drawable-anydpi-v26/app_icon.xml` wins); replaced for the same reason as the row above. Upstream's copy was the full-colour launcher PNG, which rendered as a white blob in the status bar |
+| `res/drawable-xhdpi/atv_banner.png`, `res/drawable-xhdpi/ouya_icon.png` | _(binary — this row)_ | "Moonmeow / Game Streaming" banner |
+| `app/src/main/ic_launcher-web.png`, `fastlane/…/images/{icon,featureGraphic,tvBanner}.png` | _(binary — this row)_ | store icon and banners |
+
+### New files (additive)
+
+| File | Why |
+| --- | --- |
+| `res/mipmap-anydpi-v26/ic_launcher_foreground.xml`, `ic_pc_scut_foreground.xml` | vector adaptive foregrounds. Same resource name as the density PNGs, so the **unchanged** `ic_launcher.xml`/`ic_pc_scut.xml` pick them up on every device (minSdk 26) and their existing `<monochrome>` reference — which points at the foreground — now gives Android 13+ themed icons a clean alpha glyph |
+| `res/drawable-anydpi-v26/app_icon.xml` | vector notification small icon, white/alpha only, 24 dp |
+| `res/drawable-anydpi-v26/ic_lime_layer.xml` | green moon for the Android TV channel logo; overrides upstream's untouched `drawable/ic_lime_layer.xml` (the Artemis wedges), which the unchanged `ic_channel.xml` layer-list references by name |
+| `store-assets/meow/moonmeow.svg`, `build.sh`, `build_icons.py` | the master and its generator |
+
+Deliberately **not** changed: `ic_launcher.xml`/`ic_pc_scut.xml` themselves, the app theme
+(`colorAccent` is white — a neutral "noir" choice, not Moonlight brand), the fastlane
+**text** metadata, and `store-assets/lime_layer.svg` (the old wedge source; unused by the
+build). There is no `ic_launcher_round`: the manifest declares no `roundIcon`, and adaptive
+icons are masked to the launcher's shape on every supported API level.
