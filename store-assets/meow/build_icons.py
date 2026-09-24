@@ -49,7 +49,7 @@ DENSITIES = [("mdpi", 48, 108), ("hdpi", 72, 162), ("xhdpi", 96, 216),
 #: Where the 256-unit glyph grid lands on the 108 dp adaptive-icon canvas: (offset, scale).
 #: Adaptive icons are masked to at most the central 66 dp circle; both placements keep every
 #: point of the glyph inside it (checked in ``selfcheck``).
-MOON_LAYER = (22.0, 64.0 / 256)
+MOON_LAYER = (25.0, 58.0 / 256)
 PC_LAYER = (24.5, 59.0 / 256)
 
 
@@ -151,15 +151,30 @@ def save_png(img, path, opaque=False):
     write(path, buf.getvalue())
 
 
+MARKER = ("<!-- MEOW-TOUCH(green-brand): meowerse plate colour (surface-0, dark theme); "
+          "value set by store-assets/meow/build.sh -->")
+
+
 def set_color(path, name, value):
-    """Rewrite one <color name=...> value in an upstream values file, leaving the rest."""
-    with open(path) as fh:
+    """Rewrite one <color name=...> value in an upstream values file, leaving the rest.
+
+    Upstream stores these files with CRLF line endings; ``newline=""`` keeps whatever the
+    file uses, so the diff stays at exactly the value line plus the marker comment. The
+    marker is (re)inserted above the colour if missing, e.g. after an upstream sync.
+    """
+    with open(path, newline="") as fh:
         src = fh.read()
+    eol = "\r\n" if "\r\n" in src else "\n"
     new, n = re.subn(rf'(<color name="{name}">)[^<]*(</color>)', rf"\g<1>{value}\g<2>", src)
     if n != 1:
         sys.exit(f"{path}: expected exactly one <color name=\"{name}\">")
+    if MARKER not in new:
+        new = re.sub(rf'([ \t]*)(<color name="{name}">)', lambda m: f"{m.group(1)}{MARKER}{eol}{m.group(1)}{m.group(2)}", new)
     if new != src:
-        write(path, new)
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        with open(path, "w", newline="") as fh:
+            fh.write(new)
+        print("  " + os.path.relpath(path, ROOT))
     else:
         print("  " + os.path.relpath(path, ROOT) + " (unchanged)")
 
@@ -204,14 +219,19 @@ def main():
     write(os.path.join(RES, "drawable-anydpi-v26", "app_icon.xml"),
           vector_drawable(GLYPH_D, 24, 256, "#FFFFFFFF", comment="Notification small icon (alpha only)."))
     save_png(render(svg_doc(f'<path fill="#ffffff" d="{GLYPH_D}"/>'), 96), os.path.join(RES, "drawable", "app_icon.png"))
-    # ic_channel.xml layers this over @color/ic_launcher_background for the Android TV channel.
-    write(os.path.join(RES, "drawable", "ic_lime_layer.xml"),
-          vector_drawable(GLYPH_D, 24, 256, GREEN, comment="MEOW-TOUCH(green-brand): upstream file, content replaced; TV channel logo glyph, see ic_channel.xml."))
+    # ic_channel.xml layers @drawable/ic_lime_layer over @color/ic_launcher_background for the
+    # Android TV channel logo. An anydpi-v26 override wins over upstream's drawable/ copy on
+    # every supported device, so the upstream file stays untouched.
+    write(os.path.join(RES, "drawable-anydpi-v26", "ic_lime_layer.xml"),
+          vector_drawable(GLYPH_D, 24, 256, GREEN, comment="TV channel logo glyph, see drawable/ic_channel.xml."))
 
     print("store / TV art:")
-    icon512 = render(svg_doc(plated()), 512)
-    save_png(icon512, os.path.join(MAIN, "ic_launcher-web.png"))
-    save_png(icon512, os.path.join(FASTLANE, "icon.png"))
+    # Play store icon: full-bleed square (Play applies its own corner mask), no alpha.
+    full = svg_doc(f'<rect width="256" height="256" fill="{PLATE}"/>'
+                   f'<path fill="{GREEN}" transform="{GLYPH_T}" d="{GLYPH_D}"/>')
+    icon512 = render(full, 512)
+    save_png(icon512, os.path.join(MAIN, "ic_launcher-web.png"), True)
+    save_png(icon512, os.path.join(FASTLANE, "icon.png"), True)
     save_png(render(banner(320, 180, 104, 58), 320, 180), os.path.join(RES, "drawable-xhdpi", "atv_banner.png"), True)
     save_png(render(banner(732, 412, 236, 132), 732, 412), os.path.join(RES, "drawable-xhdpi", "ouya_icon.png"), True)
     save_png(render(banner(1280, 720, 400, 220), 1280, 720), os.path.join(FASTLANE, "tvBanner.png"), True)
