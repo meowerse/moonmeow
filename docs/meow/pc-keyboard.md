@@ -12,7 +12,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 
 | Where | What |
 | --- | --- |
-| Quick bar | a **PC keys** button next to **KB** (system keyboard). The three-finger tap and the game menu's keyboard item open whichever of the two was used last (remembered across streams). |
+| Quick bar | a **PC** button (PC keyboard) next to **KB** (system keyboard). The three-finger tap and the game menu's keyboard item open whichever of the two was used last (remembered across streams). |
 | PC keyboard, portrait | toolbar (system keyboard, shortcut chips that fit — Ctrl+C/V/Z/X/A/S/F, Ctrl+Shift+Z — hide), then six 11-unit rows: `Esc` and the punctuation row, `Tab` + digits, qwerty + Backspace, asdf + Enter, Shift + zxcvbnm + ↑ + `/`, and Ctrl · Fn · Super · Alt · Space · ← ↓ → |
 | PC keyboard, landscape | real ANSI, 15 units, five rows; bottom row Ctrl · Fn · Super · Alt · Space · Esc · ← ↑ ↓ →. No toolbar: vertical space is the scarce axis |
 | Fn layer | a **Super** key (a lone Super press: Start menu / KDE launcher) and Super+L, F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |

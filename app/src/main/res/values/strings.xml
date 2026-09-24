@@ -756,7 +756,7 @@
     <string name="meow_pc_keyboard_name">PC keyboard</string>
     <string name="meow_pc_keyboard_state_latched">%1$s, on for the next key</string>
     <string name="meow_pc_keyboard_state_locked">%1$s, locked on</string>
-    <string name="meow_quickbar_pc_keyboard">PC keys</string>
+    <string name="meow_quickbar_pc_keyboard">PC</string>
     <string name="meow_quickbar_pc_keyboard_description">Show or hide the PC keyboard</string>
     <string name="meow_quickbar_system_keyboard">Keyboard</string>
     <string name="meow_quickbar_system_keyboard_description">Show or hide the system keyboard</string>
