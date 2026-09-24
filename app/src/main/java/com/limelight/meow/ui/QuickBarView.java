@@ -19,15 +19,23 @@ import android.widget.TextView;
 
 import androidx.annotation.NonNull;
 
+import com.limelight.R;
+import com.limelight.meow.keyboard.KeyboardVisibleArea;
+
 /**
  * Translucent control bar that sits <em>outside</em> the StreamContainer transform so zoom/pan
  * never moves it. Auto-hides after 3 s, reappears via handle tap or 2-finger tap.
  * Keeps Game.java small: all view logic lives here.
  */
-public class QuickBarView extends FrameLayout {
+public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Listener {
 
     public interface Listener {
         void onKeyboard();
+
+        /** The PC keyboard button. Default no-op, so a listener without one still compiles. */
+        default void onPcKeyboard() {
+        }
+
         void onToggleLocalCursor();
         void onCycleMouseMode();
         void onTogglePerfOverlay();
@@ -101,6 +109,9 @@ public class QuickBarView extends FrameLayout {
         barRow.setLayoutParams(new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT, ViewGroup.LayoutParams.WRAP_CONTENT));
 
         addBarButton(ctx, "KB", "Keyboard", android.R.drawable.ic_input_add, listener::onKeyboard);
+        addBarButton(ctx, ctx.getString(R.string.meow_quickbar_pc_keyboard),
+                ctx.getString(R.string.meow_quickbar_pc_keyboard_description),
+                R.drawable.meow_ic_pc_keyboard, listener::onPcKeyboard);
         addBarButton(ctx, "Cursor", "Toggle local cursor", android.R.drawable.ic_menu_compass, listener::onToggleLocalCursor);
         addBarButton(ctx, "Mode", "Switch mouse mode", android.R.drawable.ic_menu_preferences, listener::onCycleMouseMode);
         addBarButton(ctx, "HUD", "Toggle performance overlay", android.R.drawable.ic_menu_info_details, listener::onTogglePerfOverlay);
@@ -275,6 +286,29 @@ public class QuickBarView extends FrameLayout {
         }
         return super.onInterceptTouchEvent(ev);
     }
+
+    /**
+     * A keyboard opened or closed: ride above it rather than disappear under it. The bar and
+     * its handle sit at the bottom of this full-window view, so the whole view moves.
+     */
+    @Override
+    public void onVisibleAreaChanged(int left, int top, int right, int bottom) {
+        // Where the bottom is laid out, not where it is drawn: the parent's position plus our
+        // layout box, so the answer does not depend on the translation being applied.
+        int parentTop = 0;
+        if (getParent() instanceof View) {
+            ((View) getParent()).getLocationInWindow(windowLocation);
+            parentTop = windowLocation[1];
+        }
+        float untranslatedBottom = parentTop + getBottom();
+        float lift = Math.min(0f, bottom - untranslatedBottom);
+        if (getHeight() == 0) {
+            lift = 0f;
+        }
+        animate().translationY(lift).setDuration(BAR_ANIM_MS).start();
+    }
+
+    private final int[] windowLocation = new int[2];
 
     private int dp(int v) {
         return Math.round(TypedValue.applyDimension(TypedValue.COMPLEX_UNIT_DIP, v, getResources().getDisplayMetrics()));

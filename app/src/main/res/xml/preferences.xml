@@ -503,6 +503,31 @@
             app:iconSpaceReserved="false" />
     </PreferenceCategory>
 
+    <!-- MEOW-TOUCH(pc-keyboard): a category of three new keys, read by
+         meow/keyboard/PcKeyboardPreferences; defaults must match that class. -->
+    <PreferenceCategory
+        android:title="@string/category_meow_keyboard"
+        app:iconSpaceReserved="false">
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="checkbox_meow_keep_nav_bar"
+            android:summary="@string/summary_checkbox_meow_keep_nav_bar"
+            android:title="@string/title_checkbox_meow_keep_nav_bar"
+            app:iconSpaceReserved="false" />
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="checkbox_meow_lift_stream"
+            android:summary="@string/summary_checkbox_meow_lift_stream"
+            android:title="@string/title_checkbox_meow_lift_stream"
+            app:iconSpaceReserved="false" />
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="checkbox_meow_ime_extra_keys"
+            android:summary="@string/summary_checkbox_meow_ime_extra_keys"
+            android:title="@string/title_checkbox_meow_ime_extra_keys"
+            app:iconSpaceReserved="false" />
+    </PreferenceCategory>
+
     <PreferenceCategory
         android:title="@string/category_host_settings"
         app:iconSpaceReserved="false">

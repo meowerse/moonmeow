@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- moonmeow PC keyboard: additive resources (see docs/meow/pc-keyboard.md). -->
+<resources>
+    <item name="meow_keyboard_visible_area" type="id" />
+</resources>
