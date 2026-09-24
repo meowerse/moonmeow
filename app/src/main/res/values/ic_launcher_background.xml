@@ -1,4 +1,5 @@
 <?xml version="1.0" encoding="utf-8"?>
 <resources>
-  <color name="ic_launcher_background">#000000</color>
+  <!-- MEOW-TOUCH(green-brand): meowerse plate colour (surface-0, dark theme); value set by store-assets/meow/build.sh -->
+  <color name="ic_launcher_background">#0D0D0D</color>
 </resources>
