@@ -698,9 +698,10 @@ which fails on the shared limit. The "waiting for first report" field no longer 
 for a host that is reporting. The same run had the host report its cursor hidden at the
 desktop's right edge mid-swipe, which disarmed the follower short of it. A hidden cursor is
 now still followed where the user drove it -- it went hidden within 500 ms of pointer input,
-or it is pinned against the desktop edge while driven (the resumed session, whose first
-report is the cursor still hidden where it was left), and a later hidden report at the same
-point keeps it -- decided per report so a follow in progress finishes. A cursor a game or
+or, before the host has shown its cursor this stream, it is pinned against the desktop edge
+while driven (the resumed session, whose first report is the cursor still hidden where it
+was left), and a later hidden report within 1 px of the point it was decided at keeps it --
+decided per report so a follow in progress finishes. A cursor a game or
 video hid, or one hidden and wandering, is still never chased
 (`cursor-follow-ux.md` rows 20 and 44). The resume variant is
 `GameCursorFollowModesTest.aResumedSessionFollowsACursorLeftHiddenAtTheEdge`, which fails

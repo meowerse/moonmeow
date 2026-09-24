@@ -1054,6 +1054,8 @@ public class GameCursorFollowModesTest {
         hostCursorLeftHiddenAtRightEdge = true;
         emulatorAgainstAReportingHost("2");
         ShadowMoonBridgeWithHost.reportLatencyMs = 40L;
+        float[] start = visible();
+        assertTrue("starts away from the edge", start[0] + start[2] < sw - 1f);
         for (int i = 0; i < 2; i++) {
             trackpadStroke(300f, 0f);
         }

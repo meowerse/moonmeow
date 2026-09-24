@@ -653,6 +653,44 @@ public class CursorFollowControllerTest {
     }
 
     @Test
+    public void aHiddenCursorCreepingOnePixelAtATimeIsNotChased() {
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        controller.onRelativeMove(1, 0);
+        controller.onCursorPosition(1150, 540, false, 2);
+        frames.runUi();
+        frames.settle();
+        float atFirstHiddenPoint = view.x;
+        for (int i = 1; i <= 600; i++) {
+            controller.onRelativeMove(1, 0);
+            controller.onCursorPosition(1150 + i, 540, false, i + 2);
+            frames.runUi();
+            frames.settle();
+        }
+        // At most the one pixel of the anchor's tolerance, never the 600 it crept.
+        assertEquals(atFirstHiddenPoint, view.x, 2f);
+    }
+
+    @Test
+    public void aGameCursorHiddenAfterTheHostShowedItIsNotChasedToTheEdge() {
+        // Visible, then a game hides it (no input then), then play pins it at the edge.
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS + 1);
+        controller.onCursorPosition(960, 540, false, 2);
+        frames.runUi();
+        frames.settle();
+        float before = view.x;
+        controller.onRelativeMove(900, 0);
+        controller.onCursorPosition(1919, 540, false, 3);
+        frames.runUi();
+        frames.settle();
+        assertEquals(before, view.x, 0f);
+    }
+
+    @Test
     public void aResumedCursorHiddenAtTheEdgeIsFollowedWhenDriven() {
         // A new stream's first report is the cursor still hidden where it was left.
         controller.onRelativeMove(40, 0);

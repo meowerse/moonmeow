@@ -186,9 +186,11 @@ public final class CursorFollowController
      * report is drained, so a follow in progress runs to its end. UI thread.
      */
     private boolean followHidden;
-    /** Where {@link #followHidden} was decided; a hidden cursor that moves on drops it. */
+    /** Where {@link #followHidden} was decided; a hidden cursor that moves off it drops it. */
     private float followHiddenX;
     private float followHiddenY;
+    /** The host reported its cursor visible at least once this stream. UI thread. */
+    private boolean seenVisible;
     /** The "sent as relative, host reports" line is written once per stream. */
     private boolean loggedHostReportingInput;
     private long ignoreHostReportsUntilMs = NEVER;
@@ -319,6 +321,7 @@ public final class CursorFollowController
         // A zoom already in place (rememberZoomPan restored it) is the user's choice.
         userZoomed = haveTransform && lastTransform[4] > UNZOOMED;
         followHidden = false;
+        seenVisible = false;
         loggedHostReportingInput = false;
         lastPointerInputMs = NEVER;
         lastAbsoluteInputMs = NEVER;
@@ -862,25 +865,37 @@ public final class CursorFollowController
      * <ul>
      *   <li>it was visible and went hidden within {@link #POINTER_INPUT_WINDOW_MS} of pointer
      *       input (the emulator host hid it at the desktop edge mid-swipe);</li>
-     *   <li>it is pinned against the desktop's edge while the user drives it -- a resumed
-     *       session whose first report is the cursor still hidden where it was left;</li>
-     *   <li>a later hidden report at the same point keeps it, one that moves drops it: a game
-     *       that hides the cursor and lets it wander is not chased (row 20).</li>
+     *   <li>before any visible report this stream, it is pinned against the desktop's edge
+     *       while the user drives it -- a resumed session whose first report is the cursor
+     *       still hidden where it was left. Once the host has shown its cursor, a hidden one
+     *       at the edge is a game's (a confined pointer) and is not chased;</li>
+     *   <li>a later hidden report at the point it was decided at keeps it; one that has moved
+     *       off that point drops it, however slowly it crept: a game that hides the cursor and
+     *       lets it wander is not chased (row 20).</li>
      * </ul>
      * Reports that arrive between two drains are coalesced to the newest, so a visible report
      * squeezed between hidden ones can be missed; the next drive decides again.
      */
     private boolean followsHidden(boolean wasVisible, boolean driven) {
         if (cursor.isVisible()) {
+            seenVisible = true;
             return false;
         }
         float x = cursor.x();
         float y = cursor.y();
+        // Anchored where it was decided, never moved by a report that only "stayed".
         boolean stayed = followHidden && Math.abs(x - followHiddenX) <= 1f
                 && Math.abs(y - followHiddenY) <= 1f;
-        boolean pinned = x <= cursor.boundsLeft() + 1f || x >= cursor.boundsRight() - 2f
-                || y <= cursor.boundsTop() + 1f || y >= cursor.boundsBottom() - 2f;
-        if (stayed || (driven && (wasVisible || pinned))) {
+        if (stayed) {
+            return true;
+        }
+        // The last desktop pixel lands a whole desktop pixel inside the content edge.
+        float bandX = Math.max(1f, cursor.desktopToReferenceX()) + 1f;
+        float bandY = Math.max(1f, cursor.desktopToReferenceY()) + 1f;
+        boolean pinned = !seenVisible
+                && (x <= cursor.boundsLeft() + bandX - 1f || x >= cursor.boundsRight() - bandX
+                    || y <= cursor.boundsTop() + bandY - 1f || y >= cursor.boundsBottom() - bandY);
+        if (driven && (wasVisible || pinned)) {
             followHiddenX = x;
             followHiddenY = y;
             return true;
