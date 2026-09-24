@@ -323,11 +323,12 @@ never as a merge (26 conflicting paths, measured there).
 
 *Historical, measured 2026-08-24:* the pin was then `c999436` (2025-09-01), **39 commits
 behind** the original and 6 ahead. *Current, 2026-09-24:* the pin is the `meow` tip
-`1869ace`, which contains `real/master` `62e0663` — 0 behind at the time of the bump. `git submodule status` reports it clean, because clean only
-means "matches the pin" — it says nothing about whether the pin is current, and a
-submodule's `origin` may not be the project's origin at all.
+`1869ace`, which contains `real/master` `62e0663` — 0 behind at the time of the bump.
+`git submodule status` reports it clean, because clean only means "matches the pin" — it
+says nothing about whether the pin is current, and a submodule's `origin` may not be the
+project's origin at all.
 
-What the 39 missing commits include:
+What those 39 commits included (all merged into `meow` since):
 
 - `7b026e7` Harden RTSP handling for malformed Session headers and oversized responses — **security**
 - `518b244` Rewrite MbedTLS codepaths to use the modern PSA APIs
@@ -495,7 +496,7 @@ Ordered by what is actually uncovered, not by what sounds important:
 
 ```bash
 ./gradlew assembleNonRoot_gameRelease     # release build, lintVital runs here
-./gradlew testNonRoot_gameReleaseUnitTest # 219 tests, all must pass
+./gradlew testNonRoot_gameReleaseUnitTest # all must pass (405 on 2026-09-24)
 ```
 
 Then the runtime check in §5. Red gate → nothing gets pushed.
