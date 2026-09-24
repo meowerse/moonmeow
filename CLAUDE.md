@@ -440,7 +440,9 @@ Helpers, not tests: `shadows/ShadowMoonBridge`, `shadows/ShadowGameManager`,
 Stack: JUnit 4.13.2, Robolectric 4.17, Mockito 5.19.0, `androidx.test:core` 1.7.0.
 Robolectric 4.17 is what allows `compileSdk 37` (4.16 could not compile any test against
 the API 37 stubs); unit-test JVMs get `--add-opens=java.base/jdk.internal.access=ALL-UNNAMED`
-because its SDK 36+ sandbox needs it on JDK 17+.
+because its SDK 36+ sandbox needs it on JDK 17+. The sandbox for SDK 36/37 also **requires a
+JDK 21 runtime** — on JDK 17 Robolectric fails with "Android SDK 37 requires Java 21". Run
+Gradle on JDK 21 (CI does); the app still compiles to Java 17 bytecode.
 `testOptions.unitTests.includeAndroidResources = true` lets real layout XML inflate.
 
 There is a `robolectric.properties` at the repo root naming
