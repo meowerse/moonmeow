@@ -1,5 +1,6 @@
 package com.limelight.meow.cursor;
 
+import android.animation.ValueAnimator;
 import android.os.Handler;
 import android.os.Looper;
 import android.os.SystemClock;
@@ -13,31 +14,49 @@ import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.atomic.AtomicLong;
 
 /**
- * Keeps the host cursor on the phone's screen while zoomed in, in every input mode, by panning
- * the user's view after the <em>cursor</em> — never after the finger. UI thread, except the
- * two listener interfaces, which accept any thread.
+ * Keeps the host cursor visible whenever the user is zoomed in. UI thread, except the two
+ * listener interfaces, which accept any thread. The full behaviour table, and why each rule
+ * is what it is, is {@code docs/meow/cursor-follow-ux.md}.
+ *
+ * <h2>The model</h2>
+ * In the pointer modes (touch trackpad natural and gaming, physical touchpad, mouse, local
+ * cursor) the cursor is the user's point of interest, so view manipulation is built around it:
+ * <ul>
+ *   <li><b>Zoom anchors on the cursor.</b> A pinch keeps the cursor at the same screen position
+ *       instead of the fingers' midpoint. {@code PanZoomHandler} still applies the pinch about
+ *       the fingers; the correction is applied in the same UI message, before anything draws,
+ *       so every zoom entry point (inline pinch, the explicit Pan/Zoom mode, anything later) is
+ *       anchored without a hook of its own.</li>
+ *   <li><b>A manual pan carries the cursor.</b> It keeps its screen position and the host
+ *       pointer is moved with the view (one absolute position per transform change). "Free
+ *       look" was the alternative; it is exactly the state the user reported as the cursor
+ *       being lost, and the next pointer motion snapping the view back undoes the pan anyway.
+ *       </li>
+ *   <li><b>Everything else</b> — a cursor move, a host teleport, a jump to the other monitor,
+ *       rotation, PiP or split-screen resize, the soft keyboard, a reconnect, a capture or mode
+ *       switch — arms the follower, which eases the view until the cursor is inside a comfort
+ *       margin: gently while it is on screen, fast while it is off screen.</li>
+ * </ul>
+ * In the direct-touch modes (multi-touch, and "normal mouse" where a tap clicks under the
+ * finger) the finger is the pointer: zoom anchors on the fingers as it always did, a pan does
+ * not move the host pointer, and the follower only edge-scrolls when the pointer itself is
+ * taken to the very edge.
  *
  * <h2>Where the cursor comes from</h2>
- * {@link HostCursor}: the host's own 0x3004 reports once it sends them (subscribed after the
- * host has proven it is a meow host, see {@link #subscribeTask()}), else an estimate fed by
- * every movement the client sends ({@link CursorInputTap}). Both paths end in the same place,
- * so touch trackpad, gaming touch, physical touchpad, captured mouse (relative and absolute
- * mode), local cursor, absolute touch and multi-touch all follow identically — and a cursor
- * moved on the host itself (its own mouse, an app warping it) follows too, which no client-side
- * guess can.
+ * {@link HostCursor}. With a host that reports it (0x3004, subscribed once the host has proven
+ * it is a meow host) the reports are the truth and are never overridden, except that a report
+ * older than a position the client itself just sent is ignored for a round trip.
  *
- * <h2>How the view moves</h2>
- * A cursor change arms the follower; each vsync ({@link Choreographer}) moves the view one
- * {@link CursorFollowMotion} step toward keeping the cursor inside a comfort margin, and the
- * follower disarms once it is there. Panning goes through {@code PanZoomHandler.panBy}, so the
- * new view reaches the host as a viewport update and the crop follows. Only cursor changes arm
- * it: a user who pans away from a still cursor is left where they panned.
- *
- * <p>The margin depends on how the cursor last moved. After a relative move (trackpad, mouse)
- * it is a comfortable {@link #COMFORT_MARGIN} of the view. After an absolute one (a tap, a
- * hover, the local cursor) the cursor is under the user's finger or pointer by construction, so
- * the view only scrolls when it is within {@link #EDGE_MARGIN} of the edge — a tap near a
- * screen edge must not slide the desktop out from under it.
+ * <p>Without reports, the estimate is dead-reckoned from every movement the client sends
+ * ({@link CursorInputTap}), which drifts: the host applies pointer acceleration we cannot see.
+ * So <b>while zoomed in, the client owns the pointer</b>: relative movement is not sent as
+ * relative at all but replayed as absolute positions ({@link #interceptRelative}), clamped to
+ * the visible part of the desktop. The host then has no acceleration to apply, the estimate is
+ * exact by construction, and the cursor cannot leave the screen — it pushes the view instead.
+ * Whenever the estimate is only a guess (stream start, after unzoomed relative travel, after a
+ * capture toggle) the first zoomed-in input or zoom-in re-syncs it by placing the host pointer
+ * at a known point inside the view. Unzoomed, nothing changes: relative input stays relative,
+ * with the host's own acceleration, because the whole desktop is on screen anyway.
  *
  * <p>No allocation on the per-event or per-frame paths. Inputs from other threads are folded
  * into atomics and drained on the UI thread by one reused runnable.
@@ -47,18 +66,24 @@ public final class CursorFollowController
 
     /** Margin after relative movement, as a fraction of the visible size. */
     static final float COMFORT_MARGIN = 0.15f;
-    /** Margin after absolute movement: edge-scroll only. */
+    /** Margin in the direct-touch modes and after absolute pointing: edge-scroll only. */
     static final float EDGE_MARGIN = 0.04f;
     /** How long an absolute input keeps the edge margin in force. */
     static final long ABSOLUTE_INPUT_WINDOW_MS = 500L;
+    /** After the client moves the pointer, host reports older than this may be stale. */
+    static final long HOST_REPORT_GRACE_MS = 300L;
+    /** Zoom factors this close to 1 count as unzoomed. */
+    static final float UNZOOMED = 1.001f;
     /** Longest frame step integrated, so a stalled UI thread does not jump the view. */
     private static final float MAX_FRAME_SECONDS = 0.05f;
+    /** The cursor is kept this far inside the visible edge when the client places it. */
+    private static final float EDGE_INSET = 1f;
 
     /** What the controller needs from the view side. Implemented by the viewport binder. */
     public interface ViewportView {
         /**
          * The visible part of the reference frame as {x, y, width, height}, under the user's
-         * logical transform. UI thread, no allocation.
+         * logical transform and above the soft keyboard. UI thread, no allocation.
          *
          * @return false before the views are laid out or the stream has started
          */
@@ -67,8 +92,17 @@ public final class CursorFollowController
         /** The desktop inside the frame as {left, top, right, bottom}, reference pixels. */
         void contentBounds(float[] out);
 
-        /** Parent pixels per reference pixel on each axis, as {x, y}, at the logical zoom. */
-        boolean viewPixelsPerReference(float[] out);
+        /**
+         * The logical transform as {originX, originY, parentPxPerReferenceX,
+         * parentPxPerReferenceY, zoom}: a reference point r is at parent pixel
+         * {@code origin + r * pxPerReference}.
+         */
+        boolean transform(float[] out);
+    }
+
+    /** Sends an absolute host pointer position. Production: {@code NvConnection}. */
+    public interface PointerSink {
+        void sendPosition(short x, short y, short referenceWidth, short referenceHeight);
     }
 
     /** Clock, vsync and UI-thread access. Production uses {@link Choreographer}; tests pump. */
@@ -80,24 +114,48 @@ public final class CursorFollowController
         boolean isUiThread();
 
         void postToUi(Runnable task);
+
+        /** False when the user has turned animations off: move the view in one step. */
+        boolean animationsEnabled();
+    }
+
+    /** Whether touch input is in a direct-touch mode (the finger is the pointer). */
+    public interface TouchMode {
+        boolean isDirectTouch();
     }
 
     private final ViewportView view;
     private final InlinePinchZoomController.ZoomTarget panTarget;
     private final Frames frames;
     private final HostCursor cursor = new HostCursor();
-
     private final boolean enabled;
+
+    private PointerSink sink;
+    private TouchMode touchMode = () -> false;
+
     /** Written by the stream lifecycle, which may run on the teardown worker. */
     private volatile boolean streamStarted;
     private boolean armed;
     private boolean frameRequested;
     private long lastFrameNanos;
+    private float velocityX;
+    private float velocityY;
     private volatile long lastAbsoluteInputMs = Long.MIN_VALUE / 2;
+    private long ignoreHostReportsUntilMs = Long.MIN_VALUE / 2;
+    private int streamWidth = 1;
+    private int streamHeight = 1;
+
+    /** The logical transform at the last change we saw: origin, px/ref and zoom. */
+    private final float[] lastTransform = new float[5];
+    private boolean haveTransform;
+    /** Set while the controller itself moves the view, so it does not react to its own pans. */
+    private boolean moving;
+    /** Set while the controller itself sends an absolute position. */
+    private boolean placing;
 
     private final float[] visible = new float[4];
     private final float[] bounds = new float[4];
-    private final float[] pixelsPerReference = new float[2];
+    private final float[] transform = new float[5];
 
     // Cross-thread inbox, drained on the UI thread.
     private static final long NO_POSITION = -1L;
@@ -132,6 +190,16 @@ public final class CursorFollowController
         return enabled;
     }
 
+    /** Where the controller may place the host pointer. Without it, it never does. */
+    public void setPointerSink(PointerSink sink) {
+        this.sink = sink;
+    }
+
+    /** How to tell the direct-touch modes from the pointer modes. Read when needed. */
+    public void setTouchMode(TouchMode mode) {
+        this.touchMode = mode != null ? mode : () -> false;
+    }
+
     /** The cursor model. UI thread. */
     public HostCursor cursor() {
         return cursor;
@@ -153,11 +221,15 @@ public final class CursorFollowController
 
     /** UI thread. Starts listening for this stream. */
     public void onStreamStarted(int streamWidth, int streamHeight) {
+        this.streamWidth = Math.max(1, streamWidth);
+        this.streamHeight = Math.max(1, streamHeight);
         cursor.onStreamStarted(streamWidth, streamHeight);
         pendingHostPosition.set(NO_POSITION);
         pendingRelativeX.set(0);
         pendingRelativeY.set(0);
         armed = false;
+        haveTransform = view.transform(lastTransform);
+        ignoreHostReportsUntilMs = Long.MIN_VALUE / 2;
         streamStarted = true;
         if (enabled) {
             CursorInputTap.install(this);
@@ -183,6 +255,186 @@ public final class CursorFollowController
      */
     public void resetEstimate() {
         cursor.resetEstimate();
+        ensureVisible();
+    }
+
+    /**
+     * UI thread. Something changed what is on screen without moving the cursor (soft keyboard,
+     * mouse-mode switch): bring the cursor back into the comfort area if it has left it.
+     */
+    public void ensureVisible() {
+        arm();
+    }
+
+    // ---- view changes, UI thread -------------------------------------------------------
+
+    /**
+     * {@code PanZoomHandler} changed the logical transform (a pinch, a pan, a resize), or the
+     * visible area changed. Anchors zoom on the cursor and carries it through pans in the
+     * pointer modes; always re-checks visibility.
+     */
+    public void onViewTransformChanged() {
+        if (!view.transform(transform)) {
+            return;
+        }
+        if (!haveTransform || moving || !enabled || !streamStarted) {
+            remember();
+            return;
+        }
+
+        float oldZoom = lastTransform[4];
+        float newZoom = transform[4];
+        boolean resized = Math.abs(transform[2] / newZoom - lastTransform[2] / oldZoom) > 1e-4f
+                || Math.abs(transform[3] / newZoom - lastTransform[3] / oldZoom) > 1e-4f;
+        boolean zoomed = newZoom != oldZoom;
+        boolean panned = transform[0] != lastTransform[0] || transform[1] != lastTransform[1];
+
+        boolean direct = touchMode.isDirectTouch();
+        if (!resized && !direct && cursor.isVisible()) {
+            if (zoomed) {
+                anchorZoomOnCursor(newZoom);
+            } else if (panned) {
+                carryCursorThroughPan();
+            }
+        }
+        remember();
+        // A resize changes what is on screen under a still cursor: bring it back. After a
+        // zoom or pan the cursor kept its screen position, so only a cursor that is somehow
+        // off screen (the view clamped at a desktop edge) needs the follower; pulling an
+        // on-screen cursor out of the margin band now would drift the view under the fingers
+        // mid-gesture. In the direct-touch modes the user may zoom away from the last tap on
+        // purpose, so the view is never chased there.
+        if (!direct && (resized || cursorOffScreen())) {
+            arm();
+        }
+    }
+
+    private boolean cursorOffScreen() {
+        return cursor.isKnown() && view.visibleReferenceRect(visible)
+                && (cursor.x() < visible[0] || cursor.x() > visible[0] + visible[2]
+                    || cursor.y() < visible[1] || cursor.y() > visible[1] + visible[3]);
+    }
+
+    private void remember() {
+        if (view.transform(lastTransform)) {
+            haveTransform = true;
+        }
+    }
+
+    /** Keep the cursor at its screen position through a zoom, or place it if unknown. */
+    private void anchorZoomOnCursor(float newZoom) {
+        if (!cursor.isExact() && !cursor.isHostReporting()) {
+            // A guess (or nothing): anchoring on it could anchor on empty desktop. Zooming in
+            // is where the user wants to work, so put the pointer there -- the middle of the
+            // new view -- which also makes the estimate exact again.
+            if (newZoom > UNZOOMED && view.visibleReferenceRect(visible)) {
+                place(visible[0] + visible[2] / 2f, visible[1] + visible[3] / 2f);
+            }
+            return;
+        }
+        if (!cursor.isKnown()) {
+            return;
+        }
+        float before = lastTransform[0] + cursor.x() * lastTransform[2];
+        float beforeY = lastTransform[1] + cursor.y() * lastTransform[3];
+        float after = transform[0] + cursor.x() * transform[2];
+        float afterY = transform[1] + cursor.y() * transform[3];
+        moveView(before - after, beforeY - afterY);
+    }
+
+    /** The view moved under a still cursor: move the host pointer with the view. */
+    private void carryCursorThroughPan() {
+        if (!cursor.isKnown() || transform[2] <= 0f || transform[3] <= 0f) {
+            return;
+        }
+        float screenX = lastTransform[0] + cursor.x() * lastTransform[2];
+        float screenY = lastTransform[1] + cursor.y() * lastTransform[3];
+        place((screenX - transform[0]) / transform[2], (screenY - transform[1]) / transform[3]);
+    }
+
+    /** Pans the logical view by parent pixels, without reacting to it as a user pan. */
+    private void moveView(float dx, float dy) {
+        if (dx == 0f && dy == 0f) {
+            return;
+        }
+        moving = true;
+        try {
+            panTarget.panBy(dx, dy);
+        } finally {
+            moving = false;
+        }
+    }
+
+    // ---- placing the host pointer ------------------------------------------------------
+
+    /**
+     * Puts the host pointer at reference point (x, y), clamped to the desktop. The position
+     * goes out through the normal send path, so the estimate hears it via the tap and is exact.
+     *
+     * @return false when there is nowhere to send it
+     */
+    private boolean place(float x, float y) {
+        PointerSink out = sink;
+        if (out == null) {
+            return false;
+        }
+        float px = Math.max(cursor.boundsLeft(), Math.min(x, cursor.boundsRight() - EDGE_INSET));
+        float py = Math.max(cursor.boundsTop(), Math.min(y, cursor.boundsBottom() - EDGE_INSET));
+        // A reference as fine as a short allows, so the pointer lands on the desktop pixel
+        // meant and not on the nearest multiple of the stream-to-desktop ratio.
+        int fine = Math.max(1, Math.min(4, 32766 / Math.max(streamWidth, streamHeight)));
+        int refW = streamWidth * fine;
+        int refH = streamHeight * fine;
+        placing = true;
+        try {
+            out.sendPosition((short) Math.round(px / streamWidth * (refW - 1)),
+                    (short) Math.round(py / streamHeight * (refH - 1)),
+                    (short) refW, (short) refH);
+        } finally {
+            placing = false;
+        }
+        if (cursor.isHostReporting()) {
+            ignoreHostReportsUntilMs = frames.uptimeMillis() + HOST_REPORT_GRACE_MS;
+        }
+        return true;
+    }
+
+    /**
+     * {@code NvConnection.sendMouseMove}, UI thread: while zoomed in against a host that does
+     * not report its cursor, replay the move as an absolute position inside the view.
+     *
+     * @return true when the move was sent that way and must not also go out as relative
+     */
+    boolean interceptRelative(int deltaX, int deltaY) {
+        if (!enabled || !streamStarted || sink == null || cursor.isHostReporting()
+                || !frames.isUiThread() || !view.transform(transform)
+                || transform[4] <= UNZOOMED || !view.visibleReferenceRect(visible)) {
+            return false;
+        }
+        float left = Math.max(visible[0], cursor.boundsLeft());
+        float top = Math.max(visible[1], cursor.boundsTop());
+        float right = Math.min(visible[0] + visible[2], cursor.boundsRight()) - EDGE_INSET;
+        float bottom = Math.min(visible[1] + visible[3], cursor.boundsBottom()) - EDGE_INSET;
+        if (!(right > left) || !(bottom > top)) {
+            return false;
+        }
+
+        float x;
+        float y;
+        if (cursor.isExact()) {
+            x = cursor.x();
+            y = cursor.y();
+        } else if (cursor.isKnown()) {
+            // A guess from unzoomed travel: the best place to re-sync is where it points.
+            x = cursor.x();
+            y = cursor.y();
+        } else {
+            x = visible[0] + visible[2] / 2f;
+            y = visible[1] + visible[3] / 2f;
+        }
+        x = Math.max(left, Math.min(x + deltaX * cursor.desktopToReferenceX(), right));
+        y = Math.max(top, Math.min(y + deltaY * cursor.desktopToReferenceY(), bottom));
+        return place(x, y);
     }
 
     // ---- inputs, any thread ------------------------------------------------------------
@@ -195,14 +447,18 @@ public final class CursorFollowController
     }
 
     @Override
-    public void onRelativeMove(int deltaX, int deltaY) {
+    public boolean onRelativeMove(int deltaX, int deltaY) {
         if (frames.isUiThread()) {
+            if (interceptRelative(deltaX, deltaY)) {
+                return true;
+            }
             applyRelative(deltaX, deltaY);
-            return;
+            return false;
         }
         pendingRelativeX.addAndGet(deltaX);
         pendingRelativeY.addAndGet(deltaY);
         scheduleDrain();
+        return false;
     }
 
     @Override
@@ -242,7 +498,8 @@ public final class CursorFollowController
     private void drainInbox() {
         drainPosted.set(false);
         long packed = pendingHostPosition.getAndSet(NO_POSITION);
-        if (packed != NO_POSITION) {
+        if (packed != NO_POSITION && streamStarted
+                && frames.uptimeMillis() >= ignoreHostReportsUntilMs) {
             cursor.onHostPosition((int) (packed >>> 32) & 0xFFFF, (int) (packed >>> 16) & 0xFFFF,
                     (packed & 1L) != 0);
             arm();
@@ -262,8 +519,8 @@ public final class CursorFollowController
             return;
         }
         if (!cursor.isKnown() && view.visibleReferenceRect(visible)) {
-            // Best available guess: the middle of what the user can see. Capture usually
-            // starts with the pointer there, and the edge corrects any error.
+            // Unzoomed and nothing known: guess the middle of what the user sees. Zooming in
+            // later re-syncs it (anchorZoomOnCursor), so the guess never decides visibility.
             cursor.seed(visible[0] + visible[2] / 2f, visible[1] + visible[3] / 2f);
         }
         if (cursor.onRelativeMove(deltaX, deltaY)) {
@@ -280,7 +537,12 @@ public final class CursorFollowController
             cursor.onMoveAsPosition(a, b, referenceWidth, referenceHeight);
         } else {
             cursor.onAbsolutePosition(a, b, referenceWidth, referenceHeight);
-            lastAbsoluteInputMs = frames.uptimeMillis();
+            if (!placing) {
+                lastAbsoluteInputMs = frames.uptimeMillis();
+            }
+        }
+        if (cursor.isHostReporting() && !placing) {
+            ignoreHostReportsUntilMs = frames.uptimeMillis() + HOST_REPORT_GRACE_MS;
         }
         arm();
     }
@@ -300,12 +562,9 @@ public final class CursorFollowController
     /** One vsync of following. */
     void onFrame(long frameTimeNanos) {
         frameRequested = false;
-        if (!armed || !enabled || !streamStarted || !cursor.isKnown() || !cursor.isVisible()) {
-            armed = false;
-            return;
-        }
-        if (!view.visibleReferenceRect(visible) || !view.viewPixelsPerReference(pixelsPerReference)) {
-            armed = false;
+        if (!armed || !enabled || !streamStarted || !cursor.isKnown() || !cursor.isVisible()
+                || !view.visibleReferenceRect(visible) || !view.transform(transform)) {
+            disarm();
             return;
         }
         view.contentBounds(bounds);
@@ -314,29 +573,49 @@ public final class CursorFollowController
                 : Math.min(MAX_FRAME_SECONDS, (frameTimeNanos - lastFrameNanos) / 1e9f);
         lastFrameNanos = frameTimeNanos;
 
-        float margin = frames.uptimeMillis() - lastAbsoluteInputMs <= ABSOLUTE_INPUT_WINDOW_MS
-                ? EDGE_MARGIN : COMFORT_MARGIN;
+        boolean direct = touchMode.isDirectTouch()
+                || frames.uptimeMillis() - lastAbsoluteInputMs <= ABSOLUTE_INPUT_WINDOW_MS;
+        float margin = direct ? EDGE_MARGIN : COMFORT_MARGIN;
         float needX = CursorFollowMotion.remaining(visible[0], visible[2], cursor.x(),
                 bounds[0], bounds[2], margin);
         float needY = CursorFollowMotion.remaining(visible[1], visible[3], cursor.y(),
                 bounds[1], bounds[3], margin);
         if (needX == 0f && needY == 0f) {
-            armed = false;
+            disarm();
             return;
         }
-        float stepX = CursorFollowMotion.step(needX, visible[2], dt);
-        float stepY = CursorFollowMotion.step(needY, visible[3], dt);
+
+        float stepX;
+        float stepY;
+        if (!frames.animationsEnabled()) {
+            // "Remove animations": no motion at all, just the result.
+            stepX = needX;
+            stepY = needY;
+        } else {
+            boolean offScreen = cursorOffScreen();
+            velocityX = CursorFollowMotion.velocity(needX, visible[2], velocityX, dt, offScreen);
+            velocityY = CursorFollowMotion.velocity(needY, visible[3], velocityY, dt, offScreen);
+            stepX = CursorFollowMotion.step(needX, velocityX, dt);
+            stepY = CursorFollowMotion.step(needY, velocityY, dt);
+        }
 
         // Moving the visible rectangle right means moving the content left.
-        panTarget.panBy(-stepX * pixelsPerReference[0], -stepY * pixelsPerReference[1]);
+        moveView(-stepX * transform[2], -stepY * transform[3]);
+        remember();
 
         if (Math.abs(needX - stepX) <= CursorFollowMotion.SETTLE_PX
                 && Math.abs(needY - stepY) <= CursorFollowMotion.SETTLE_PX) {
-            armed = false;
+            disarm();
             return;
         }
         frameRequested = true;
         frames.requestFrame(onFrame);
+    }
+
+    private void disarm() {
+        armed = false;
+        velocityX = 0f;
+        velocityY = 0f;
     }
 
     /** Production clock, vsync and UI thread. Created on the UI thread. */
@@ -362,6 +641,11 @@ public final class CursorFollowController
         @Override
         public void postToUi(Runnable task) {
             handler.post(task);
+        }
+
+        @Override
+        public boolean animationsEnabled() {
+            return ValueAnimator.areAnimatorsEnabled();
         }
     }
 }

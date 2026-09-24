@@ -204,6 +204,14 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
      */
     public void setCursorFollow(CursorFollowController controller) {
         this.cursorFollow = controller;
+        if (controller != null) {
+            // Insets reach the stream container whenever the soft keyboard opens or closes;
+            // pass them on untouched and re-check what is visible.
+            parent.setOnApplyWindowInsetsListener((v, insets) -> {
+                onVisibleAreaChanged();
+                return v.onApplyWindowInsets(insets);
+            });
+        }
         if (controller != null && controller.isEnabled()) {
             addHostProvenTask(controller.subscribeTask());
         }
@@ -372,6 +380,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         if (compositor != null) {
             compositor.onLogicalTransformChanged();
         }
+        if (cursorFollow != null) {
+            cursorFollow.onViewTransformChanged();
+        }
         if (!live) {
             return;
         }
@@ -529,8 +540,22 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
             return windowFromGlobalVisibleRect(answered, scratchVisible, scratchOffset,
                     parentWidth, parentHeight, scratchWindow);
         }
+        // The soft keyboard covers the bottom of the window without resizing it here (the
+        // stream window is fullscreen): what is under it is not visible.
         return windowFromLocationInWindow(loc[0], loc[1], parentWidth, parentHeight,
-                decorWidth, decorHeight, scratchWindow);
+                decorWidth, Math.max(1, decorHeight - imeBottomInset(decor)), scratchWindow);
+    }
+
+    /** Height of the soft keyboard over the window, or 0. No allocation (a single type). */
+    private static int imeBottomInset(View decor) {
+        if (android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.R || decor == null) {
+            return 0;
+        }
+        android.view.WindowInsets insets = decor.getRootWindowInsets();
+        if (insets == null) {
+            return 0;
+        }
+        return insets.getInsets(android.view.WindowInsets.Type.ime()).bottom;
     }
 
     /**
@@ -674,12 +699,32 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
     }
 
-    /** Parent pixels per reference pixel at the logical zoom, {x, y}. */
+    /** {originX, originY, parentPxPerReferenceX, parentPxPerReferenceY, zoom}. */
     @Override
-    public boolean viewPixelsPerReference(float[] out) {
-        float scale = logicalTransform()[0];
-        out[0] = streamView.getWidth() * scale / streamWidth;
-        out[1] = streamView.getHeight() * scale / streamHeight;
-        return out[0] > 0f && out[1] > 0f;
+    public boolean transform(float[] out) {
+        float[] t = logicalTransform();
+        out[0] = t[1];
+        out[1] = t[2];
+        out[2] = streamView.getWidth() * t[0] / streamWidth;
+        out[3] = streamView.getHeight() * t[0] / streamHeight;
+        out[4] = t[0];
+        return out[2] > 0f && out[3] > 0f;
+    }
+
+    /**
+     * The window stopped matching what the parent shows (the soft keyboard opened or
+     * closed): report the new visible rectangle and bring the cursor back above it. Any
+     * thread; the work runs on the UI thread.
+     */
+    void onVisibleAreaChanged() {
+        mainHandler.post(() -> {
+            if (!streamStarted) {
+                return;
+            }
+            onZoomTransformChanged();
+            if (cursorFollow != null) {
+                cursorFollow.ensureVisible();
+            }
+        });
     }
 }

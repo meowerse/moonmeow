@@ -13,7 +13,12 @@ public class CursorInputTapTest {
     private static final class Recorder implements CursorInputTap.Listener {
         final List<String> calls = new ArrayList<>();
 
-        @Override public void onRelativeMove(int dx, int dy) { calls.add("rel " + dx + "," + dy); }
+        boolean consume;
+
+        @Override public boolean onRelativeMove(int dx, int dy) {
+            calls.add("rel " + dx + "," + dy);
+            return consume;
+        }
 
         @Override public void onAbsolutePosition(int x, int y, int w, int h) {
             calls.add("abs " + x + "," + y + " " + w + "x" + h);
@@ -41,6 +46,18 @@ public class CursorInputTapTest {
         CursorInputTap.touch();
         assertEquals("[rel -3,4, abs 10,20 1920x1080, as 5,6 2712x1220, touch]",
                 r.calls.toString());
+    }
+
+    @Test
+    public void aConsumedRelativeMoveIsReportedToTheSender() {
+        Recorder r = new Recorder();
+        CursorInputTap.install(r);
+        assertEquals(false, CursorInputTap.relative((short) 1, (short) 1));
+        r.consume = true;
+        assertEquals(true, CursorInputTap.relative((short) 1, (short) 1));
+        CursorInputTap.install(null);
+        assertEquals("nothing installed: send as usual",
+                false, CursorInputTap.relative((short) 1, (short) 1));
     }
 
     @Test

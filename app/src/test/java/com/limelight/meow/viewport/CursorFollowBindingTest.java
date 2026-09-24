@@ -14,6 +14,7 @@ import android.widget.FrameLayout;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.limelight.meow.cursor.CursorFollowController;
+import com.limelight.meow.cursor.CursorFollowMotion;
 import com.limelight.meow.cursor.CursorInputTap;
 import com.limelight.meow.stream.MeowStreamBridge;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -59,6 +60,18 @@ public class CursorFollowBindingTest {
         @Override public void requestFrame(Choreographer.FrameCallback callback) { pending = callback; }
         @Override public boolean isUiThread() { return true; }
         @Override public void postToUi(Runnable task) { task.run(); }
+        @Override public boolean animationsEnabled() { return true; }
+
+        /** Runs one vsync, if one was asked for. */
+        void frame() {
+            Choreographer.FrameCallback callback = pending;
+            pending = null;
+            frameNanos += 16_666_667L;
+            nowMs += 17;
+            if (callback != null) {
+                callback.doFrame(frameNanos);
+            }
+        }
 
         /** Runs vsyncs until the follower stops asking; returns how many ran. */
         int settle() {
@@ -125,6 +138,8 @@ public class CursorFollowBindingTest {
         binder.setTransformSource(panZoom);
         panZoom.setZoomTransformObserver(binder);
         follow = new CursorFollowController(binder, panZoom, followEnabled, frames);
+        // What NvConnection does with a position: the tap hears it.
+        follow.setPointerSink(CursorInputTap::absolute);
         binder.setCursorFollow(follow);
         binder.setCapabilityProbe(follow.isEnabled());
         binder.onStreamStarted(STREAM_W, STREAM_H);
@@ -178,9 +193,10 @@ public class CursorFollowBindingTest {
         frames.pending = null;
         callback.doFrame(frames.frameNanos += 16_666_667L);
         float oneFrame = start - panZoom.getChildX();
-        // One frame moves at most MAX_VIEWS_PER_SECOND views/s: 3 x 480 ref px / 60 = 24 ref
-        // px = 96 view px at 4x.
-        assertTrue("moved " + oneFrame, oneFrame > 0f && oneFrame <= 96.5f);
+        // The cursor is off screen, so the fast regime -- but acceleration-limited from rest:
+        // the first frame moves at most FAST accel x 480 ref px / 60^2, x4 view px.
+        float cap = CursorFollowMotion.FAST_VIEWS_PER_SECOND_SQUARED * 480f / 3600f * 4f;
+        assertTrue("moved " + oneFrame, oneFrame > 0f && oneFrame <= cap + 0.5f);
     }
 
     @Test
@@ -236,7 +252,7 @@ public class CursorFollowBindingTest {
     }
 
     @Test
-    public void aUserPanAwayFromAStillCursorIsNotUndone() {
+    public void aUserPanIsKeptAndCarriesTheCursorWithIt() {
         wire(true, true);
         zoomTo4x();
         follow.onCursorPosition(960, 540, true, 1);
@@ -245,7 +261,10 @@ public class CursorFollowBindingTest {
         drain();
         float panned = panZoom.getChildX();
         frames.settle();
-        assertEquals(panned, panZoom.getChildX(), 0f);
+        assertEquals("the pan is not undone", panned, panZoom.getChildX(), 0f);
+        // The cursor kept its screen position: 1000 view px at 4x is 250 reference px.
+        assertEquals(1210f, follow.cursor().x(), 0.6f);
+        assertCursorVisible(follow.cursor().x(), follow.cursor().y());
     }
 
     @Test
@@ -279,12 +298,19 @@ public class CursorFollowBindingTest {
         wire(true, true);
         hostEchoes();
         zoomTo4x();
-        // Trackpad, gaming touch, captured mouse and gamepad all send through here.
+        // Trackpad, gaming touch, captured mouse and gamepad all send through here, one
+        // event per display frame. Zoomed in with no host reports, the client owns the
+        // pointer: it never leaves the view, and pushes the view along instead.
         for (int i = 0; i < 40; i++) {
-            CursorInputTap.relative((short) 10, (short) 0);
+            assertTrue("sent as an absolute position instead",
+                    CursorInputTap.relative((short) 10, (short) 0));
+            assertCursorVisible(follow.cursor().x(), follow.cursor().y());
+            frames.frame();
         }
         frames.settle();
-        assertTrue(follow.cursor().x() > 960f + 390f);
+        assertTrue("x " + follow.cursor().x(), follow.cursor().x() > 960f + 300f);
+        assertTrue("the estimate is exact: the host was told the position",
+                follow.cursor().isExact());
         assertCursorVisible(follow.cursor().x(), follow.cursor().y());
     }
 

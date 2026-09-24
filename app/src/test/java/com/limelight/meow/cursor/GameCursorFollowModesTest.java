@@ -22,6 +22,7 @@ import com.limelight.Game;
 import com.limelight.TestLogSuppressor;
 import com.limelight.binding.input.capture.InputCaptureProvider;
 import com.limelight.meow.stream.MeowStreamBridge;
+import com.limelight.meow.stream.MeowStreamBridgeAccess;
 import com.limelight.meow.viewport.StreamViewportBinder;
 import com.limelight.meow.viewport.ViewportPreference;
 import com.limelight.preferences.PreferenceConfiguration;
@@ -41,6 +42,7 @@ import org.robolectric.android.controller.ActivityController;
 import org.robolectric.annotation.Config;
 
 import java.lang.reflect.Field;
+import java.lang.reflect.Method;
 import java.time.Duration;
 
 /**
@@ -87,6 +89,11 @@ public class GameCursorFollowModesTest {
 
     private void launch(String mouseMode, boolean absoluteMouse, boolean hostReports)
             throws Exception {
+        launch(mouseMode, absoluteMouse, hostReports, true);
+    }
+
+    private void launch(String mouseMode, boolean absoluteMouse, boolean hostReports,
+                        boolean zoomToCentre) throws Exception {
         Context context = ApplicationProvider.getApplicationContext();
         SharedPreferences prefs = PreferenceManager.getDefaultSharedPreferences(context);
         prefs.edit().clear()
@@ -130,10 +137,12 @@ public class GameCursorFollowModesTest {
         binder.onViewportApplied(0, 0, W, H, W, H, 0);
         idle();
 
-        // The user pinches to 4x about the centre: the visible box is (720, 405, 480, 270).
-        panZoom.pinchBy(4f, W / 2f, H / 2f);
-        idle();
         eventTime = SystemClock.uptimeMillis();
+        if (zoomToCentre) {
+            // The user pinches to 4x about the centre: the visible box is (720, 405, 480, 270).
+            panZoom.pinchBy(4f, W / 2f, H / 2f);
+            idle();
+        }
     }
 
     @SuppressWarnings("unchecked")
@@ -173,6 +182,69 @@ public class GameCursorFollowModesTest {
         }
         return MotionEvent.obtain(eventTime - 8, eventTime, action, 1, props, coords, 0, 0,
                 1f, 1f, 0, 0, source, 0);
+    }
+
+    private MotionEvent twoFingers(int action, float x0, float y0, float x1, float y1) {
+        eventTime += 8;
+        MotionEvent.PointerProperties[] props = {new MotionEvent.PointerProperties(),
+                new MotionEvent.PointerProperties()};
+        props[0].id = 0;
+        props[1].id = 1;
+        props[0].toolType = MotionEvent.TOOL_TYPE_FINGER;
+        props[1].toolType = MotionEvent.TOOL_TYPE_FINGER;
+        MotionEvent.PointerCoords[] coords = {new MotionEvent.PointerCoords(),
+                new MotionEvent.PointerCoords()};
+        coords[0].x = x0;
+        coords[0].y = y0;
+        coords[1].x = x1;
+        coords[1].y = y1;
+        for (MotionEvent.PointerCoords c : coords) {
+            c.pressure = 1f;
+            c.size = 1f;
+        }
+        return MotionEvent.obtain(eventTime - 8, eventTime, action, 2, props, coords, 0, 0,
+                1f, 1f, 0, 0, InputDevice.SOURCE_TOUCHSCREEN, 0);
+    }
+
+    /**
+     * A real two-finger pinch through Game.onTouch: the fingers spread symmetrically about
+     * (cx, cy) from {@code fromHalfSpan} to {@code toHalfSpan}, and may drift by (dx, dy).
+     */
+    private void pinch(float cx, float cy, float fromHalfSpan, float toHalfSpan,
+                       float dx, float dy, int steps) {
+        game.onTouch(container, event(MotionEvent.ACTION_DOWN, InputDevice.SOURCE_TOUCHSCREEN,
+                MotionEvent.TOOL_TYPE_FINGER, cx - fromHalfSpan, cy, 0f, 0f));
+        game.onTouch(container, twoFingers(MotionEvent.ACTION_POINTER_DOWN
+                        | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                cx - fromHalfSpan, cy, cx + fromHalfSpan, cy));
+        for (int i = 1; i <= steps; i++) {
+            float h = fromHalfSpan + (toHalfSpan - fromHalfSpan) * i / steps;
+            float ox = dx * i / steps;
+            float oy = dy * i / steps;
+            game.onTouch(container, twoFingers(MotionEvent.ACTION_MOVE,
+                    cx - h + ox, cy + oy, cx + h + ox, cy + oy));
+        }
+        float ox = dx;
+        float oy = dy;
+        game.onTouch(container, twoFingers(MotionEvent.ACTION_POINTER_UP
+                        | (1 << MotionEvent.ACTION_POINTER_INDEX_SHIFT),
+                cx - toHalfSpan + ox, cy + oy, cx + toHalfSpan + ox, cy + oy));
+        game.onTouch(container, event(MotionEvent.ACTION_UP, InputDevice.SOURCE_TOUCHSCREEN,
+                MotionEvent.TOOL_TYPE_FINGER, cx - toHalfSpan + ox, cy + oy, 0f, 0f));
+        idle();
+    }
+
+    /**
+     * Captured-mouse movement at a realistic rate: one relative event per display frame, so
+     * the follower runs between them as it does on a device.
+     */
+    private void mouseMoves(int count, float dx, float dy) {
+        for (int i = 0; i < count; i++) {
+            game.onGenericMotionEvent(event(MotionEvent.ACTION_MOVE,
+                    InputDevice.SOURCE_MOUSE_RELATIVE, MotionEvent.TOOL_TYPE_MOUSE,
+                    dx, dy, dx, dy));
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(17));
+        }
     }
 
     /** A one-finger drag on the touchscreen, through Game.onTouch. */
@@ -263,11 +335,7 @@ public class GameCursorFollowModesTest {
     public void capturedMouseRelative() throws Exception {
         launch("1", false, true);
         float before = panZoom.getChildX();
-        for (int i = 0; i < 40; i++) {
-            game.onGenericMotionEvent(event(MotionEvent.ACTION_MOVE,
-                    InputDevice.SOURCE_MOUSE_RELATIVE, MotionEvent.TOOL_TYPE_MOUSE,
-                    20f, 0f, 20f, 0f));
-        }
+        mouseMoves(40, 20f, 0f);
         settle();
         assertFollowedRight(before);
     }
@@ -276,11 +344,7 @@ public class GameCursorFollowModesTest {
     public void capturedMouseInAbsoluteMouseMode() throws Exception {
         launch("1", true, true);
         float before = panZoom.getChildX();
-        for (int i = 0; i < 40; i++) {
-            game.onGenericMotionEvent(event(MotionEvent.ACTION_MOVE,
-                    InputDevice.SOURCE_MOUSE_RELATIVE, MotionEvent.TOOL_TYPE_MOUSE,
-                    20f, 0f, 20f, 0f));
-        }
+        mouseMoves(40, 20f, 0f);
         settle();
         assertFollowedRight(before);
     }
@@ -290,11 +354,7 @@ public class GameCursorFollowModesTest {
         // No 0x3004: the estimate fed by the NvConnection tap is all there is.
         launch("1", false, false);
         float before = panZoom.getChildX();
-        for (int i = 0; i < 40; i++) {
-            game.onGenericMotionEvent(event(MotionEvent.ACTION_MOVE,
-                    InputDevice.SOURCE_MOUSE_RELATIVE, MotionEvent.TOOL_TYPE_MOUSE,
-                    20f, 0f, 20f, 0f));
-        }
+        mouseMoves(40, 20f, 0f);
         settle();
         assertFollowedRight(before);
     }
@@ -362,5 +422,155 @@ public class GameCursorFollowModesTest {
         assertTrue("the view must not chase the finger to the right",
                 panZoom.getChildX() >= before);
         assertHostCursorOnScreen();
+    }
+
+    // ---- the user's report: "I zoomed in another place and when I move, the view moves and
+    // ---- the mouse is not visible" (dead-reckoning host, touch trackpad) ------------------
+
+    @Test
+    public void zoomElsewhereThenMoveKeepsTheCursorVisible() throws Exception {
+        launch("2", false, false, false);
+        // The host cursor sits in the middle of the desktop. The user pinches to ~4x over
+        // the top-left of the screen, far from it.
+        pinch(300f, 250f, 60f, 240f, 0f, 0f, 20);
+        assertTrue("the pinch must have zoomed: " + panZoom.getScaleFactor(),
+                panZoom.getScaleFactor() > 3f);
+        settle();
+        assertHostCursorOnScreen();
+
+        // Then moves the cursor with a few trackpad strokes.
+        for (int stroke = 0; stroke < 3; stroke++) {
+            touchDrag(500f, 600f, 900f, 20);
+            idle();
+            settle();
+            assertHostCursorOnScreen();
+        }
+    }
+
+    // ---- zoom and pan keep the cursor where the user sees it -----------------------------
+
+    /** The host reports its cursor at (x, y); drained on the UI thread like the real one. */
+    private void hostCursorAt(int x, int y) {
+        ShadowMoonBridgeWithHost.cursorX = x;
+        ShadowMoonBridgeWithHost.cursorY = y;
+        MeowStreamBridgeAccess.cursor(x, y, 1000 + x);
+        idle();
+    }
+
+    private float cursorScreenX() {
+        return panZoom.getChildX() + ShadowMoonBridgeWithHost.cursorX * panZoom.getScaleFactor();
+    }
+
+    private float cursorScreenY() {
+        return panZoom.getChildY() + ShadowMoonBridgeWithHost.cursorY * panZoom.getScaleFactor();
+    }
+
+    @Test
+    public void aPinchInATrackpadModeAnchorsOnTheCursorNotTheFingers() throws Exception {
+        launch("2", false, true, false);
+        hostCursorAt(1400, 700);
+        float sx = cursorScreenX();
+        float sy = cursorScreenY();
+        // Fingers over the top-left, far from the cursor.
+        pinch(300f, 250f, 60f, 200f, 0f, 0f, 20);
+        assertTrue(panZoom.getScaleFactor() > 2.5f);
+        assertEquals("the cursor keeps its screen position", sx, cursorScreenX(), 2f);
+        assertEquals(sy, cursorScreenY(), 2f);
+        settle();
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void aPinchInADirectTouchModeAnchorsOnTheFingers() throws Exception {
+        // Mode 1: a tap clicks under the finger, so the finger is the pointer.
+        launch("1", false, true, false);
+        hostCursorAt(1400, 700);
+        int sendsBefore = ShadowMoonBridgeWithHost.sends;
+        pinch(300f, 250f, 60f, 200f, 0f, 0f, 20);
+        assertTrue(panZoom.getScaleFactor() > 2.5f);
+        // The desktop point under the fingers stayed under them...
+        float underFingers = (300f - panZoom.getChildX()) / panZoom.getScaleFactor();
+        assertEquals(300f, underFingers, 8f);
+        // ...and the host pointer was not moved by the zoom.
+        assertEquals(sendsBefore, ShadowMoonBridgeWithHost.sends);
+    }
+
+    @Test
+    public void aTwoFingerPanCarriesTheCursorAlong() throws Exception {
+        launch("2", false, true);
+        hostCursorAt(960, 540);
+        float sx = cursorScreenX();
+        float zoomBefore = panZoom.getScaleFactor();
+        // Pinch-and-drag: the fingers spread a little and drag left, so the view zooms and
+        // pans under them.
+        pinch(900f, 500f, 100f, 260f, -150f, 0f, 30);
+        assertTrue("the gesture must have zoomed", panZoom.getScaleFactor() > zoomBefore);
+        assertEquals("the cursor stays where the user sees it", sx, cursorScreenX(), 3f);
+        settle();
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void aHostTeleportToTheOtherEndOfTheDesktopIsFollowedQuickly() throws Exception {
+        launch("2", false, true);
+        hostCursorAt(960, 540);
+        // A dialog grabs the pointer on the far monitor, or the user flicks the host mouse.
+        hostCursorAt(60, 1000);
+        for (int i = 0; i < 45; i++) {
+            Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofMillis(17));
+        }
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void aDesktopCornerIsReachableWithoutHidingTheCursor() throws Exception {
+        launch("2", false, true, false);
+        hostCursorAt(4, 4);
+        pinch(W / 2f, H / 2f, 60f, 240f, 0f, 0f, 20);
+        settle();
+        assertTrue(panZoom.getScaleFactor() > 3f);
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void aResizeBringsTheCursorBack() throws Exception {
+        launch("2", false, true);
+        hostCursorAt(1150, 650);
+        // PiP / split screen: the stream shrinks to a quarter.
+        container.layout(0, 0, W / 2, H / 2);
+        container.getSurfaceView().layout(0, 0, W / 2, H / 2);
+        panZoom.handleSurfaceChange();
+        idle();
+        settle();
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void afterACaptureToggleTheNextMovePlacesTheCursorInView() throws Exception {
+        // Dead-reckoning host: whatever moved the pointer while capture was off is unknown.
+        launch("1", false, false);
+        mouseMoves(5, 10f, 0f);
+        Method grab = Game.class.getDeclaredMethod("setInputGrabState", boolean.class);
+        grab.setAccessible(true);
+        grab.invoke(game, false);
+        ShadowMoonBridgeWithHost.cursorX = 50;   // moved by something we did not see
+        ShadowMoonBridgeWithHost.cursorY = 50;
+        grab.invoke(game, true);
+        mouseMoves(3, 5f, 5f);
+        settle();
+        assertHostCursorOnScreen();
+    }
+
+    @Test
+    public void aDeadReckoningHostCursorNeverLeavesTheViewEvenOnAFlick() throws Exception {
+        launch("2", false, false);
+        // Place it once, then flick far right with no frames in between.
+        mouseMoves(1, 1f, 0f);
+        for (int i = 0; i < 30; i++) {
+            game.onGenericMotionEvent(event(MotionEvent.ACTION_MOVE,
+                    InputDevice.SOURCE_MOUSE_RELATIVE, MotionEvent.TOOL_TYPE_MOUSE,
+                    200f, 0f, 200f, 0f));
+            assertHostCursorOnScreen();
+        }
     }
 }

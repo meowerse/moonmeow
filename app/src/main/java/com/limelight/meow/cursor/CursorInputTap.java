@@ -26,8 +26,13 @@ public final class CursorInputTap {
 
     /** Receives every mouse movement sent to the host. Any thread. */
     public interface Listener {
-        /** {@code LiSendMouseMoveEvent}: a relative move the host applies in its own pixels. */
-        void onRelativeMove(int deltaX, int deltaY);
+        /**
+         * {@code LiSendMouseMoveEvent}: a relative move the host applies in its own pixels.
+         *
+         * @return true when the listener sent the move itself (as an absolute position) and
+         *         it must not also go out as relative
+         */
+        boolean onRelativeMove(int deltaX, int deltaY);
 
         /**
          * {@code LiSendMousePositionEvent}: an absolute position against a reference size.
@@ -64,12 +69,15 @@ public final class CursorInputTap {
         }
     }
 
-    /** Hook in {@code NvConnection.sendMouseMove}. */
-    public static void relative(short deltaX, short deltaY) {
+    /**
+     * Hook in {@code NvConnection.sendMouseMove}.
+     *
+     * @return true when the move has already been sent another way (see
+     *         {@code CursorFollowController#interceptRelative}) and must be dropped
+     */
+    public static boolean relative(short deltaX, short deltaY) {
         Listener l = listener;
-        if (l != null) {
-            l.onRelativeMove(deltaX, deltaY);
-        }
+        return l != null && l.onRelativeMove(deltaX, deltaY);
     }
 
     /** Hook in {@code NvConnection.sendMousePosition}. */

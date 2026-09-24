@@ -529,6 +529,14 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             // every send in NvConnection). The binder drives its lifecycle.
             cursorFollow = new CursorFollowController(viewportBinder, panZoomHandler,
                     CursorFollowPreference.isEnabled(this));
+            // The follower may place the host pointer (zoom anchoring, pan carrying, and the
+            // client-owned pointer against hosts that do not report theirs); the finger is the
+            // pointer in the direct-touch modes. See docs/meow/cursor-follow-ux.md
+            cursorFollow.setPointerSink((x, y, w, h) -> {
+                if (conn != null) conn.sendMousePosition(x, y, w, h);
+            });
+            cursorFollow.setTouchMode(
+                    () -> !prefConfig.touchscreenTrackpad && touchContextMap[0] != null);
             viewportBinder.setCursorFollow(cursorFollow);
             // Automatic bitrate: the starting bitrate is negotiated below, reports start once
             // the host is proven. Both extensions need that proof, so always probe for it.
@@ -4349,6 +4357,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         if (inlinePinchZoom != null) {
             inlinePinchZoom.reset();
         }
+        if (cursorFollow != null) cursorFollow.ensureVisible(); // MEOW-TOUCH(cursor-follow)
         updateZoomButtonAppearance();
     }
 

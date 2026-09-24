@@ -39,6 +39,8 @@ public final class HostCursor {
     private float desktopToReferenceY = 1f;
 
     private boolean known;
+    /** The position is the host's, not a guess: reported, or set by an absolute send. */
+    private boolean exact;
     private boolean hostReporting;
     private boolean visible = true;
     private float x;
@@ -58,6 +60,7 @@ public final class HostCursor {
         desktopToReferenceX = 1f;
         desktopToReferenceY = 1f;
         known = false;
+        exact = false;
         hostReporting = false;
         visible = true;
         libraryFractionX = 0.5f;
@@ -86,6 +89,7 @@ public final class HostCursor {
     public void onHostPosition(int x, int y, boolean visible) {
         hostReporting = true;
         known = true;
+        exact = true;
         this.visible = visible;
         this.x = clamp(x, 0, streamWidth);
         this.y = clamp(y, 0, streamHeight);
@@ -102,6 +106,8 @@ public final class HostCursor {
         }
         x = clamp(x + deltaX * desktopToReferenceX, boundsLeft, boundsRight);
         y = clamp(y + deltaY * desktopToReferenceY, boundsTop, boundsBottom);
+        // The host applies its own pointer acceleration and we cannot see it: a guess now.
+        exact = false;
         return true;
     }
 
@@ -131,6 +137,7 @@ public final class HostCursor {
         // Taken even in host mode: this is exactly where we just put the cursor, a round trip
         // before the host can say so.
         known = true;
+        exact = true;
         x = libraryFractionX * streamWidth;
         y = libraryFractionY * streamHeight;
     }
@@ -141,6 +148,7 @@ public final class HostCursor {
             return;
         }
         known = true;
+        exact = false;
         this.x = clamp(x, boundsLeft, boundsRight);
         this.y = clamp(y, boundsTop, boundsBottom);
     }
@@ -152,7 +160,42 @@ public final class HostCursor {
     public void resetEstimate() {
         if (!hostReporting) {
             known = false;
+            exact = false;
         }
+    }
+
+    /**
+     * True when the position is the host's own: reported over 0x3004, or set by an absolute
+     * position the client sent. False while it is a dead-reckoned guess.
+     */
+    public boolean isExact() {
+        return known && exact;
+    }
+
+    /** Relative deltas to reference pixels on each axis: {x, y}. */
+    public float desktopToReferenceX() {
+        return desktopToReferenceX;
+    }
+
+    public float desktopToReferenceY() {
+        return desktopToReferenceY;
+    }
+
+    /** The desktop inside the frame, where the cursor can be: {left, top, right, bottom}. */
+    public float boundsLeft() {
+        return boundsLeft;
+    }
+
+    public float boundsTop() {
+        return boundsTop;
+    }
+
+    public float boundsRight() {
+        return boundsRight;
+    }
+
+    public float boundsBottom() {
+        return boundsBottom;
     }
 
     public boolean isKnown() {

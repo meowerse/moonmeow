@@ -631,13 +631,24 @@ desktop away). Pans go through `PanZoomHandler.panBy`, so the new view reaches t
 viewport update and the crop follows. Only cursor changes arm it, so a user who pans away
 from a still cursor stays where they panned.
 
-### `app/src/main/java/com/limelight/Game.java` — 3 sites
+### The redesign after the first device test (2026-09-24, same PR)
+
+The behaviour contract — every input × mode × zoom state, the decisions and why — is
+**`docs/meow/cursor-follow-ux.md`**. In short: zoom anchors on the cursor and a manual pan
+carries it (pointer modes); against hosts without 0x3004 the client owns the pointer while
+zoomed, replaying relative motion as absolute positions clamped to the view, so the cursor
+cannot leave the screen; a fast regime brings an off-screen cursor back; "Remove animations"
+is respected. The upstream sites grew by two lines (below); everything else is in
+`meow/cursor/`.
+
+### `app/src/main/java/com/limelight/Game.java` — 4 sites
 
 | Line | Site | Edit |
 | --- | --- | --- |
 | 217 | field declaration | `private CursorFollowController cursorFollow;` |
-| 510 | inside the `MEOW-TOUCH(viewport-follow)` block | construct the follower and `viewportBinder.setCursorFollow(...)`; the binder drives its lifecycle |
-| 1921 | `setInputGrabState` | `cursorFollow.resetEstimate()` — capture toggled, the estimate starts over |
+| 510 | inside the `MEOW-TOUCH(viewport-follow)` block | construct the follower, give it a pointer sink (`conn.sendMousePosition`) and the touch-mode query, `viewportBinder.setCursorFollow(...)`; the binder drives its lifecycle |
+| setInputGrabState | after the capture change | `cursorFollow.resetEstimate()` — capture toggled, the estimate starts over |
+| applyMouseMode | after the touch contexts are rebuilt | `cursorFollow.ensureVisible()` |
 
 Removed from `Game.java` in the same change: the `RelativeCursorTracker` field, the two
 `followDeadReckonedCursor` call sites in the relative-mouse branch and the helper, the
@@ -648,7 +659,9 @@ Removed from `Game.java` in the same change: the `RelativeCursorTracker` field, 
 
 One line each, first statement of `sendMouseMove`, `sendMousePosition`,
 `sendMouseMoveAsMousePosition`, `sendTouchEvent` and `sendPenEvent`: a call into
-`CursorInputTap`. This is the one funnel every input mode already goes through, and the only
+`CursorInputTap`. In `sendMouseMove` it is `if (CursorInputTap.relative(...)) return;`: while
+zoomed against a host that does not report its cursor, the follower has already sent the move
+as an absolute position and the relative one must not also go out. This is the one funnel every input mode already goes through, and the only
 place where "every relative-send path" is true by construction. Fully-qualified, no import.
 
 ### `app/src/main/res/xml/preferences.xml` — 1 site

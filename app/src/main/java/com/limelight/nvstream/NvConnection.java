@@ -470,7 +470,7 @@ public class NvConnection {
     
     public void sendMouseMove(final short deltaX, final short deltaY)
     {
-        com.limelight.meow.cursor.CursorInputTap.relative(deltaX, deltaY); // MEOW-TOUCH(cursor-follow)
+        if (com.limelight.meow.cursor.CursorInputTap.relative(deltaX, deltaY)) return; // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             MoonBridge.sendMouseMove(deltaX, deltaY);
         }

@@ -25,6 +25,7 @@ public class CursorFollowControllerTest {
     private static final class FakeView implements CursorFollowController.ViewportView {
         float x = 720f;
         float y = 405f;
+        float zoom = 4f;
 
         @Override
         public boolean visibleReferenceRect(float[] out) {
@@ -44,9 +45,12 @@ public class CursorFollowControllerTest {
         }
 
         @Override
-        public boolean viewPixelsPerReference(float[] out) {
-            out[0] = 4f;
-            out[1] = 4f;
+        public boolean transform(float[] out) {
+            out[0] = -x * 4f;
+            out[1] = -y * 4f;
+            out[2] = 4f;
+            out[3] = 4f;
+            out[4] = zoom;
             return true;
         }
     }
@@ -74,6 +78,8 @@ public class CursorFollowControllerTest {
         @Override public void requestFrame(Choreographer.FrameCallback callback) { frame = callback; }
         @Override public boolean isUiThread() { return onUiThread; }
         @Override public void postToUi(Runnable task) { ui.add(task); }
+        boolean animations = true;
+        @Override public boolean animationsEnabled() { return animations; }
 
         void runUi() {
             while (!ui.isEmpty()) {
@@ -177,5 +183,110 @@ public class CursorFollowControllerTest {
         float before = view.x;
         frames.settle();
         assertEquals(before, view.x, 0f);
+    }
+
+    // ---- the client-owned pointer and its limits ----------------------------------------
+
+    /** Records placements and replays them into the tap, as NvConnection would. */
+    private final java.util.List<int[]> placed = new java.util.ArrayList<>();
+
+    private void withSink() {
+        controller.setPointerSink((x, y, w, h) -> {
+            placed.add(new int[] {x, y, w, h});
+            controller.onAbsolutePosition(x, y, w, h);
+        });
+    }
+
+    @Test
+    public void zoomedWithoutHostReportsARelativeMoveIsPlacedInsideTheView() {
+        withSink();
+        assertTrue(controller.onRelativeMove(100000, 0));
+        assertEquals(1, placed.size());
+        // Clamped just inside the right edge of the visible box (720..1200), at 4x precision.
+        float x = controller.cursor().x();
+        assertTrue("x " + x, x <= 1200f && x >= 1198f);
+        assertTrue(controller.cursor().isExact());
+        assertEquals(1920 * 4, placed.get(0)[2]);
+    }
+
+    @Test
+    public void unzoomedRelativeMovesStayRelative() {
+        withSink();
+        view.zoom = 1f;
+        assertFalse(controller.onRelativeMove(10, 0));
+        assertTrue(placed.isEmpty());
+    }
+
+    @Test
+    public void aHostThatReportsItsCursorIsNeverOverridden() {
+        withSink();
+        controller.onCursorPosition(900, 500, true, 1);
+        frames.runUi();
+        assertFalse(controller.onRelativeMove(10, 0));
+        assertTrue(placed.isEmpty());
+    }
+
+    @Test
+    public void offTheUiThreadAMoveIsNeverIntercepted() {
+        withSink();
+        frames.onUiThread = false;
+        assertFalse(controller.onRelativeMove(10, 0));
+    }
+
+    @Test
+    public void withoutASinkNothingIsPlaced() {
+        assertFalse(controller.onRelativeMove(10, 0));
+    }
+
+    @Test
+    public void aStaleHostReportJustAfterTheClientMovedThePointerIsIgnored() {
+        withSink();
+        controller.onCursorPosition(900, 500, true, 1);
+        frames.runUi();
+        controller.onAbsolutePosition(1100, 600, 1920, 1080);
+        // The host's report of the old position arrives a moment later.
+        controller.onCursorPosition(900, 500, true, 2);
+        frames.runUi();
+        assertEquals(1100f / 1919f * 1920f, controller.cursor().x(), 0.01f);
+        frames.now += CursorFollowController.HOST_REPORT_GRACE_MS + 1;
+        controller.onCursorPosition(905, 500, true, 3);
+        frames.runUi();
+        assertEquals(905f, controller.cursor().x(), 0f);
+    }
+
+    @Test
+    public void withAnimationsOffTheViewJumpsInOneFrame() {
+        frames.animations = false;
+        controller.onCursorPosition(1700, 540, true, 1);
+        frames.runUi();
+        assertEquals(1, frames.settle());
+        assertTrue(1700f <= view.x + 480f);
+    }
+
+    @Test
+    public void inADirectTouchModeAZoomAwayFromTheCursorIsNotChased() {
+        controller.setTouchMode(() -> true);
+        controller.onCursorPosition(1300, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        float settled = view.x;
+        // The user zooms/pans elsewhere with their fingers.
+        view.x = 100f;
+        controller.onViewTransformChanged();
+        assertEquals(0, frames.settle());
+        assertEquals(100f, view.x, 0f);
+        assertTrue(settled != 100f);
+    }
+
+    @Test
+    public void inAPointerModeARemoteCursorOffScreenAfterAViewChangeIsBroughtBack() {
+        controller.onCursorPosition(900, 500, true, 1);
+        frames.runUi();
+        frames.settle();
+        // Something moved the view with no carry possible (no sink): the cursor is off screen.
+        view.x = 100f;
+        controller.onViewTransformChanged();
+        frames.settle();
+        assertTrue(900f >= view.x && 900f <= view.x + 480f);
     }
 }
