@@ -49,6 +49,16 @@ public class KeyboardVisibleAreaTest {
     }
 
     @Test
+    public void focusMovesReachTheListener() {
+        KeyboardVisibleArea area = new KeyboardVisibleArea();
+        area.onFocusMoved();
+        int[] calls = {0};
+        area.setFocusMovedListener(() -> calls[0]++);
+        area.onFocusMoved();
+        assertEquals(1, calls[0]);
+    }
+
+    @Test
     public void focusSourceIsOptional() {
         KeyboardVisibleArea area = new KeyboardVisibleArea();
         assertTrue(Float.isNaN(area.focusY()));

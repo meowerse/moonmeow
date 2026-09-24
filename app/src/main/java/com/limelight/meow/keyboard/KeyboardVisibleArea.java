@@ -57,7 +57,8 @@ public final class KeyboardVisibleArea {
         return tag instanceof KeyboardVisibleArea ? (KeyboardVisibleArea) tag : null;
     }
 
-    static KeyboardVisibleArea install(View anyView) {
+    /** Finds the window's area, creating it if nobody has yet. UI thread. */
+    public static KeyboardVisibleArea install(View anyView) {
         KeyboardVisibleArea existing = of(anyView);
         if (existing != null) {
             return existing;
@@ -84,7 +85,21 @@ public final class KeyboardVisibleArea {
         this.focusSource = source;
     }
 
-    float focusY() {
+    /** The focus source's point moved enough to re-place the stream. UI thread. */
+    public void onFocusMoved() {
+        if (focusMovedListener != null) {
+            focusMovedListener.run();
+        }
+    }
+
+    void setFocusMovedListener(Runnable listener) {
+        this.focusMovedListener = listener;
+    }
+
+    private Runnable focusMovedListener;
+
+    /** The current point of interest, container pixels, or NaN. */
+    public float focusY() {
         return focusSource != null ? focusSource.focusY() : Float.NaN;
     }
 

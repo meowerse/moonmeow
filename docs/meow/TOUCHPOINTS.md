@@ -1054,7 +1054,10 @@ Plus one import, untokenised.
 
 `res/values/strings.xml` (16 appended strings, English only — the meow convention),
 `res/values/meow_keyboard.xml` (one view-tag id), `res/drawable/meow_ic_pc_keyboard.xml`,
-`meow/ui/QuickBarView.java` (ours: the PC button, riding above keyboards).
+`meow/ui/QuickBarView.java` (ours: the PC button, riding above keyboards),
+`meow/viewport/StreamViewportBinder.java` (ours: records the cursor y as the keyboard lift's
+focus source — two one-line calls plus a helper; #16 rewrites this class, see
+`docs/meow/pc-keyboard.md`).
 
 ### Coordination with PR #16 (`feat/real-viewport-cursor-bitrate`)
 

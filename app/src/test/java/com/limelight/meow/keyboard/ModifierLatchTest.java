@@ -61,6 +61,17 @@ public class ModifierLatchTest {
     }
 
     @Test
+    public void aSlowChordEndsOffEvenThoughTheLongPressFiredFirst() {
+        // Held like a physical Ctrl: the lock fires, then C is pressed under the finger.
+        // Leaving Ctrl locked after that would turn every later key and click into Ctrl+.
+        latch.press(MOD_CTRL);
+        assertTrue(latch.longPress(MOD_CTRL));
+        latch.onKeyUsed();
+        latch.release(MOD_CTRL, 900);
+        assertEquals(OFF, latch.state(MOD_CTRL));
+    }
+
+    @Test
     public void aLongPressAfterAChordDoesNothing() {
         latch.press(MOD_CTRL);
         latch.onKeyUsed();

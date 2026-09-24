@@ -15,7 +15,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | Quick bar | a **PC keys** button next to **KB** (system keyboard). The three-finger tap and the game menu's keyboard item open whichever of the two was used last (remembered across streams). |
 | PC keyboard, portrait | toolbar (system keyboard, shortcut chips that fit — Ctrl+C/V/Z/X/A/S/F, Ctrl+Shift+Z — hide), then six 11-unit rows: `Esc` and the punctuation row, `Tab` + digits, qwerty + Backspace, asdf + Enter, Shift + zxcvbnm + ↑ + `/`, and Ctrl · Fn · Super · Alt · Space · ← ↓ → |
 | PC keyboard, landscape | real ANSI, 15 units, five rows; bottom row Ctrl · Fn · Super · Alt · Space · Esc · ← ↑ ↓ →. No toolbar: vertical space is the scarce axis |
-| Fn layer | F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |
+| Fn layer | a **Super** key (a lone Super press: Start menu / KDE launcher) and Super+L, F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |
 | Above the system keyboard | a one-row strip: Esc, Tab, Ctrl, Alt, Super, ← ↑ ↓ →, and a key to switch to the full PC keyboard (Termux's extra-keys idea). Setting: *PC keys above the system keyboard* |
 | Stream | slides up out from under any keyboard (system, strip or PC) and back when it closes. Setting: *Move the stream above the keyboard* |
 | System bars | in full screen, only the status bar hides; the navigation bar stays and the window is laid out above it. Setting: *Keep the navigation bar visible* (off = the old immersive mode) |
@@ -29,6 +29,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | tap a latched modifier later | off | nothing |
 | tap a locked modifier | off | modifier up |
 | long-press a modifier (system long-press timeout) | locked, with a haptic | modifier down now |
+| long-press fires, then keys are pressed while the finger is still down (held like a physical key) | a chord after all: **off** when the finger lifts, so a slow Ctrl+C never leaves Ctrl locked | down … up |
 | hold a modifier and press keys with another finger | a chord: applies to those keys, off when lifted (a lock survives) | down/up around each key |
 | key pressed with modifiers latched | | modifiers down, key down … key up, latched modifiers up |
 | several latched | combine (Ctrl + Shift + T) | all of them around the key |
@@ -41,7 +42,9 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | window loses focus, app paused, keyboard hidden | every held key up, every latch and lock off | key-ups for everything held |
 
 Why lazy modifiers: tapping Super to latch it and tapping again to cancel must not send a lone
-Super press, which opens the KDE launcher / Start menu. Why an eager lock: a locked Ctrl or
+Super press, which opens the KDE launcher / Start menu. (A *quick* second tap locks instead, and
+unlocking a lock that was never used does send that lone press — as releasing a held Super key
+would. For the launcher on purpose, the Fn layer has a Super key.) Why an eager lock: a locked Ctrl or
 Shift must also modify mouse clicks, and a locked Alt must hold the Alt+Tab switcher open
 across several Tabs. A merely latched modifier does not apply to mouse clicks (lock it for
 Ctrl+click) — stated rather than discovered.
@@ -92,15 +95,20 @@ above the keyboard (portrait): centred in what is left. It does not fit (landsca
 its size — a desktop shrunk into the band above a keyboard is unreadable — and slides up so the
 point of interest is centred, clamped so it never moves down or past its own top. With no point
 of interest known, the bottom edge sits on the keyboard (what the keyboard covered is what the
-user wants to see). Applied as `translationY` on the stream container, which nothing else
+user wants to see). The point of interest is the host cursor: `StreamViewportBinder`, where
+every cursor position already arrives (touch, mouse, and the dead-reckoned relative cursor),
+records it and is the area's `FocusSource`; when it moves by more than an eighth of the stream
+while a keyboard is open, the stream is re-placed. Applied as `translationY` on the stream container, which nothing else
 transforms (`PanZoomHandler` transforms the surface *inside* it), with a 220 ms decelerate that
 the system animation scale governs (off when animations are off).
 
 **Insets.** On API 30+ the window is `adjustNothing` and reads `WindowInsets` (`ime()`,
 `statusBars()`, `navigationBars()`); the IME inset is reported in every adjust mode there. On
-API 26–29 there is no IME inset type, so the window asks for `adjustResize` (which a
-fullscreen window does not actually get) and the IME is the part of the window the visible
-display frame lost, above 15% of the height. `targetSdk` is 34, so Android 15's enforced
+API 26–29 there is no IME inset type, so a full-screen, single-window stream asks for
+`adjustResize` (which a `FLAG_FULLSCREEN` window does not actually get) and the IME is the part
+of the window the visible display frame lost, above 15% of the height. Without that flag (full
+screen off, multi-window) adjustResize would really shrink the stream, so there the window keeps
+its old mode and the lift is not applied on those API levels. `targetSdk` is 34, so Android 15's enforced
 edge-to-edge does not apply yet; the arithmetic uses root insets, not layout assumptions, so it
 stays right when targetSdk moves.
 
@@ -133,11 +141,12 @@ How `feat/real-viewport-cursor-bitrate` should consume it, once both are merged:
 2. Register a `KeyboardVisibleArea.Listener` that calls `onVisibleAreaChanged()` (it already
    re-reports the viewport and calls `cursorFollow.ensureVisible()`), instead of relying on an
    `OnApplyWindowInsetsListener`, which the PC keyboard does not trigger.
-3. Give the area a `FocusSource` backed by `HostCursor`: the cursor's y mapped into the stream
-   container. Then an unzoomed landscape stream lifts to show the cursor rather than the bottom.
+3. This branch already makes `StreamViewportBinder` the `FocusSource` (the last cursor position
+   it was handed, in container pixels) and calls `onFocusMoved()` on large moves. #16 rewrites
+   that class: keep the two `recordCursorViewY` calls, or replace the source with one backed by
+   `HostCursor`, whose host-reported position is better than any estimate.
 
-Until then the lift uses no focus point (bottom on the keyboard) and #16's follower only sees
-the IME; nothing breaks either way.
+Until #16 lands, its follower only sees the IME; nothing breaks either way.
 
 ## Typing fixes found on the way
 
@@ -167,6 +176,9 @@ on, composition is now live and duplicate-free. Turning it on by default is a be
 for every user and wants its own PR.
 
 ## Known limits
+
+- Before the cursor has been seen (no pointer input since the stream started), landscape lifts
+  with no point of interest: the bottom of the stream on the keyboard.
 
 - A latched (not locked) modifier does not apply to mouse clicks. Lock it.
 - If a latched modifier turns a composed character into a shortcut, the IME still believes the

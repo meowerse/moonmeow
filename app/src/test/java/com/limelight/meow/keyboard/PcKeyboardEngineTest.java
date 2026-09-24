@@ -165,6 +165,22 @@ public class PcKeyboardEngineTest {
     }
 
     @Test
+    public void aSlowHeldCtrlChordIsReleasedOnTheHost() {
+        engine.modifierDown(MOD_CTRL);
+        engine.modifierLongPress(MOD_CTRL);
+        tapKey(KeyEvent.KEYCODE_C);
+        engine.modifierUp(MOD_CTRL, now);
+        assertEquals("+CTRL +C -C -CTRL", sink.joined());
+        assertEquals(OFF, engine.modifierState(MOD_CTRL));
+    }
+
+    @Test
+    public void theSuperKeyOnTheFnLayerIsALoneSuperTap() {
+        tapKey(PcKeyboardLayout.SUPER_TAP.code);
+        assertEquals("+SUPER -SUPER", sink.joined());
+    }
+
+    @Test
     public void aChipPressesItsChord() {
         engine.chordDown(PcKeyboardLayout.COPY.chord);
         engine.chordUp(PcKeyboardLayout.COPY.chord);

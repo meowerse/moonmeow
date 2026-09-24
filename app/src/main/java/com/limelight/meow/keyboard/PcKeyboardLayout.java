@@ -183,6 +183,10 @@ public final class PcKeyboardLayout {
     static final PcKey ALT_TAB = chip("Alt+Tab", "Alt Tab, switch window", 1f, ALT, KeyEvent.KEYCODE_TAB);
     static final PcKey ALT_F4 = chip("Alt+F4", "Alt F4, close window", 1f, ALT, KeyEvent.KEYCODE_F4);
     static final PcKey CTRL_ALT_DEL = chip("Ctrl+Alt+Del", "Control Alt Delete", 1f, CTRL, ALT, KeyEvent.KEYCODE_FORWARD_DEL);
+    /** A lone Super press: the Start menu, the KDE launcher. A key, not a modifier. */
+    static final PcKey SUPER_TAP = new PcKey(PcKey.KIND_KEY, SUPER, null, "Super", null,
+            "Super alone, opens the launcher or Start menu", 1f, PcKey.STYLE_CHIP, false, PcKey.ICON_NONE);
+    static final PcKey LOCK_SCREEN = chip("Super+L", "Super L, lock the screen", 1f, SUPER, KeyEvent.KEYCODE_L);
     static final PcKey CTRL_SHIFT_ESC = chip("Ctrl+Shift+Esc", "Control Shift Escape, task manager", 1f, CTRL, SHIFT, KeyEvent.KEYCODE_ESCAPE);
 
     private static PcKey[] row(Object... items) {
@@ -253,7 +257,7 @@ public final class PcKeyboardLayout {
     public static final PcKeyboardLayout PORTRAIT_FN = new PcKeyboardLayout("portrait-fn",
             row(ESC, f(1), f(2), f(3), f(4), f(5), f(6), f(7), f(8), f(9), f(10)),
             row(f(11), f(12), PRTSC, SCRLK, PAUSE, INSERT, DELETE, HOME, END, PGUP, PGDN),
-            row(CAPS, MENU, MUTE, VOL_DOWN, VOL_UP, PREV, PLAY, NEXT, SYSTEM_KEYBOARD, 1.5f, HIDE, 1.5f),
+            row(CAPS, MENU, MUTE, VOL_DOWN, VOL_UP, PREV, PLAY, NEXT, SUPER_TAP, 1.5f, LOCK_SCREEN, 1.5f),
             row(CTRL_ALT_DEL, 3f, CTRL_SHIFT_ESC, 3f, ALT_F4, 2.5f, ALT_TAB, 2.5f),
             row(MOD_SHIFT, 2f, TERM_COPY, 2.5f, TERM_PASTE, 2.5f, REDO, 2f, UP, DELETE),
             portraitBottomRow());
@@ -276,7 +280,7 @@ public final class PcKeyboardLayout {
             row(ESC, f(1), f(2), f(3), f(4), f(5), f(6), f(7), f(8), f(9), f(10), f(11), f(12), INSERT, DELETE),
             row(TAB, 1.5f, HOME, END, PGUP, PGDN, PRTSC, PAUSE, MENU, CAPS, MUTE, VOL_DOWN, VOL_UP, PLAY,
                     SYSTEM_KEYBOARD, 1.5f),
-            row(COPY, 2.5f, PASTE, 2.5f, CUT, 2.5f, UNDO, 2.5f, REDO, 2.5f, SELECT_ALL, 2.5f),
+            row(COPY, 2.25f, PASTE, 2.25f, CUT, 2.25f, UNDO, 2.25f, REDO, 2.25f, SELECT_ALL, 2.25f, SUPER_TAP, 1.5f),
             row(MOD_SHIFT, 2.25f, TERM_COPY, 2.5f, TERM_PASTE, 2.5f, ALT_TAB, 2.25f, ALT_F4, 2f,
                     CTRL_ALT_DEL, 2.25f, HIDE, 1.25f),
             landscapeBottomRow());

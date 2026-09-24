@@ -102,7 +102,13 @@ public final class ModifierLatch {
         }
         held[mod] = false;
         int before = state[mod];
-        if (longPressed[mod]) {
+        if (longPressed[mod] && usedWhileHeld[mod]) {
+            // Held like a physical key, slowly: the lock fired, then keys were pressed under
+            // the finger. That was a chord, and a chord ends when the finger lifts; leaving
+            // the lock on would make every later key and click a shortcut.
+            longPressed[mod] = false;
+            state[mod] = OFF;
+        } else if (longPressed[mod]) {
             // The long press already locked it; lifting the finger is not a second tap.
             longPressed[mod] = false;
         } else if (usedWhileHeld[mod]) {

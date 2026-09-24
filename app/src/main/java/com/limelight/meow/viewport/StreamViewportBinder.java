@@ -7,6 +7,8 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.view.View;
 
+import com.limelight.meow.keyboard.KeyboardVisibleArea;
+
 import com.limelight.LimeLog;
 import com.limelight.meow.cursor.CursorFollowPlan;
 import com.limelight.meow.cursor.CursorFollowPlanner;
@@ -108,6 +110,31 @@ public final class StreamViewportBinder
 
     private final CursorFollowPlanner cursorPlanner = new CursorFollowPlanner();
 
+    /** The host cursor's last known y in parent pixels, or NaN: the keyboard lift's focus. */
+    private float lastCursorViewY = Float.NaN;
+    private final KeyboardVisibleArea visibleArea;
+
+    /**
+     * Remembers where the cursor is, for {@link KeyboardVisibleArea}'s focus source, and tells
+     * it when the cursor has moved far enough to be worth re-placing the stream (an eighth of
+     * the stream's height). UI thread, no allocation.
+     */
+    private void recordCursorViewY(float viewY) {
+        if (Float.isNaN(viewY)) {
+            return;
+        }
+        float before = lastCursorViewY;
+        lastCursorViewY = viewY;
+        if (Float.isNaN(before) || Math.abs(viewY - before) > parent.getHeight() / 8f) {
+            visibleArea.onFocusMoved();
+        }
+    }
+
+    /** For tests: the recorded cursor y. */
+    float lastCursorViewYForTest() {
+        return lastCursorViewY;
+    }
+
     public StreamViewportBinder(View streamView, View parent) {
         this(streamView, parent, null, null);
     }
@@ -120,6 +147,9 @@ public final class StreamViewportBinder
         }
         this.streamView = streamView;
         this.parent = parent;
+        // The PC keyboard's stream lift keeps this point above a keyboard (landscape).
+        this.visibleArea = KeyboardVisibleArea.install(parent);
+        this.visibleArea.setFocusSource(() -> lastCursorViewY);
 
         if (handler != null) {
             this.thread = null;
@@ -470,6 +500,7 @@ public final class StreamViewportBinder
      */
     public boolean handleCursorViewPosition(float viewX, float viewY,
                                             InlinePinchZoomController.ZoomTarget panTarget) {
+        recordCursorViewY(viewY);
         if (!cursorFollowEnabled || !streamStarted || panTarget == null) {
             return false;
         }
@@ -501,6 +532,8 @@ public final class StreamViewportBinder
      */
     public boolean handleCursorHostPosition(int hostX, int hostY,
                                             InlinePinchZoomController.ZoomTarget panTarget) {
+        recordCursorViewY(streamView.getY()
+                + hostY * (streamView.getHeight() * streamView.getScaleY()) / streamHeight);
         if (!cursorFollowEnabled || !streamStarted || panTarget == null) {
             return false;
         }

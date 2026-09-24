@@ -48,6 +48,7 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
     private final PreferenceConfiguration prefConfig;
     private final PcKeyboardPreferences prefs;
     private final PcKeyboardEngine engine;
+    private final HostKeySink sink;
     private final PcKeyboardView view;
     private final KeyboardVisibleArea area;
     private final TimeInterpolator decelerate = new DecelerateInterpolator(1.6f);
@@ -69,11 +70,17 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
         this.content = content;
         this.prefConfig = prefConfig;
         this.prefs = prefs;
+        this.sink = sink;
         this.engine = new PcKeyboardEngine(sink, android.view.ViewConfiguration.getDoubleTapTimeout());
         this.view = new PcKeyboardView(game, engine);
         this.area = KeyboardVisibleArea.install(content);
         this.hardKeyboard = hasHardKeyboard(game.getResources().getConfiguration());
 
+        area.setFocusMovedListener(() -> {
+            if (fullShown || imeVisible) {
+                update();
+            }
+        });
         view.setActions(this);
         view.setVisibility(View.INVISIBLE);
         view.setElevation(12f * game.getResources().getDisplayMetrics().density);
@@ -108,19 +115,30 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
         if (!(root instanceof FrameLayout)) {
             return null;
         }
-        PcKeyboardPreferences prefs = PcKeyboardPreferences.read(game);
-        PcKeyboardController controller = new PcKeyboardController(game, streamContainer,
-                (FrameLayout) root, prefConfig, prefs, new GameKeySink(game));
-        // We move the stream ourselves; the window must not also pan or resize for the IME.
-        // Below API 30 there is no IME inset type, and the IME only shows up in the visible
-        // display frame when the window asks for adjustResize (which a fullscreen window
-        // does not actually get), so that is what it asks for there.
-        int adjust = Build.VERSION.SDK_INT >= Build.VERSION_CODES.R
-                ? WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
-                : WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE;
-        game.getWindow().setSoftInputMode(adjust | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);
-        controller.applySystemBars();
-        return controller;
+        try {
+            PcKeyboardPreferences prefs = PcKeyboardPreferences.read(game);
+            PcKeyboardController controller = new PcKeyboardController(game, streamContainer,
+                    (FrameLayout) root, prefConfig, prefs, new GameKeySink(game));
+            // We move the stream ourselves; the window must not also pan or resize for the
+            // IME. Below API 30 there is no IME inset type, and the IME only shows up in the
+            // visible display frame when the window asks for adjustResize — which a
+            // FLAG_FULLSCREEN window does not actually get. Without that flag (full screen
+            // off, multi-window) adjustResize would really shrink the stream, so there the
+            // window keeps the mode it had and the lift does nothing it cannot see.
+            if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.R) {
+                game.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_NOTHING
+                        | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);
+            } else if (prefConfig.fullScreen && !game.isInMultiWindowMode()) {
+                game.getWindow().setSoftInputMode(WindowManager.LayoutParams.SOFT_INPUT_ADJUST_RESIZE
+                        | WindowManager.LayoutParams.SOFT_INPUT_STATE_UNCHANGED);
+            }
+            controller.applySystemBars();
+            return controller;
+        } catch (RuntimeException e) {
+            // A keyboard that cannot be built must not take the stream down with it.
+            e.printStackTrace();
+            return null;
+        }
     }
 
     public PcKeyboardEngine engine() {
@@ -294,7 +312,7 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
     private HostKeySink sinkOverride;
 
     private HostKeySink engineSink() {
-        return sinkOverride != null ? sinkOverride : new GameKeySink(game);
+        return sinkOverride != null ? sinkOverride : sink;
     }
 
     /** Tests only: where released modifier flags go. */

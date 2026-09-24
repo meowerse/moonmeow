@@ -156,7 +156,10 @@ public class PcKeyboardLayoutTest {
             }
             assertEquals(layout.name, ModifierLatch.COUNT, mods.size());
         }
-        assertTrue(contains(PcKeyboardLayout.PORTRAIT_FN, PcKey.KIND_ACTION, PcKey.ACTION_HIDE));
+        // Portrait hides from its toolbar, on both layers; landscape has none, so Fn carries it.
+        assertEquals(PcKey.ACTION_HIDE, PcKeyboardLayout.TOOLBAR_HIDE.code);
+        assertTrue(contains(PcKeyboardLayout.PORTRAIT_FN, PcKey.KIND_KEY, PcKeyboardLayout.SUPER_TAP.code));
+        assertTrue(contains(PcKeyboardLayout.LANDSCAPE_FN, PcKey.KIND_KEY, PcKeyboardLayout.SUPER_TAP.code));
         assertTrue(contains(PcKeyboardLayout.LANDSCAPE_FN, PcKey.KIND_ACTION, PcKey.ACTION_HIDE));
         assertTrue(contains(PcKeyboardLayout.IME_STRIP, PcKey.KIND_ACTION, PcKey.ACTION_PC_KEYBOARD));
     }
