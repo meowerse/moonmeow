@@ -1775,6 +1775,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                     }
                     sb.append(context.getString(R.string.perf_overlay_dectime, decodeTimeMs));
                 }
+                com.limelight.meow.bitrate.BitrateOverlay.append(sb, context, prefs.enablePerfOverlayLite); // MEOW-TOUCH(auto-bitrate)
                 String fullLog = sb.toString();
                 if(prefs.enablePerfOverlay) {
                     perfListener.onPerfUpdate(fullLog);
@@ -1788,6 +1789,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
             }
             globalVideoStats.add(activeWindowVideoStats);
             lastWindowVideoStats.copy(activeWindowVideoStats);
+            com.limelight.meow.bitrate.DecodeTimeWindow.publish(lastWindowVideoStats.decoderTimeMs, lastWindowVideoStats.totalFramesReceived); // MEOW-TOUCH(auto-bitrate)
             activeWindowVideoStats.clear();
             activeWindowVideoStats.measurementStartTimestamp = SystemClock.uptimeMillis();
         }

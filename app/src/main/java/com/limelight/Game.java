@@ -30,6 +30,8 @@ import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.meow.gesture.InlinePinchZoomController;
 import com.limelight.meow.cursor.LocalCursorScaler;
+import com.limelight.meow.bitrate.AutoBitratePreference;
+import com.limelight.meow.bitrate.BitrateSession;
 import com.limelight.meow.cursor.CursorFollowController;
 import com.limelight.meow.cursor.CursorFollowPreference;
 import com.limelight.meow.ui.QuickBarView;
@@ -215,6 +217,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     // MEOW-TOUCH(cursor-follow): keeps the host cursor on screen while zoomed, in every input
     // mode. All of it lives in meow/cursor; this is only the instance. See docs/meow/TOUCHPOINTS.md
     private CursorFollowController cursorFollow;
+    // MEOW-TOUCH(auto-bitrate): see docs/meow/TOUCHPOINTS.md
+    private BitrateSession bitrateSession;
     private boolean isPanZoomMode = false;
     private boolean synthClickPending = false;
     private boolean pointerSwiping = false;
@@ -526,7 +530,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             cursorFollow = new CursorFollowController(viewportBinder, panZoomHandler,
                     CursorFollowPreference.isEnabled(this));
             viewportBinder.setCursorFollow(cursorFollow);
-            viewportBinder.setCapabilityProbe(cursorFollow.isEnabled());
+            // Automatic bitrate: the starting bitrate is negotiated below, reports start once
+            // the host is proven. Both extensions need that proof, so always probe for it.
+            bitrateSession = new BitrateSession(this, getIntent().getStringExtra(EXTRA_PC_UUID),
+                    AutoBitratePreference.isEnabled(this));
+            viewportBinder.setBitrateSession(bitrateSession);
+            viewportBinder.setCapabilityProbe(true);
             // MEOW-CURSOR: enlarge local cursor at low zoom (overview). This used to sit behind
             // the viewport preference by accident of nesting, which meant
             // enableEnlargeCursorAtLowZoom did nothing for anyone who had viewport-following
@@ -834,7 +843,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 .setResolutionScaleFactor(prefConfig.resolutionScaleFactor)
                 .setApp(app)
                 .setEnableUltraLowLatency(prefConfig.enableUltraLowLatency)
-                .setBitrate(isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate)
+                .setBitrate(BitrateSession.negotiate(bitrateSession, isMetered ? prefConfig.meteredBitrate: prefConfig.bitrate)) // MEOW-TOUCH(auto-bitrate)
                 .setEnableSops(prefConfig.enableSops)
                 .enableLocalAudioPlayback(prefConfig.playHostAudio)
                 .setMaxPacketSize(1392)

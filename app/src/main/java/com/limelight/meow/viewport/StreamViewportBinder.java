@@ -8,6 +8,7 @@ import android.os.Looper;
 import android.view.View;
 
 import com.limelight.LimeLog;
+import com.limelight.meow.bitrate.BitrateSession;
 import com.limelight.meow.cursor.CursorFollowController;
 import com.limelight.meow.gesture.InlinePinchZoomController;
 
@@ -103,6 +104,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
 
     /** Follows the host cursor while zoomed. Null until {@link #setCursorFollow}. */
     private CursorFollowController cursorFollow;
+
+    /** Automatic bitrate. Null until {@link #setBitrateSession}. */
+    private BitrateSession bitrateSession;
 
     /** Once per stream: the host answered a probe, so it runs the meow extensions. */
     private final List<Runnable> hostProvenTasks = new ArrayList<>();
@@ -205,6 +209,17 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
     }
 
+    /**
+     * Attaches automatic bitrate: the binder drives its lifecycle and starts its receiver
+     * reports once the host is proven. UI thread, before the stream starts.
+     */
+    public void setBitrateSession(BitrateSession session) {
+        this.bitrateSession = session;
+        if (session != null) {
+            addHostProvenTask(session.startTask());
+        }
+    }
+
     /** The compositor, or null when no transform source is wired. UI thread. */
     public ViewportCompositor compositor() {
         return compositor;
@@ -224,6 +239,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
         if (cursorFollow != null) {
             cursorFollow.onStreamStarted(this.streamWidth, this.streamHeight);
+        }
+        if (bitrateSession != null) {
+            bitrateSession.onStreamStarted();
         }
         MeowViewportBridge.setEchoListener(this);
         post(() -> {
@@ -278,6 +296,10 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         if (cursorFollow != null) {
             cursorFollow.onStreamStopped();
         }
+        if (bitrateSession != null) {
+            // Blocks, bounded, so no receiver report is in flight at LiStopConnection.
+            bitrateSession.onStreamStopped();
+        }
 
         if (Looper.myLooper() == handler.getLooper()) {
             // Only reachable when the reporter was given the caller's own looper (tests, or
@@ -325,6 +347,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         streamStarted = false;
         if (cursorFollow != null) {
             cursorFollow.onStreamStopped();
+        }
+        if (bitrateSession != null) {
+            bitrateSession.release();
         }
         if (ownsThread && thread != null) {
             thread.quitSafely();

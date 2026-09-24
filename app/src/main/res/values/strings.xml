@@ -698,6 +698,10 @@
     <string name="summary_enable_commit_text">Forward multi-character text from soft keyboards (gesture typing, predictions, voice dictation). May break games that rely on key-by-key input.</string>
     <string name="title_checkbox_remember_zoom_pan">Remember Zoom&amp;Pan</string>
     <string name="summary_checkbox_remember_zoom_pan">Save changes to zoom and pan position between sessions</string>
+    <string name="title_checkbox_meow_auto_bitrate">Automatic bitrate</string>
+    <string name="summary_checkbox_meow_auto_bitrate">Let the host adapt the bitrate to the connection, up to the bitrate set above, and start each stream where the last one on that host settled. Needs a host that supports it; with this off the bitrate above is used as is.</string>
+    <string name="perf_overlay_meow_applied_bitrate_auto">Bitrate: applied %1$.1f Mbps (auto)</string>
+    <string name="perf_overlay_meow_applied_bitrate_host">Bitrate: applied %1$.1f Mbps (host)</string>
     <string name="title_checkbox_meow_cursor_follow">Follow the cursor when zoomed in</string>
     <string name="summary_checkbox_meow_cursor_follow">While you are zoomed in, pan the view so the desktop cursor stays on screen, whichever touch or mouse mode moves it. Uses the host\'s own cursor position when the host reports it.</string>
     <string name="title_checkbox_enable_viewport_follow">Viewport-following quality</string>

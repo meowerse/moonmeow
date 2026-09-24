@@ -54,6 +54,13 @@
             seekbar:keyStep="1000"
             seekbar:min="0"
             seekbar:step="500" />
+        <!-- MEOW-TOUCH(auto-bitrate): must match AutoBitratePreference.DEFAULT. -->
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="checkbox_meow_auto_bitrate"
+            android:summary="@string/summary_checkbox_meow_auto_bitrate"
+            android:title="@string/title_checkbox_meow_auto_bitrate"
+            app:iconSpaceReserved="false" />
 
         <ListPreference
             android:defaultValue="latency"
