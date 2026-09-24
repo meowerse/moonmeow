@@ -1,5 +1,6 @@
 package com.limelight.binding.input;
 
+import android.annotation.SuppressLint;
 import android.annotation.TargetApi;
 import android.app.Activity;
 import android.content.Context;
@@ -74,6 +75,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
 
     private static final int BATTERY_RECHECK_INTERVAL_MS = 120 * 1000;
 
+    @SuppressLint("InlinedApi")
     private static final Map<Integer, Integer> ANDROID_TO_LI_BUTTON_MAP = Map.ofEntries(
             Map.entry(KeyEvent.KEYCODE_BUTTON_A, ControllerPacket.A_FLAG),
             Map.entry(KeyEvent.KEYCODE_BUTTON_B, ControllerPacket.B_FLAG),
@@ -785,12 +787,12 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
         // created upon the first call to InputDevice.getSensorManager(), so we avoid calling this
         // on Android 12 unless we have a gamepad that could plausibly have motion sensors.
         // https://cs.android.com/android/_/android/platform/frameworks/base/+/8970010a5e9f3dc5c069f56b4147552accfcbbeb
-        if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU ||
-                (Build.VERSION.SDK_INT == Build.VERSION_CODES.S &&
-                        (context.vendorId == 0x054c || context.vendorId == 0x057e))) && // Sony or Nintendo
-                prefConfig.gamepadMotionSensors) {
-            if (dev.getSensorManager().getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null || dev.getSensorManager().getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null) {
-                context.sensorManager = dev.getSensorManager();
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.S) {
+            if ((Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU || context.vendorId == 0x054c || context.vendorId == 0x057e) && // Sony or Nintendo
+                    prefConfig.gamepadMotionSensors) {
+                if (dev.getSensorManager().getDefaultSensor(Sensor.TYPE_ACCELEROMETER) != null || dev.getSensorManager().getDefaultSensor(Sensor.TYPE_GYROSCOPE) != null) {
+                    context.sensorManager = dev.getSensorManager();
+                }
             }
         }
 
@@ -1113,6 +1115,7 @@ public class ControllerHandler implements InputManager.InputDeviceListener, UsbD
     }
 
     // This must not be called on the main thread due to risk of ANRs!
+    @SuppressLint("InlinedApi")
     private void sendControllerBatteryPacket(InputDeviceContext context) {
         int currentBatteryStatus = BatteryState.STATUS_FULL;
         float currentBatteryCapacity = 0;

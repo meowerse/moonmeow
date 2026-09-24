@@ -56,17 +56,20 @@ jobs:
           submodules: recursive
           filter: blob:none
 
-      # AGP 9.3.2 and Gradle 9.7.1 both require JDK 17 (AGP's own bytecode is
-      # class-file major 61), so 17 remains correct after the toolchain bump.
+      # AGP 9.4.0 and Gradle 9.7.1 need at least JDK 17, but the unit tests need
+      # 21: Robolectric 4.17 refuses to create an SDK 36/37 sandbox on anything
+      # older ("Android SDK 37 requires Java 21"), and compileSdk 37 makes that the
+      # default sandbox. The app itself still targets Java 17 bytecode
+      # (compileOptions), so this only changes the JVM that runs Gradle and tests.
       # `cache: gradle` caches ~/.gradle/caches and
       # wrapper dists keyed on the build files, which is the single biggest
       # win available here -- a cold Gradle resolves the whole dependency
       # graph from the network.
-      - name: Set up JDK 17
+      - name: Set up JDK 21
         uses: actions/setup-java@v6
         with:
           distribution: temurin
-          java-version: '17'
+          java-version: '21'
           cache: gradle
 
       # app/build.gradle pins `ndkVersion "28.2.13676358"`; the step greps the

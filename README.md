@@ -100,7 +100,7 @@ Requirements:
 * Android SDK (`compileSdk 36`, `minSdk 26` — Android 8.0 Oreo)
 * Android NDK **28.2.13676358** — the version is pinned in `app/build.gradle`;
   install it through the SDK Manager so Gradle can find it under `$ANDROID_HOME/ndk/`
-* JDK 17 or newer
+* JDK 21 or newer (the Robolectric unit tests need 21; the app targets Java 17 bytecode)
 
 Steps:
 
