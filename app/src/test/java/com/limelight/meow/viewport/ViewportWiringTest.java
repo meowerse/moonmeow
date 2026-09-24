@@ -87,9 +87,11 @@ public class ViewportWiringTest {
     public void cursorFollowIsNotGatedOnHostSupport() throws IOException {
         // Panning the local view sends nothing. Gating it on `live` -- which means "the host
         // echoed our viewport message" -- is what made the feature look implemented and dead.
+        // The follower reads the visible rectangle through the binder; that read must depend
+        // on the stream being up and nothing else.
         String body = methodBody(stripComments(read(BINDER)),
-                "public boolean handleCursorViewPosition(");
-        assertFalse("cursor-follow must not depend on the host echo", body.contains("!live"));
+                "public boolean visibleReferenceRect(");
+        assertFalse("cursor-follow must not depend on the host echo", body.contains("live"));
         assertContains("it depends on the stream being up, and nothing else",
                 body, "streamStarted");
     }

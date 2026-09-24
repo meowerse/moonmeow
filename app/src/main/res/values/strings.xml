@@ -698,6 +698,8 @@
     <string name="summary_enable_commit_text">Forward multi-character text from soft keyboards (gesture typing, predictions, voice dictation). May break games that rely on key-by-key input.</string>
     <string name="title_checkbox_remember_zoom_pan">Remember Zoom&amp;Pan</string>
     <string name="summary_checkbox_remember_zoom_pan">Save changes to zoom and pan position between sessions</string>
+    <string name="title_checkbox_meow_cursor_follow">Follow the cursor when zoomed in</string>
+    <string name="summary_checkbox_meow_cursor_follow">While you are zoomed in, pan the view so the desktop cursor stays on screen, whichever touch or mouse mode moves it. Uses the host\'s own cursor position when the host reports it.</string>
     <string name="title_checkbox_enable_viewport_follow">Viewport-following quality</string>
     <string name="summary_checkbox_enable_viewport_follow">Tell the host which part of the desktop you are looking at, so it spends the whole bitrate on that region instead of the entire desktop. Needs a host that supports it; the app checks at the start of each stream and turns this off for the session if the host does not answer.</string>
     <string name="title_checkbox_enable_perf_overlay_bottom">Move overlay to bottom</string>

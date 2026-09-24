@@ -4,9 +4,10 @@ import com.limelight.meow.gesture.InlinePinchZoomController;
 
 /**
  * Maps an absolute pointer position on the stream container into the uncropped reference
- * frame, through the user's view V. Used at the two absolute-position send sites (touch taps in
- * {@code AbsoluteTouchContext}, and the absolute mouse / local cursor path in
- * {@code Game.updateMousePosition}) as a one-line hook each.
+ * frame, through the user's view V. Used at every absolute send site as a one-line hook: touch
+ * taps in {@code AbsoluteTouchContext}, the absolute mouse / local cursor path in
+ * {@code Game.updateMousePosition}, and native touch and pen events in
+ * {@code Game.getStreamViewRelativeNormalizedXY}.
  *
  * <h2>Why</h2>
  * Those sites send {@code (x, y)} in stream-container pixels with the container size as the
@@ -54,6 +55,20 @@ public final class ReferencePointer {
             return (short) containerX;
         }
         return (short) map(containerX, t.getChildX(), t.getScaleFactor(), containerWidth);
+    }
+
+    /** As {@link #x}, keeping sub-pixel precision for normalised touch and pen positions. */
+    public static float mapX(float containerX, int containerWidth) {
+        InlinePinchZoomController.ZoomTarget t = transform;
+        return t == null ? containerX
+                : map(containerX, t.getChildX(), t.getScaleFactor(), containerWidth);
+    }
+
+    /** As {@link #y}, keeping sub-pixel precision. */
+    public static float mapY(float containerY, int containerHeight) {
+        InlinePinchZoomController.ZoomTarget t = transform;
+        return t == null ? containerY
+                : map(containerY, t.getChildY(), t.getScaleFactor(), containerHeight);
     }
 
     /** As {@link #x}, for the vertical axis. */

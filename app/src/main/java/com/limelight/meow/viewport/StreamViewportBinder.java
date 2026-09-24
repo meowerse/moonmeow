@@ -8,10 +8,11 @@ import android.os.Looper;
 import android.view.View;
 
 import com.limelight.LimeLog;
-import com.limelight.meow.cursor.CursorFollowPlan;
-import com.limelight.meow.cursor.CursorFollowPlanner;
+import com.limelight.meow.cursor.CursorFollowController;
 import com.limelight.meow.gesture.InlinePinchZoomController;
 
+import java.util.ArrayList;
+import java.util.List;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 
@@ -46,8 +47,8 @@ import java.util.concurrent.TimeUnit;
  * a use-after-free rather than merely a lost packet. It is bounded, it happens once, and it
  * is on a teardown path that already does network I/O.
  */
-public final class StreamViewportBinder
-        implements ZoomTransformObserver, MeowViewportBridge.EchoListener {
+public final class StreamViewportBinder implements ZoomTransformObserver,
+        MeowViewportBridge.EchoListener, CursorFollowController.ViewportView {
 
     /**
      * How long {@link #onStreamStopped()} waits for the uncrop to reach the library. Long
@@ -69,6 +70,7 @@ public final class StreamViewportBinder
     private final Rect scratchVisible = new Rect();
     private final Point scratchOffset = new Point();
     private final float[] scratchWindow = new float[4];
+    private final int[] scratchLocation = new int[2];
 
     /**
      * Mirrors {@code reporter.isLive()} for the UI thread, so a gesture does not have to
@@ -89,13 +91,6 @@ public final class StreamViewportBinder
     private volatile boolean streamStarted;
 
     /**
-     * Whether the crop should chase the cursor. On by default: it is inert unless the user
-     * has zoomed in, and when they have, letting the cursor walk off screen is never what
-     * they wanted.
-     */
-    private volatile boolean cursorFollowEnabled = true;
-
-    /**
      * Mirror of {@code reporter.referenceFrame()} for the UI thread. The reporter's own field
      * is written on the reporter's thread and read nowhere else; cursor-follow runs on the UI
      * thread, so it reads this copy instead of reaching across.
@@ -106,7 +101,12 @@ public final class StreamViewportBinder
     private volatile int streamWidth = 1;
     private volatile int streamHeight = 1;
 
-    private final CursorFollowPlanner cursorPlanner = new CursorFollowPlanner();
+    /** Follows the host cursor while zoomed. Null until {@link #setCursorFollow}. */
+    private CursorFollowController cursorFollow;
+
+    /** Once per stream: the host answered a probe, so it runs the meow extensions. */
+    private final List<Runnable> hostProvenTasks = new ArrayList<>();
+    private boolean hostProvenAnnounced;
 
     /** Posts the host's echo to the UI thread, where the compositor lives. */
     private final Handler mainHandler = new Handler(Looper.getMainLooper());
@@ -174,6 +174,37 @@ public final class StreamViewportBinder
         this.compositor = compositor;
     }
 
+    /**
+     * Probe the host for the meow extensions even with crop reporting off, so features that
+     * are gated on a proven host still find out. Before the stream starts.
+     */
+    public void setCapabilityProbe(final boolean probe) {
+        post(() -> reporter.setCapabilityProbe(probe));
+    }
+
+    /**
+     * Runs {@code task} on the reporter's thread the first time each stream's host proves it
+     * is a meow host (its viewport echo). That thread may block on ENet, which is what the
+     * cursor subscription and receiver reports need. Before the stream starts.
+     */
+    public void addHostProvenTask(Runnable task) {
+        synchronized (hostProvenTasks) {
+            hostProvenTasks.add(task);
+        }
+    }
+
+    /**
+     * Attaches the cursor follower: the binder drives its lifecycle, hands it the desktop
+     * extent from each echo and subscribes to host cursor reports once the host is proven.
+     * UI thread, before the stream starts.
+     */
+    public void setCursorFollow(CursorFollowController controller) {
+        this.cursorFollow = controller;
+        if (controller != null && controller.isEnabled()) {
+            addHostProvenTask(controller.subscribeTask());
+        }
+    }
+
     /** The compositor, or null when no transform source is wired. UI thread. */
     public ViewportCompositor compositor() {
         return compositor;
@@ -191,8 +222,12 @@ public final class StreamViewportBinder
         if (compositor != null) {
             compositor.onStreamStarted(this.streamWidth, this.streamHeight);
         }
+        if (cursorFollow != null) {
+            cursorFollow.onStreamStarted(this.streamWidth, this.streamHeight);
+        }
         MeowViewportBridge.setEchoListener(this);
         post(() -> {
+            hostProvenAnnounced = false;
             reporter.onStreamStarted(streamWidth, streamHeight);
             live = reporter.isLive();
         });
@@ -240,6 +275,9 @@ public final class StreamViewportBinder
         if (presenting != null) {
             mainHandler.post(presenting::onStreamStopped);
         }
+        if (cursorFollow != null) {
+            cursorFollow.onStreamStopped();
+        }
 
         if (Looper.myLooper() == handler.getLooper()) {
             // Only reachable when the reporter was given the caller's own looper (tests, or
@@ -285,6 +323,9 @@ public final class StreamViewportBinder
         MeowViewportBridge.clearEchoListener(this);
         live = false;
         streamStarted = false;
+        if (cursorFollow != null) {
+            cursorFollow.onStreamStopped();
+        }
         if (ownsThread && thread != null) {
             thread.quitSafely();
         }
@@ -335,20 +376,47 @@ public final class StreamViewportBinder
                 // compositor keeps what it has.
                 forwardCrop(reporter.appliedRect(), reporter.desktopWidth(),
                         reporter.desktopHeight(), frameIndex);
+                announceHostProven();
             }
         });
+    }
+
+    /** Reporter thread: run the host-proven tasks once per stream. */
+    private void announceHostProven() {
+        if (hostProvenAnnounced || !reporter.isHostProven()) {
+            return;
+        }
+        hostProvenAnnounced = true;
+        Runnable[] tasks;
+        synchronized (hostProvenTasks) {
+            tasks = hostProvenTasks.toArray(new Runnable[0]);
+        }
+        for (Runnable task : tasks) {
+            try {
+                task.run();
+            } catch (RuntimeException e) {
+                LimeLog.warning("Viewport: host-proven task failed: " + e);
+            }
+        }
     }
 
     /** Reporter thread: hand the applied crop to the compositor on the UI thread. */
     private void forwardCrop(final ViewportRect applied, final int desktopWidth,
                              final int desktopHeight, final int frameIndex) {
         final ViewportCompositor presenting = compositor;
-        if (presenting == null || applied == null) {
+        final CursorFollowController follower = cursorFollow;
+        if ((presenting == null || applied == null) && follower == null) {
             return;
         }
         mainHandler.post(() -> {
-            if (streamStarted) {
+            if (!streamStarted) {
+                return;
+            }
+            if (presenting != null && applied != null) {
                 presenting.onCropApplied(applied, desktopWidth, desktopHeight, frameIndex);
+            }
+            if (follower != null) {
+                follower.onDesktopExtent(desktopWidth, desktopHeight);
             }
         });
     }
@@ -421,7 +489,7 @@ public final class StreamViewportBinder
      * <p>The platform calls are separated from the arithmetic so the arithmetic can be tested.
      */
     private float[] windowInParentCoords(int parentWidth, int parentHeight) {
-        int[] loc = new int[2];
+        int[] loc = scratchLocation;
         parent.getLocationInWindow(loc);
         View decor = parent.getRootView();
         int decorWidth = decor != null ? decor.getWidth() : 0;
@@ -527,119 +595,66 @@ public final class StreamViewportBinder
         return out;
     }
 
-    /**
-     * Turns cursor-follow on or off. Independent of {@link #setEnabled}, which controls
-     * whether the <em>host</em> is told about the crop.
-     */
-    public void setCursorFollowEnabled(boolean enabled) {
-        this.cursorFollowEnabled = enabled;
-    }
+    // ---- CursorFollowController.ViewportView ---------------------------------------------
 
     /**
-     * Cursor-follow entry point. Called on the UI thread from {@code Game.updateMousePosition},
-     * the relative-mouse path and the absolute-touch path. If the cursor is within the edge
-     * margin or outside the visible crop, pans the crop so the cursor sits on the margin line.
-     *
-     * <p>Uses {@link CursorFollowPlanner} (12% edge margin, pure Java) and
-     * {@link ViewportGeometry#hostPointFromView} / {@link ViewportGeometry#viewDeltaForHostDelta}
-     * for the coordinate math. The actual pan goes through
-     * {@link InlinePinchZoomController.ZoomTarget#panBy}, whose real implementation is
-     * {@code PanZoomHandler}; that calls {@code constrainToBounds} and notifies this binder
-     * via the existing {@link ZoomTransformObserver} path.
-     *
-     * <h2>Why this does not check {@link ViewportReporter#isLive()}</h2>
-     * It used to, and that is what made the feature look implemented but dead. Panning the
-     * local view is entirely client side — it moves a {@code SurfaceView}, sends nothing, and
-     * needs no cooperation from the host. {@code live} means "the host echoed our viewport
-     * message", which is true only of a host that implements the moonmeow viewport extension;
-     * against stock Sunshine {@link ViewportReporter} latches it off two seconds into the
-     * session and cursor-follow died with it, for a reason that has nothing to do with it.
-     * The two are now gated separately: {@link #setEnabled} for the wire, this for the view.
-     *
-     * @param viewX      cursor X in parent (streamContainer) pixels
-     * @param viewY      cursor Y in parent pixels
-     * @param panTarget  the object that owns the transform, normally {@code PanZoomHandler}
-     * @return true if a pan was performed
+     * The visible part of the reference frame as {x, y, width, height}, from the logical
+     * transform and the window the parent is seen through. UI thread, no allocation.
      */
-    public boolean handleCursorViewPosition(float viewX, float viewY,
-                                            InlinePinchZoomController.ZoomTarget panTarget) {
-        if (!cursorFollowEnabled || !streamStarted || panTarget == null) {
+    @Override
+    public boolean visibleReferenceRect(float[] out) {
+        int viewWidth = streamView.getWidth();
+        int viewHeight = streamView.getHeight();
+        int parentWidth = parent.getWidth();
+        int parentHeight = parent.getHeight();
+        if (!streamStarted || viewWidth <= 0 || viewHeight <= 0
+                || parentWidth <= 0 || parentHeight <= 0) {
             return false;
         }
-        ViewportRect visible = computeVisibleHostRect();
-        if (visible == null) {
-            return false;
-        }
+        float[] window = windowInParentCoords(parentWidth, parentHeight);
         float[] transform = logicalTransform();
-        float childX = transform[1];
-        float childY = transform[2];
-        float childW = streamView.getWidth() * transform[0];
-        float childH = streamView.getHeight() * transform[0];
-        if (!(childW > 0f) || !(childH > 0f)) {
+        float childWidth = viewWidth * transform[0];
+        float childHeight = viewHeight * transform[0];
+        if (!(childWidth > 0f) || !(childHeight > 0f)) {
             return false;
         }
-        int[] hostPt = ViewportGeometry.hostPointFromView(viewX, viewY, childX, childY, childW, childH,
-                streamWidth, streamHeight);
-        return followHostPoint(hostPt[0], hostPt[1], visible, childW, childH, panTarget);
+        float left = Math.max(window[0], transform[1]);
+        float top = Math.max(window[1], transform[2]);
+        float right = Math.min(window[2], transform[1] + childWidth);
+        float bottom = Math.min(window[3], transform[2] + childHeight);
+        if (!(right > left) || !(bottom > top)) {
+            return false;
+        }
+        out[0] = (left - transform[1]) / childWidth * streamWidth;
+        out[1] = (top - transform[2]) / childHeight * streamHeight;
+        out[2] = (right - left) / childWidth * streamWidth;
+        out[3] = (bottom - top) / childHeight * streamHeight;
+        return true;
     }
 
-    /**
-     * Cursor-follow for a cursor position already known in stream-frame pixels.
-     *
-     * <p>The relative-mouse (captured pointer) path has no on-screen pointer to read: the host
-     * cursor is dead-reckoned by {@code RelativeCursorTracker}. Feeding that host point back
-     * through view coordinates only to have it converted straight back loses precision and
-     * clamps twice, so it is offered directly.
-     *
-     * @return true if a pan was performed
-     */
-    public boolean handleCursorHostPosition(int hostX, int hostY,
-                                            InlinePinchZoomController.ZoomTarget panTarget) {
-        if (!cursorFollowEnabled || !streamStarted || panTarget == null) {
-            return false;
-        }
-        ViewportRect visible = computeVisibleHostRect();
-        if (visible == null) {
-            return false;
-        }
-        float scale = logicalTransform()[0];
-        float childW = streamView.getWidth() * scale;
-        float childH = streamView.getHeight() * scale;
-        if (!(childW > 0f) || !(childH > 0f)) {
-            return false;
-        }
-        return followHostPoint(hostX, hostY, visible, childW, childH, panTarget);
-    }
-
-    private boolean followHostPoint(int cursorX, int cursorY, ViewportRect visible,
-                                    float childW, float childH,
-                                    InlinePinchZoomController.ZoomTarget panTarget) {
-        // Bounds for the planner: the desktop content box if the host told us where it is,
-        // else the full stream frame. The mirror is read rather than reporter.referenceFrame()
-        // because the reporter is confined to its own thread.
-        int boundsX = 0;
-        int boundsY = 0;
-        int boundsW = streamWidth;
-        int boundsH = streamHeight;
+    /** The desktop inside the frame, {left, top, right, bottom}; the whole frame if unknown. */
+    @Override
+    public void contentBounds(float[] out) {
         ViewportReferenceFrame frame = contentFrame;
         if (frame != null) {
-            boundsX = frame.contentX;
-            boundsY = frame.contentY;
-            boundsW = frame.contentWidth;
-            boundsH = frame.contentHeight;
+            out[0] = frame.contentX;
+            out[1] = frame.contentY;
+            out[2] = frame.contentX + frame.contentWidth;
+            out[3] = frame.contentY + frame.contentHeight;
+        } else {
+            out[0] = 0f;
+            out[1] = 0f;
+            out[2] = streamWidth;
+            out[3] = streamHeight;
         }
+    }
 
-        CursorFollowPlan plan = cursorPlanner.plan(visible, cursorX, cursorY,
-                boundsX, boundsY, boundsW, boundsH);
-        if (!plan.isMove()) {
-            return false;
-        }
-        float dxView = ViewportGeometry.viewDeltaForHostDelta(plan.dx, childW, streamWidth);
-        float dyView = ViewportGeometry.viewDeltaForHostDelta(plan.dy, childH, streamHeight);
-        if (dxView == 0f && dyView == 0f) {
-            return false;
-        }
-        panTarget.panBy(dxView, dyView);
-        return true;
+    /** Parent pixels per reference pixel at the logical zoom, {x, y}. */
+    @Override
+    public boolean viewPixelsPerReference(float[] out) {
+        float scale = logicalTransform()[0];
+        out[0] = streamView.getWidth() * scale / streamWidth;
+        out[1] = streamView.getHeight() * scale / streamHeight;
+        return out[0] > 0f && out[1] > 0f;
     }
 }

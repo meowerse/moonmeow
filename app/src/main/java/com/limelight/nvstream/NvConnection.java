@@ -470,6 +470,7 @@ public class NvConnection {
     
     public void sendMouseMove(final short deltaX, final short deltaY)
     {
+        com.limelight.meow.cursor.CursorInputTap.relative(deltaX, deltaY); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             MoonBridge.sendMouseMove(deltaX, deltaY);
         }
@@ -477,6 +478,7 @@ public class NvConnection {
 
     public void sendMousePosition(short x, short y, short referenceWidth, short referenceHeight)
     {
+        com.limelight.meow.cursor.CursorInputTap.absolute(x, y, referenceWidth, referenceHeight); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             MoonBridge.sendMousePosition(x, y, referenceWidth, referenceHeight);
         }
@@ -484,6 +486,7 @@ public class NvConnection {
 
     public void sendMouseMoveAsMousePosition(short deltaX, short deltaY, short referenceWidth, short referenceHeight)
     {
+        com.limelight.meow.cursor.CursorInputTap.moveAsPosition(deltaX, deltaY, referenceWidth, referenceHeight); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             MoonBridge.sendMouseMoveAsMousePosition(deltaX, deltaY, referenceWidth, referenceHeight);
         }
@@ -547,6 +550,7 @@ public class NvConnection {
 
     public int sendTouchEvent(byte eventType, int pointerId, float x, float y, float pressureOrDistance,
                               float contactAreaMajor, float contactAreaMinor, short rotation) {
+        com.limelight.meow.cursor.CursorInputTap.touch(); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             return MoonBridge.sendTouchEvent(eventType, pointerId, x, y, pressureOrDistance,
                     contactAreaMajor, contactAreaMinor, rotation);
@@ -559,6 +563,7 @@ public class NvConnection {
     public int sendPenEvent(byte eventType, byte toolType, byte penButtons, float x, float y,
                             float pressureOrDistance, float contactAreaMajor, float contactAreaMinor,
                             short rotation, byte tilt) {
+        com.limelight.meow.cursor.CursorInputTap.touch(); // MEOW-TOUCH(cursor-follow)
         if (!isMonkey) {
             return MoonBridge.sendPenEvent(eventType, toolType, penButtons, x, y, pressureOrDistance,
                     contactAreaMajor, contactAreaMinor, rotation, tilt);

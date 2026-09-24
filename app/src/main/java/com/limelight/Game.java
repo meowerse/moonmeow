@@ -30,7 +30,8 @@ import com.limelight.binding.video.MediaCodecHelper;
 import com.limelight.binding.video.PerfOverlayListener;
 import com.limelight.meow.gesture.InlinePinchZoomController;
 import com.limelight.meow.cursor.LocalCursorScaler;
-import com.limelight.meow.cursor.RelativeCursorTracker;
+import com.limelight.meow.cursor.CursorFollowController;
+import com.limelight.meow.cursor.CursorFollowPreference;
 import com.limelight.meow.ui.QuickBarView;
 import com.limelight.meow.viewport.StreamViewportBinder;
 import com.limelight.meow.viewport.ReferencePointer;
@@ -54,7 +55,6 @@ import com.limelight.utils.Dialog;
 import com.limelight.utils.ExternalDisplayControlActivity;
 import com.limelight.utils.MouseModeOption;
 import com.limelight.utils.PanZoomHandler;
-import com.limelight.meow.viewport.ViewportGeometry;
 import com.limelight.utils.PerformanceDataTracker;
 import com.limelight.utils.ServerHelper;
 import com.limelight.utils.ShortcutHelper;
@@ -212,10 +212,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private int modifierFlags = 0;
     private boolean grabbedInput = true;
     private boolean cursorVisible = false;
-    // MEOW-TOUCH(cursor-follow): dead-reckoned host cursor for the captured-mouse (relative)
-    // path, so the crop can chase a cursor that has no on-screen pointer to read. All of the
-    // arithmetic lives in the meow class; this is only the instance. See docs/meow/TOUCHPOINTS.md
-    private final RelativeCursorTracker relativeCursor = new RelativeCursorTracker();
+    // MEOW-TOUCH(cursor-follow): keeps the host cursor on screen while zoomed, in every input
+    // mode. All of it lives in meow/cursor; this is only the instance. See docs/meow/TOUCHPOINTS.md
+    private CursorFollowController cursorFollow;
     private boolean isPanZoomMode = false;
     private boolean synthClickPending = false;
     private boolean pointerSwiping = false;
@@ -522,6 +521,12 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             viewportBinder.setTransformSource(panZoomHandler);
             ReferencePointer.install(panZoomHandler);
             panZoomHandler.setZoomTransformObserver(viewportBinder);
+            // Follows the host cursor (0x3004 once the host is proven, else an estimate fed by
+            // every send in NvConnection). The binder drives its lifecycle.
+            cursorFollow = new CursorFollowController(viewportBinder, panZoomHandler,
+                    CursorFollowPreference.isEnabled(this));
+            viewportBinder.setCursorFollow(cursorFollow);
+            viewportBinder.setCapabilityProbe(cursorFollow.isEnabled());
             // MEOW-CURSOR: enlarge local cursor at low zoom (overview). This used to sit behind
             // the viewport preference by accident of nesting, which meant
             // enableEnlargeCursorAtLowZoom did nothing for anyone who had viewport-following
@@ -1904,6 +1909,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         else {
             inputCaptureProvider.disableCapture();
         }
+        if (cursorFollow != null) cursorFollow.resetEstimate(); // MEOW-TOUCH(cursor-follow)
 
         // Grab/ungrab system keyboard shortcuts
         setMetaKeyCaptureState(grab);
@@ -2552,6 +2558,10 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         normalizedX = Math.min(normalizedX, streamContainer.getWidth());
         normalizedY = Math.min(normalizedY, streamContainer.getHeight());
 
+        // MEOW-TOUCH(viewport-compose): native touch and pen, through the user's view too
+        normalizedX = ReferencePointer.mapX(normalizedX, streamContainer.getWidth());
+        normalizedY = ReferencePointer.mapY(normalizedY, streamContainer.getHeight());
+
         normalizedX /= streamContainer.getWidth();
         normalizedY /= streamContainer.getHeight();
 
@@ -2860,18 +2870,9 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                             // NB: view may be null, but we can unconditionally use streamView because we don't need to adjust
                             // relative axis deltas for the position of the streamView within the parent's coordinate system.
                             conn.sendMouseMoveAsMousePosition(deltaX, deltaY, (short) streamContainer.getWidth(), (short) streamContainer.getHeight());
-                            // MEOW-TOUCH(cursor-follow): the delta went out in streamContainer's
-                            // reference frame, so it must be rescaled into stream pixels before it
-                            // can be accumulated. See RelativeCursorTracker.scaleDelta.
-                            followDeadReckonedCursor(
-                                    RelativeCursorTracker.scaleDelta(deltaX, streamContainer.getWidth(), displayWidth),
-                                    RelativeCursorTracker.scaleDelta(deltaY, streamContainer.getHeight(), displayHeight));
                         }
                         else {
                             conn.sendMouseMove(deltaX, deltaY);
-                            // MEOW-TOUCH(cursor-follow): raw deltas here -- LiSendMouseMoveEvent
-                            // passes them through and the host applies them in its own pixels.
-                            followDeadReckonedCursor(deltaX, deltaY);
                         }
                     }
                 }
@@ -3338,60 +3339,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 return false;
         }
 
-        // MEOW-TOUCH(cursor-follow): absolute-touch (finger) path. The touch contexts
-        // already received the normalized coordinates, but cursor-follow needs the parent
-        // (streamContainer) pixels to map back into host space.
-        if (isTouchScreen && viewportBinder != null && panZoomHandler != null) {
-            // Use the action pointer's raw parent position. For multi-pointer moves this
-            // is called per-pointer above (historical + current), but a single call on the
-            // latest position is sufficient to keep the crop following the primary finger.
-            try {
-                float viewX;
-                float viewY;
-                if (eventAction == MotionEvent.ACTION_MOVE) {
-                    // Primary pointer for moves (actionIndex is always 0 for MOVE)
-                    viewX = event.getX(0);
-                    viewY = event.getY(0);
-                    // If the event is from backgroundTouchView, its coordinates are in that
-                    // view's system; convert to streamContainer coords by subtracting the
-                    // container's offset within its parent. getX() of streamContainer is the
-                    // SurfaceView offset, not the container offset, so use location diff.
-                    if (streamContainer != null) {
-                        int[] containerLoc = new int[2];
-                        int[] rootLoc = new int[2];
-                        // Approximate conversion via raw vs container location when needed
-                        // For the common case where the event is already from streamContainer,
-                        // this is identity (loc diff zero).
-                        // We use getLocationOnScreen if available, fallback to direct.
-                        try {
-                            streamContainer.getLocationOnScreen(containerLoc);
-                            // event.getRawX/Y available from API 12
-                            viewX = event.getRawX() - containerLoc[0];
-                            viewY = event.getRawY() - containerLoc[1];
-                        } catch (Exception ignored) {
-                        }
-                    }
-                    // Clamp to container bounds like updateMousePosition does
-                    viewX = Math.max(0, Math.min(viewX, streamContainer.getWidth()));
-                    viewY = Math.max(0, Math.min(viewY, streamContainer.getHeight()));
-                } else {
-                    viewX = event.getX(actualActionIndex);
-                    viewY = event.getY(actualActionIndex);
-                    try {
-                        int[] containerLoc = new int[2];
-                        streamContainer.getLocationOnScreen(containerLoc);
-                        viewX = event.getRawX() - containerLoc[0];
-                        viewY = event.getRawY() - containerLoc[1];
-                    } catch (Exception ignored) {
-                    }
-                    viewX = Math.max(0, Math.min(viewX, streamContainer.getWidth()));
-                    viewY = Math.max(0, Math.min(viewY, streamContainer.getHeight()));
-                }
-                viewportBinder.handleCursorViewPosition(viewX, viewY, panZoomHandler);
-            } catch (Exception ignored) {
-            }
-        }
-
         return true;
     }
 
@@ -3472,42 +3419,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     }
 
-    /**
-     * MEOW-TOUCH(cursor-follow): advance the dead-reckoned host cursor and let the crop chase it.
-     *
-     * <p>The captured-pointer mouse modes have no on-screen pointer to read, so the only
-     * available cursor position is the one we accumulate ourselves. Both relative branches
-     * funnel here; the arithmetic and its caveats live in {@link RelativeCursorTracker}.
-     *
-     * @param hostDeltaX movement in stream-frame pixels, already rescaled by the caller
-     * @param hostDeltaY movement in stream-frame pixels
-     */
-    private void followDeadReckonedCursor(int hostDeltaX, int hostDeltaY) {
-        if (viewportBinder == null || panZoomHandler == null || streamContainer == null) {
-            return;
-        }
-        View surface = streamContainer.getSurfaceView();
-        if (surface == null) {
-            return;
-        }
-        if (!relativeCursor.isSeeded()) {
-            // Best available guess: the middle of what the user can currently see. Capture
-            // usually starts with the pointer somewhere in the visible region, and any error
-            // is corrected the first time the cursor runs into an edge.
-            float childW = surface.getWidth() * surface.getScaleX();
-            float childH = surface.getHeight() * surface.getScaleY();
-            int[] centre = ViewportGeometry.hostPointFromView(
-                    streamContainer.getWidth() / 2f, streamContainer.getHeight() / 2f,
-                    surface.getX(), surface.getY(), childW, childH,
-                    displayWidth, displayHeight);
-            relativeCursor.seed(centre[0], centre[1], displayWidth, displayHeight);
-        }
-        if (relativeCursor.accumulate(hostDeltaX, hostDeltaY, displayWidth, displayHeight)) {
-            viewportBinder.handleCursorHostPosition(
-                    relativeCursor.hostX(), relativeCursor.hostY(), panZoomHandler);
-        }
-    }
-
     private void updateMousePosition(View touchedView, MotionEvent event) {
         // X and Y are already relative to the provided view object
         float eventX, eventY;
@@ -3559,21 +3470,6 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // MEOW-TOUCH(viewport-compose): through the user's view into the uncropped frame
         conn.sendMousePosition(ReferencePointer.x(eventX, streamContainer.getWidth()), ReferencePointer.y(eventY, streamContainer.getHeight()), (short) streamContainer.getWidth(), (short) streamContainer.getHeight());
-
-        // MEOW-TOUCH(cursor-follow): edge-scroll and catch-up. Same planner handles both;
-        // call on every position update so the cursor stays pinned to the margin while content
-        // scrolls under it. The pan itself is synchronous on the UI thread -- it only moves a
-        // View -- and the resulting transform change is what the reporter's thread hears about.
-        if (viewportBinder != null && panZoomHandler != null) {
-            // The position just sent is now the library's virtual cursor, and the next relative
-            // delta will be added to it. Tell the estimate, or the two diverge from here on and
-            // only an edge run reconciles them.
-            relativeCursor.moveToReferencePosition(eventX, eventY,
-                    streamContainer.getWidth(), streamContainer.getHeight(),
-                    displayWidth, displayHeight);
-            // eventX/Y are already in streamContainer (parent) pixels after the clamping above
-            viewportBinder.handleCursorViewPosition(eventX, eventY, panZoomHandler);
-        }
     }
 
     @Override
