@@ -168,6 +168,11 @@ android {
 
     testOptions {
         unitTests.includeAndroidResources = true
+        unitTests.all {
+            // Robolectric's FileDescriptor interceptor reflects into jdk.internal.access
+            // when it sets up an SDK 36+ sandbox, and JDK 17+ does not export that package.
+            jvmArgs '--add-opens=java.base/jdk.internal.access=ALL-UNNAMED'
+        }
     }
 }
 
