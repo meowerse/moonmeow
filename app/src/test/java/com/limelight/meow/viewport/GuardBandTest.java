@@ -3,6 +3,7 @@ package com.limelight.meow.viewport;
 import static org.junit.Assert.assertEquals;
 import static org.junit.Assert.assertNotNull;
 import static org.junit.Assert.assertNull;
+import static org.junit.Assert.assertSame;
 import static org.junit.Assert.assertTrue;
 
 import org.junit.Before;
@@ -66,6 +67,18 @@ public class GuardBandTest {
     }
 
     @Test
+    public void aViewOverlappingTheLetterboxStillGetsHysteresis() {
+        // ~1.5x on the letterboxed topology: the view spills into the padding, so no request
+        // clamped to the desktop can contain it. The band works on its desktop part.
+        ViewportRect v = new ViewportRect(300, 200, 1280, 720);
+        assertNotNull(band.onVisible(v, 1000, CONTENT, W, H));
+        for (int i = 1; i <= 20; i++) {
+            assertNull("pan " + i, band.onVisible(new ViewportRect(300 + i * 2, 200, 1280, 720),
+                    1000 + i * 100, CONTENT, W, H));
+        }
+    }
+
+    @Test
     public void smallPansInsideTheBandKeepTheRequest() {
         ViewportRect v = new ViewportRect(720, 405, 480, 270);
         band.onVisible(v, 1000, FULL, W, H);
@@ -111,7 +124,8 @@ public class GuardBandTest {
         ViewportRect settled = band.onSettled(new ViewportRect(900, 405, 480, 270), FULL, W, H);
         assertNotNull(settled);
         assertEquals(576, settled.width);
-        assertNull(band.onSettled(new ViewportRect(900, 405, 480, 270), FULL, W, H));
+        assertSame("settled again: the same request is offered again, for a retry",
+                settled, band.onSettled(new ViewportRect(900, 405, 480, 270), FULL, W, H));
     }
 
     @Test

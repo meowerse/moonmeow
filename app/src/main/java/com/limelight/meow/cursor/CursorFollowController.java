@@ -249,16 +249,6 @@ public final class CursorFollowController
         return proven == NEVER || frames.uptimeMillis() - proven >= FIRST_REPORT_WAIT_MS;
     }
 
-    /**
-     * A proven meow host that does not report its cursor (an older sunmeow): the echo gave
-     * us its desktop size, so the client can own the pointer unzoomed as well, which keeps
-     * the position exact for the next zoom. Against stock hosts relative input stays relative
-     * while unzoomed, with the host's acceleration.
-     */
-    private boolean ownsPointerUnzoomed() {
-        return hostProvenAtMs != NEVER && mayOwnPointer();
-    }
-
     /** UI thread. Starts listening for this stream. */
     public void onStreamStarted(int streamWidth, int streamHeight) {
         this.streamWidth = Math.max(1, streamWidth);
@@ -387,13 +377,33 @@ public final class CursorFollowController
     }
 
     private float clampX(float x) {
-        float right = Math.min(visible[0] + visible[2], cursor.boundsRight()) - edgeInset(transform[2]);
-        return Math.max(Math.max(visible[0], cursor.boundsLeft()), Math.min(x, right));
+        return Math.max(Math.max(visible[0], cursor.boundsLeft()), Math.min(x, rightLimit()));
     }
 
     private float clampY(float y) {
-        float bottom = Math.min(visible[1] + visible[3], cursor.boundsBottom()) - edgeInset(transform[3]);
-        return Math.max(Math.max(visible[1], cursor.boundsTop()), Math.min(y, bottom));
+        return Math.max(Math.max(visible[1], cursor.boundsTop()), Math.min(y, bottomLimit()));
+    }
+
+    /**
+     * How far right the client may put the pointer: a sprite's width inside the visible edge
+     * while the view can still scroll further, so the pointer is seen and pushes the view; the
+     * desktop's last pixel once the view is against the desktop's edge, so the panel, tray
+     * and corner there stay reachable.
+     */
+    private float rightLimit() {
+        float visibleRight = visible[0] + visible[2];
+        if (visibleRight < cursor.boundsRight() - 0.5f) {
+            return visibleRight - edgeInset(transform[2]);
+        }
+        return cursor.boundsRight() - 1f;
+    }
+
+    private float bottomLimit() {
+        float visibleBottom = visible[1] + visible[3];
+        if (visibleBottom < cursor.boundsBottom() - 0.5f) {
+            return visibleBottom - edgeInset(transform[3]);
+        }
+        return cursor.boundsBottom() - 1f;
     }
 
     /** Reference pixels to keep a placed pointer's sprite on screen. */
@@ -455,6 +465,10 @@ public final class CursorFollowController
             placing = false;
             placingArms = false;
         }
+        // The position went out quantised to the reference grid; keep the exact target as the
+        // estimate, or every small move gains or loses a fraction of a step (slow motion
+        // wobbles by up to a third at 2.8 desktop pixels per reference pixel).
+        cursor.placedAt(px, py);
         if (cursor.isHostReporting()) {
             ignoreHostReportsUntilMs = frames.uptimeMillis() + HOST_REPORT_GRACE_MS;
         }
@@ -470,16 +484,14 @@ public final class CursorFollowController
     boolean interceptRelative(int deltaX, int deltaY) {
         if (!enabled || !streamStarted || sink == null || !mayOwnPointer()
                 || !frames.isUiThread() || !view.transform(transform)
-                || (transform[4] <= UNZOOMED && !ownsPointerUnzoomed())
+                || transform[4] <= UNZOOMED
                 || !view.visibleReferenceRect(visible)) {
             return false;
         }
         float left = Math.max(visible[0], cursor.boundsLeft());
         float top = Math.max(visible[1], cursor.boundsTop());
-        float right = Math.min(visible[0] + visible[2], cursor.boundsRight())
-                - edgeInset(transform[2]);
-        float bottom = Math.min(visible[1] + visible[3], cursor.boundsBottom())
-                - edgeInset(transform[3]);
+        float right = rightLimit();
+        float bottom = bottomLimit();
         if (!(right > left) || !(bottom > top)) {
             return false;
         }
@@ -511,10 +523,8 @@ public final class CursorFollowController
             if (view.visibleReferenceRect(visible) && view.transform(transform)) {
                 left = Math.max(visible[0], cursor.boundsLeft());
                 top = Math.max(visible[1], cursor.boundsTop());
-                right = Math.min(visible[0] + visible[2], cursor.boundsRight())
-                        - edgeInset(transform[2]);
-                bottom = Math.min(visible[1] + visible[3], cursor.boundsBottom())
-                        - edgeInset(transform[3]);
+                right = rightLimit();
+                bottom = bottomLimit();
             }
         }
         x = Math.max(left, Math.min(wantX, right));

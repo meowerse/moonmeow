@@ -223,11 +223,11 @@ public class CursorFollowControllerTest {
         withSink();
         assertTrue(controller.onRelativeMove(100000, 0));
         assertEquals(1, placed.size());
-        // The view scrolled as far as the desktop goes, and the cursor stopped inside the right
-        // edge, far enough in that its sprite (24 screen px = 6 reference px at 4x) is seen.
+        // The view scrolled as far as the desktop goes, and the cursor reached the desktop's
+        // last pixel: at the desktop edge nothing is held back for the sprite, so the panel,
+        // the tray and the corner stay reachable.
         assertEquals(1440f, view.x, 0f);
-        float x = controller.cursor().x();
-        assertTrue("x " + x, x <= 1914.5f && x >= 1913f);
+        assertEquals(1919f, controller.cursor().x(), 0.01f);
         assertTrue(controller.cursor().isExact());
         assertEquals(1920 * 4, placed.get(0)[2]);
     }
@@ -286,8 +286,8 @@ public class CursorFollowControllerTest {
         assertTrue("a proven host that never reported: the client owns the pointer",
                 controller.onRelativeMove(10, 0));
         view.zoom = 1f;
-        assertTrue("even unzoomed, since the echo gave the desktop size",
-                controller.onRelativeMove(10, 0));
+        assertFalse("but never unzoomed: relative input stays relative there (games, host "
+                + "acceleration)", controller.onRelativeMove(10, 0));
     }
 
     @Test
@@ -380,5 +380,23 @@ public class CursorFollowControllerTest {
         float rightTravel = controller.cursor().x() - start;
         assertEquals("the same travel either way", leftTravel, rightTravel, 1f);
         assertTrue(leftPan > 0f);
+    }
+
+    @Test
+    public void slowMotionKeepsItsFullGainDespiteTheReferenceGrid() {
+        // 2.8 desktop px per reference px, as on the 5360-wide desktop in a 1920 stream: one
+        // desktop px is 0.36 reference px, less than a step of the 4x grid rounds cleanly to.
+        controller.onDesktopExtent(5360, 1440);
+        withSink();
+        controller.onAbsolutePosition(900, 540, 1919, 1079);
+        for (int perEvent = 1; perEvent <= 3; perEvent++) {
+            float start = controller.cursor().x();
+            for (int i = 0; i < 50; i++) {
+                controller.onRelativeMove(perEvent, 0);
+            }
+            float expected = 50 * perEvent * 1920f / 5360f;
+            assertEquals(perEvent + " px per event", expected,
+                    controller.cursor().x() - start, 0.5f);
+        }
     }
 }

@@ -675,19 +675,19 @@ public class GameCursorFollowModesTest {
         v = visible();
         assertTrue("right: the view reached the right edge", v[0] + v[2] >= W - 1f);
         assertTrue("right: and so did the cursor, at " + ShadowMoonBridgeWithHost.cursorX,
-                ShadowMoonBridgeWithHost.cursorX >= desktopW - 60f);
+                ShadowMoonBridgeWithHost.cursorX >= desktopW - 20f);
 
         pushToEdge(0f, -400f);
         assertTrue("top: the cursor reached the top", ShadowMoonBridgeWithHost.cursorY <= 20f);
         pushToEdge(0f, 400f);
         assertTrue("bottom: the cursor reached the bottom, at " + ShadowMoonBridgeWithHost.cursorY,
-                ShadowMoonBridgeWithHost.cursorY >= desktopH - 60f);
+                ShadowMoonBridgeWithHost.cursorY >= desktopH - 20f);
 
         // And the two corners the report is about.
         pushToEdge(-400f, -400f);
         assertTrue(ShadowMoonBridgeWithHost.cursorX <= 20f && ShadowMoonBridgeWithHost.cursorY <= 20f);
         pushToEdge(400f, 400f);
-        assertTrue(ShadowMoonBridgeWithHost.cursorX >= desktopW - 60f
-                && ShadowMoonBridgeWithHost.cursorY >= desktopH - 60f);
+        assertTrue(ShadowMoonBridgeWithHost.cursorX >= desktopW - 20f
+                && ShadowMoonBridgeWithHost.cursorY >= desktopH - 20f);
     }
 }

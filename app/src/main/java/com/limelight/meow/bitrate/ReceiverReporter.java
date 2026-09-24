@@ -79,6 +79,7 @@ public final class ReceiverReporter {
      */
     public void start(long nowMs, boolean automatic, int maxKbps) {
         running = true;
+        report.reset();
         appliedKbps = 0;
         stableKbps = 0;
         report.autoBitrate = automatic;

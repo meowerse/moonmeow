@@ -747,7 +747,10 @@ so nothing reads the zoom back off the view — `LocalCursorScaler` included.
 **Guard band (2026-09-24).** The binder no longer asks for exactly the visible rectangle V:
 `GuardBand` asks for V plus a margin at the encode surface's aspect ratio, clamped into the
 desktop -- 10% a side at rest, growing with pan speed up to 35%, tightened back 300 ms after
-the view stops. The request is kept while V stays inside it (with 2% slack) and it is not more
+the view stops (only when the gain is over 15%; each tightening is a re-sharpen and a burst
+of bits), with the settle also re-offering the current request so one the library could not
+deliver is retried. The band logic runs on the part of V that shows desktop, so a view over
+the letterbox padding still gets hysteresis. The request is kept while V stays inside it (with 2% slack) and it is not more
 than 1.25x the size the margin calls for, so small pans and cursor-follow steps are shown sharp
 from pixels already received (the compositor presents V inside the applied crop at one
 magnification) instead of re-cropping the host every frame. The cost is 1/(1+2m) of the
@@ -831,7 +834,23 @@ forced.
 | `binding/video/MediaCodecDecoderRenderer.java` | `findAv1Decoder`, the "only when forced" guard | `&& !AutoCodecPolicy.av1InAuto(prefs)` appended; CRLF kept |
 
 New code: `meow/video/AutoCodecPolicy.java` (the decision is the pure `offerAv1(...)`),
-tested by `AutoCodecPolicyTest`. On a device without such a decoder nothing changes.
+tested by `AutoCodecPolicyTest`. It also requires AV1 reference-frame invalidation (else every
+loss costs an IDR) and, with HDR on, AV1 Main10 (the negotiation prefers AV1 Main8 over HEVC
+Main10 and would silently drop HDR). On a device without such a decoder nothing changes.
+Whether this phone's MediaTek decoder qualifies is **not verified** (it needs a stream, which
+was not run here); the log line "Automatic codec: AV1 offered/not offered" says on the first.
+
+### Decoder latency and pacing: audit, no change (2026-09-24)
+
+Read, not measured (measuring needs a live stream on the phone, which this change did not run):
+`MediaCodecHelper` already sets `KEY_LOW_LATENCY` where `FEATURE_LowLatency` is present and the
+known vendor keys (`vendor.low-latency.enable`, the Qualcomm, HiSilicon and RTC variants), and
+the MediaTek `*.lowlatency` decoders are used when present. Frame pacing defaults to
+"latency" (`DEFAULT_FRAME_PACING`), the lowest-latency setting, which is right for desktop
+use. `DecodedFrameGate`'s two renderer hooks allocate nothing (atomic arrays and a volatile).
+Resolution and FPS defaults were left as they are (native panel resolution, the existing FPS
+default); nothing here measured a reason to change them. Decode/render latency before and
+after is for the orchestrator's on-device run: the performance overlay shows both.
 
 ---
 

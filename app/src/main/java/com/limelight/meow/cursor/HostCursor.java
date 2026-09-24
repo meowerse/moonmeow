@@ -165,6 +165,17 @@ public final class HostCursor {
     }
 
     /**
+     * The client just placed the pointer at (x, y): keep that exact position rather than the
+     * library's quantised copy of it. Reference pixels, already clamped by the caller.
+     */
+    public void placedAt(float x, float y) {
+        known = true;
+        exact = true;
+        this.x = x;
+        this.y = y;
+    }
+
+    /**
      * True when the position is the host's own: reported over 0x3004, or set by an absolute
      * position the client sent. False while it is a dead-reckoned guess.
      */

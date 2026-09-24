@@ -82,7 +82,13 @@ desktop and sends an **absolute** position instead (at a 4x finer reference than
 so it lands on the intended desktop pixel). Consequences:
 
 * the estimate is exact by construction — the host is told where the pointer is;
-* the pointer cannot leave the screen; pushing it into an edge scrolls the view;
+* the pointer cannot leave the screen; pushing it into an edge scrolls the view. While the
+  view can still scroll, the pointer is held a sprite's width (24 screen px) inside the right
+  and bottom edges so its arrow is seen; once the view is against the desktop's edge it goes
+  all the way to the last pixel, so the panel, the tray and the corner stay reachable;
+* the estimate keeps the exact position the client asked for, not the reference-grid copy
+  the library sends, so slow motion keeps its full gain (a 1-desktop-pixel move is 0.36 of a
+  reference pixel on the 5360-wide desktop, and rounding it lost 30%);
 * host pointer acceleration does not apply while zoomed, so motion is linear. At 4x on the
   5360x1440 desktop in a 2712-wide view, one screen pixel of finger travel moves the cursor
   about two screen pixels. That is the cost, and it is only while zoomed.
@@ -100,11 +106,13 @@ so it lands on the intended desktop pixel). Consequences:
   `FIRST_REPORT_WAIT_MS` (1.5 s) after the subscription to send its first 0x3004 report. A
   reporting host answers at once, so until then the client moves the pointer for nobody.
 * A proven host that has not reported by then (an older sunmeow, like the user's host on
-  2026-09-24) is a dead-reckoning host whose desktop size the echo gave us. **There the
-  client owns the pointer unzoomed too**, so the position is exact before any zoom and
-  "zoom to the cursor" zooms to the real cursor.
-* A stock host (no echo) keeps relative input relative while unzoomed, with the host's own
-  acceleration; zoomed in, the client owns the pointer as above.
+  2026-09-24), and a stock host, are dead-reckoning hosts: zoomed in, the client owns the
+  pointer as above. **Unzoomed, relative input always stays relative** -- with the host's
+  pointer acceleration, and with pointer-locked games working -- because the whole desktop is
+  on screen and there is nothing to keep visible. The price is that the unzoomed estimate is a
+  guess; the zoom-in anchors on it and then makes it true (the pointer is placed where the
+  estimate says, inside the new view). An earlier revision owned the pointer unzoomed too on
+  proven hosts; review found it broke raw-input games at 1x and was reverted.
 
 **Against a host that reports its cursor (0x3004), none of this happens**: its positions are
 the truth, relative input stays relative, and the controller never re-syncs. The only
@@ -160,8 +168,8 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 9 | Captured mouse, relative (any touch mode) | — | Z | H | as 6; comfort margin (relative input) | `…capturedMouseRelative` |
 | 10 | Captured mouse, absolute-mouse mode | — | Z | H | as 6 (absolute moves mirror the library's base) | `…capturedMouseInAbsoluteMouseMode` |
 | 11 | Captured mouse / trackpad / flick | any | Z | DR | client-owned pointer: never leaves the view; past the edge the view scrolls by the overshoot in the same event | `…capturedMouseAgainstAHostThatDoesNotReport`, `…aDeadReckoningHostCursorNeverLeavesTheViewEvenOnAFlick`, `CursorFollowControllerTest.zoomedWithoutHostReportsARelativeMoveIsPlacedInsideTheView`, `…pushingPastTheEdgeScrollsTheViewAtFingerSpeed` |
-| 12 | Any relative input | any | unzoomed | DR, stock host | sent as relative (host acceleration kept); estimate becomes a guess, made true at the next zoom-in | `CursorFollowControllerTest.unzoomedRelativeMovesStayRelative` |
-| 12b | Any relative input | any | unzoomed | DR, proven meow host | client-owned pointer (exact before any zoom) | `CursorFollowControllerTest.aProvenHostGetsTimeToReportBeforeTheClientMovesThePointer` |
+| 12 | Any relative input | any | unzoomed | DR | sent as relative (host acceleration kept, games work); estimate becomes a guess, made true at the next zoom-in | `CursorFollowControllerTest.unzoomedRelativeMovesStayRelative`, `…aProvenHostGetsTimeToReportBeforeTheClientMovesThePointer` |
+| 12d | Slow, precise motion | any | Z | DR | full gain at 1, 2, 3 desktop px per event | `CursorFollowControllerTest.slowMotionKeepsItsFullGainDespiteTheReferenceGrid` |
 | 12c | Pinch after moving the cursor unzoomed | pointer | 1→Z | DR | zoom goes where the cursor is, the pointer is not dragged to the middle | `…aDeadReckoningHostZoomsWhereTheCursorIsNotToTheMiddle` |
 | 13 | Trackpad fling momentum | pointer | Z | any | same path as a stroke (main-thread `sendMouseMove`) | via 6 / 11 |
 | 14 | Gamepad mouse emulation, on-screen keyboard mouse keys | pointer | Z | any | same path as a stroke (both send on the main thread) | via 11 |
@@ -175,7 +183,7 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 22 | Letterbox padding (desktop aspect ≠ stream) | any | Z | any | cursor and client-owned placements are clamped to the desktop content box, never into the padding | `HostCursorTest.theEstimateStaysOnTheDesktopNotInTheLetterbox` |
 | 23 | Very high zoom (up to 10x) | any | Z | any | margins are fractions of the view; speed caps scale with it | `CursorFollowMotionTest.speedAndAccelerationAreCapped` |
 | 24 | Rotation, PiP, split-screen / freeform resize, external display attach | pointer | Z | any | cursor brought back into view after the resize | `…aResizeBringsTheCursorBack` |
-| 25 | Soft keyboard opens | pointer | Z | any | visible area ends at the keyboard; cursor brought above it; host crop shrinks to match | `CursorFollowWiringTest.theBinderWatchesTheSoftKeyboardAndForwardsViewChanges` (wiring only, see limits) |
+| 25 | Soft keyboard opens | pointer | Z | any | visible area ends at the keyboard; cursor brought above it; the host crop moves to cover what is above it (its size keeps the surface aspect) | `CursorFollowWiringTest.theBinderWatchesTheSoftKeyboardAndForwardsViewChanges` (wiring only, see limits) |
 | 26 | Pointer capture toggled | pointer | Z | DR | estimate forgotten; next move places the pointer inside the view | `…afterACaptureToggleTheNextMovePlacesTheCursorInView` |
 | 27 | Mouse-mode switch | any | Z | any | visibility re-checked | `CursorFollowWiringTest.aMouseModeSwitchAndACaptureToggleReCheckVisibility` |
 | 28 | Reconnect / new stream (incl. a remembered zoom) | any | any | any | estimate reset; first zoomed-in move places the pointer inside the view | `HostCursorTest.aNewStreamForgetsEverything`, row 26's mechanism |
@@ -184,9 +192,9 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
 | 31 | Following turned off in Settings | any | any | any | view never moves on its own, pointer never placed, no 0x3004 subscription | `CursorFollowBindingTest.withFollowingOffTheViewStaysPut`, `CursorFollowControllerTest.aDisabledControllerNeverSubscribesOrPans` |
 | 32 | "Remove animations" on | any | Z | any | jumps to the target in one frame | `CursorFollowControllerTest.withAnimationsOffTheViewJumpsInOneFrame` |
 | 33 | A host report older than a position the client just sent | any | Z | H | ignored for 300 ms | `CursorFollowControllerTest.aStaleHostReportJustAfterTheClientMovedThePointerIsIgnored` |
-| 35 | Moving left vs right, all four edges and corners, letterboxed 5360x1440 desktop, host acceleration 1.8x (the second report) | pointer | Z | DR | the same everywhere: the cursor stays on screen and the view reaches every edge and corner | `…everyEdgeAndCornerIsReachedWithTheCursorOnScreen` (fails without the client-owned pointer: `host cursor 352 off screen: visible 550..1030`), `CursorFollowControllerTest.pushingLeftAndRightIsSymmetric` |
+| 35 | Moving left vs right, all four edges and corners, letterboxed 5360x1440 desktop, host acceleration 1.8x (the second report) | pointer | Z | DR | the same everywhere: the cursor stays on screen, and view and cursor reach every edge and corner (within 20 desktop px on all four sides) | `…everyEdgeAndCornerIsReachedWithTheCursorOnScreen` (fails without the client-owned pointer: `host cursor 352 off screen: visible 550..1030`), `CursorFollowControllerTest.pushingLeftAndRightIsSymmetric` |
 | 36 | Slow drag in gaming touch mode at a sensitivity other than 100% | pointer | any | any | no motion lost: the sub-pixel remainder is carried (at 150% a 1-px-per-sample drag used to send two thirds of it; at 70% nothing) | `TouchDeltaAccumulationTest.gamingTouchModeLosesNoMotionAtAnySensitivity`, `SubPixelAccumulatorTest` |
-| 37 | An on-screen overlay (PC keyboard) covers the bottom of the stream | pointer | Z | any | visible area ends above it; cursor kept above it; host crop shrinks to match | `CursorFollowBindingTest.anOverlayOverTheBottomOfTheStreamKeepsTheCursorAboveIt` |
+| 37 | An on-screen overlay (PC keyboard) covers the bottom of the stream | pointer | Z | any | visible area ends above it; cursor kept above it; host crop moves with it | `CursorFollowBindingTest.anOverlayOverTheBottomOfTheStreamKeepsTheCursorAboveIt` |
 | 34 | External-display controller (phone as trackpad for a second screen) | pointer | any | any | *Assumed, not traced:* its input reaches the host through the same `NvConnection` methods, so rows 6 / 11 apply; its own Pan/Zoom toggle mirrors `Game.toggleZoomMode` | — |
 
 ## Known limits, stated
@@ -197,8 +205,9 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
   treat the keyboard as not covering the stream). The trigger relies on insets being
   dispatched to the stream container, which a fullscreen window does; failing that, the next
   cursor move re-checks.
-* **Linear pointer while the client owns it** (decision 4). A game that needs raw relative
-  mouse input will not get it then; zoomed-in gaming is not a supported case.
+* **Linear pointer while the client owns it** (decision 4, zoomed in only). A game that needs
+  raw relative mouse input will not get it while zoomed in against a host that does not
+  report its cursor; unzoomed it always does.
 * **The client-owned pointer overrides host-side warps.** An app that recentres or warps the
   pointer (a dialog grabbing it, Blender's continuous grab) is undone by the next move while
   the client owns the pointer, because the client does not see the warp. Hosts that report

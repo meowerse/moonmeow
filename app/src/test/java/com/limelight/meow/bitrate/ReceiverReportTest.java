@@ -1,6 +1,7 @@
 package com.limelight.meow.bitrate;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -96,5 +97,48 @@ public class ReceiverReportTest {
         // 25 packets really lost this second: 5 were counted early, 20 are real loss.
         r.setNetwork(counters(1005, 1000, 0), counters(1980, 2000, 0), 1000);
         assertEquals(20, r.lossPermille);
+    }
+
+    @Test
+    public void aPhantomLossThatComesFirstIsSmallAndDoesNotRecur() {
+        // The tracker counts a gap when the higher sequence number arrives, so a reorder
+        // across a snapshot reads as loss first, then as surplus.
+        ReceiverReport r = new ReceiverReport();
+        r.setNetwork(counters(0, 0, 0), counters(993, 1000, 0), 1000);
+        assertTrue("a few permille, once: " + r.lossPermille, r.lossPermille <= 7);
+        r.setNetwork(counters(993, 1000, 0), counters(2000, 2000, 0), 1000);
+        assertEquals(0, r.lossPermille);
+        r.setNetwork(counters(2000, 2000, 0), counters(3000, 3000, 0), 1000);
+        assertEquals(0, r.lossPermille);
+    }
+
+    @Test
+    public void duplicatesCannotBuildACarryThatHidesLaterLoss() {
+        // Duplicates count as received but never as expected: a steady surplus.
+        ReceiverReport r = new ReceiverReport();
+        long received = 0;
+        long expected = 0;
+        int[] previous = counters(0, 0, 0);
+        for (int second = 0; second < 30; second++) {
+            expected += 1000;
+            received += 1050;
+            int[] current = counters(received, expected, 0);
+            r.setNetwork(previous, current, 1000);
+            previous = current;
+        }
+        // Then 3% real loss.
+        expected += 1000;
+        received += 970;
+        r.setNetwork(previous, counters(received, expected, 0), 1000);
+        assertTrue("real loss still shows: " + r.lossPermille, r.lossPermille >= 19);
+    }
+
+    @Test
+    public void aNewStreamCarriesNothing() {
+        ReceiverReport r = new ReceiverReport();
+        r.setNetwork(counters(0, 0, 0), counters(1010, 1000, 0), 1000);
+        r.reset();
+        r.setNetwork(counters(0, 0, 0), counters(990, 1000, 0), 1000);
+        assertEquals(10, r.lossPermille);
     }
 }

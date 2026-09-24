@@ -18,8 +18,9 @@ package com.limelight.meow.cursor;
  * {@link HostCursor}. The tap still runs then, because an absolute send tells us where the
  * cursor is one round trip before the host can.
  *
- * <p>Calls arrive on whatever thread sent the input — nearly always the UI thread, but gamepad
- * mouse emulation and trackpad fling are timer driven — so the listener must accept any thread.
+ * <p>Calls arrive on whatever thread sent the input. Every sender in this build posts to the
+ * main looper (trackpad fling and gamepad mouse emulation included), but nothing guarantees
+ * it, so the listener must accept any thread.
  * No allocation here.
  */
 public final class CursorInputTap {

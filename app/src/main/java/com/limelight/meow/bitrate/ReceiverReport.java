@@ -39,19 +39,29 @@ public final class ReceiverReport {
         long received = (current[PACKETS_RECEIVED] - previous[PACKETS_RECEIVED]) & 0xFFFFFFFFL;
         long bytes = (current[BYTES_RECEIVED] - previous[BYTES_RECEIVED]) & 0xFFFFFFFFL;
 
-        // A packet reordered across the snapshot is counted as received in one interval and
-        // expected in the next, which reads as a surplus now and as loss next time -- a clean
-        // link reporting a few permille of loss every other second. Carry the surplus forward.
+        // A packet reordered across the snapshot can be counted in one interval's "received"
+        // and the other interval's "expected", which reads as a surplus in one and loss in the
+        // other. A surplus is carried into the next interval only -- and at most 1% of it --
+        // so it can cancel a phantom loss there without ever building up (duplicates count as
+        // received but never as expected, and an unbounded carry would hide real loss for the
+        // rest of the session). A phantom loss that comes FIRST is reported as it is: at most
+        // a few permille for one interval, which the host's controller smooths anyway.
         int balance = (int) (expected - received) + carriedSurplus;
-        carriedSurplus = Math.min(0, balance);
+        int cap = (int) Math.min(Integer.MAX_VALUE, expected / 100 + 1);
+        carriedSurplus = Math.max(-cap, Math.min(0, (int) (expected - received)));
         int lost = Math.max(0, balance);
         lossPermille = expected > 0 ? (int) Math.min(1000L, lost * 1000L / expected) : 0;
         // bytes * 8 bits over ms is kilobits per second.
         receivedKbps = intervalMs > 0 ? (int) Math.min(Integer.MAX_VALUE, bytes * 8L / intervalMs) : 0;
     }
 
-    /** Packets received beyond those expected, owed against the next interval's count. */
+    /** Packets received beyond those expected last interval, owed against this one only. */
     private int carriedSurplus;
+
+    /** A new stream: nothing is carried. */
+    public void reset() {
+        carriedSurplus = 0;
+    }
 
     /** {@code MoonBridge.getEstimatedRttInfo()} when ENet has no estimate yet. */
     public static final long RTT_UNKNOWN = -1L;
