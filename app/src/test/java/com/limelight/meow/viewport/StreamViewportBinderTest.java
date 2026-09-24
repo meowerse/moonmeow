@@ -132,7 +132,7 @@ public class StreamViewportBinderTest {
         binder.setEnabled(true);
         binder.onStreamStarted(STREAM_W, STREAM_H);
         drain();
-        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0);
+        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
         drain();
     }
 
@@ -235,7 +235,7 @@ public class StreamViewportBinderTest {
         assertEquals(ViewportReporter.HostSupport.PROBING, reporter.hostSupport());
 
         // Arrives on the library's async callback thread in production.
-        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 3840, 2160);
+        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 3840, 2160, 0);
         assertEquals("must not be applied inline",
                 ViewportReporter.HostSupport.PROBING, reporter.hostSupport());
 
@@ -249,14 +249,14 @@ public class StreamViewportBinderTest {
         binder.setEnabled(true);
         binder.onStreamStarted(STREAM_W, STREAM_H);
         drain();
-        MeowViewportBridge.onViewportEcho(0, 0, STREAM_W, STREAM_H, 0, 0);
+        MeowViewportBridge.onViewportEcho(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
         drain();
         assertEquals(ViewportReporter.HostSupport.SUPPORTED, reporter.hostSupport());
 
         binder.onStreamStopped();
         drain();
         // A late echo after teardown must not reach anything.
-        MeowViewportBridge.onViewportEcho(0, 0, 10, 10, 0, 0);
+        MeowViewportBridge.onViewportEcho(0, 0, 10, 10, 0, 0, 0);
         drain();
         assertEquals(ViewportReporter.HostSupport.UNSUPPORTED, reporter.hostSupport());
     }
@@ -294,7 +294,7 @@ public class StreamViewportBinderTest {
 
             threaded.setEnabled(true);
             threaded.onStreamStarted(STREAM_W, STREAM_H);
-            threaded.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0);
+            threaded.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
 
             threaded.onStreamStopped();
 
@@ -399,7 +399,7 @@ public class StreamViewportBinderTest {
                 sender.sent.get(0));
         assertEquals("and nothing else until the host answers", 1, sender.sent.size());
 
-        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0);
+        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
         drain();
         assertEquals("the restored crop must reach the host",
                 STREAM_W / 4, sender.last().width);

@@ -112,7 +112,7 @@ public class CursorFollowBindingTest {
         binder.setEnabled(true);
         binder.onStreamStarted(STREAM_W, STREAM_H);
         drain();
-        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0);
+        binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
         drain();
     }
 

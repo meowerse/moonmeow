@@ -272,7 +272,8 @@ public final class StreamViewportBinder
     /** The host's echo. Arrives on the library's async callback thread. */
     @Override
     public void onViewportApplied(final int x, final int y, final int width, final int height,
-                                  final int desktopWidth, final int desktopHeight) {
+                                  final int desktopWidth, final int desktopHeight,
+                                  final int frameIndex) {
         post(() -> {
             reporter.onViewportApplied(x, y, width, height, desktopWidth, desktopHeight);
             live = reporter.isLive();

@@ -42,7 +42,14 @@
 # renamed, both mangled JNI symbols stop resolving, and the feature dies at first call --
 # switch to -keepclasseswithmembernames at the same time.
 -keepclassmembers class com.limelight.meow.viewport.MeowViewportBridge {
-    static void onViewportEcho(int, int, int, int, int, int);
+    static void onViewportEcho(int, int, int, int, int, int, int);
+    native <methods>;
+}
+# Same reason for the cursor (0x3004) and applied-bitrate (0x3005) callbacks, which
+# meowjni.c resolves by name and descriptor and nothing in Java calls.
+-keepclassmembers class com.limelight.meow.stream.MeowStreamBridge {
+    static void onCursorPosition(int, int, boolean, int);
+    static void onBitrateApplied(int);
     native <methods>;
 }
 

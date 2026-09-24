@@ -169,10 +169,10 @@ public class ViewportWiringTest {
         // Without this the host's echo goes to the library's stub and the client has no
         // capability signal at all -- which is how it ends up talking to stock Sunshine.
         String source = stripComments(read("app/src/main/jni/moonlight-core/callbacks.c"));
-        assertContains("callbacks.c must install a setViewport callback",
-                source, ".setViewport =");
+        assertContains("callbacks.c must install a setViewportV2 callback",
+                source, ".setViewportV2 =");
         assertContains("and it must be the one implemented in meowjni.c",
-                source, "MeowBridgeClSetViewport");
+                source, "MeowBridgeClSetViewportV2");
     }
 
     /**
