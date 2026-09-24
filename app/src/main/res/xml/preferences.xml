@@ -503,8 +503,9 @@
             app:iconSpaceReserved="false" />
     </PreferenceCategory>
 
-    <!-- MEOW-TOUCH(pc-keyboard): a category of three new keys, read by
-         meow/keyboard/PcKeyboardPreferences; defaults must match that class. -->
+    <!-- MEOW-TOUCH(pc-keyboard): a category of four new keys, read by
+         meow/keyboard/PcKeyboardPreferences and meow/ui/QuickBarPreferences; defaults must
+         match those classes. -->
     <PreferenceCategory
         android:title="@string/category_meow_keyboard"
         app:iconSpaceReserved="false">
@@ -525,6 +526,12 @@
             android:key="checkbox_meow_ime_extra_keys"
             android:summary="@string/summary_checkbox_meow_ime_extra_keys"
             android:title="@string/title_checkbox_meow_ime_extra_keys"
+            app:iconSpaceReserved="false" />
+        <CheckBoxPreference
+            android:defaultValue="false"
+            android:key="checkbox_meow_quickbar_auto_hide"
+            android:summary="@string/summary_checkbox_meow_quickbar_auto_hide"
+            android:title="@string/title_checkbox_meow_quickbar_auto_hide"
             app:iconSpaceReserved="false" />
     </PreferenceCategory>
 

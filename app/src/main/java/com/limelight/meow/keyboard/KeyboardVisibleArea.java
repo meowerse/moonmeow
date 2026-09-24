@@ -32,6 +32,28 @@ public final class KeyboardVisibleArea {
         void onVisibleAreaChanged(int left, int top, int right, int bottom);
     }
 
+    /**
+     * Something drawn over the stream that the stream should be kept clear of, and that must
+     * itself stay above the keyboards: the quick bar. Found by the controller among the
+     * content view's children.
+     */
+    public interface Obstruction {
+        /** Keyboards cover the window from this row down: move above it (animated). */
+        void placeAboveKeyboards(int keyboardTopInWindow);
+
+        /**
+         * Where this will sit over the window once placed above {@code keyboardTopInWindow},
+         * margins included.
+         *
+         * @return false if it should not be kept clear of right now (hidden, or a transient
+         *         overlay by the user's choice)
+         */
+        boolean obstructionInWindow(int keyboardTopInWindow, android.graphics.Rect out);
+
+        /** Told when {@link #obstructionInWindow} would answer differently. */
+        void setObstructionChangedListener(Runnable listener);
+    }
+
     /** Where the user's point of interest (host cursor, text caret) is on the stream. */
     public interface FocusSource {
         /**

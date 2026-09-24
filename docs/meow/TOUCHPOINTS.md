@@ -1048,7 +1048,7 @@ Plus one import, untokenised.
 
 | Line | Site | Edit |
 | --- | --- | --- |
-| 506 | after the input category | a new *Keyboards* category with three checkboxes read by `PcKeyboardPreferences` (defaults asserted equal by `PcKeyboardPreferencesTest`) |
+| 506 | after the input category | a new *Keyboards* category with four checkboxes read by `PcKeyboardPreferences` and `QuickBarPreferences` (defaults asserted equal by their tests) |
 
 ### Not tokenised, additive
 

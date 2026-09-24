@@ -55,6 +55,9 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
 
     private final int[] location = new int[2];
     private final Rect frame = new Rect();
+    private final Rect obstruction = new Rect();
+    private final Rect container = new Rect();
+    private final java.util.ArrayList<KeyboardVisibleArea.Obstruction> obstructions = new java.util.ArrayList<>();
 
     private boolean fullShown;
     private boolean imeVisible;
@@ -92,11 +95,14 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
         });
         content.getViewTreeObserver().addOnGlobalLayoutListener(this);
 
-        // Anything in the window that wants to stay above the keyboards (the quick bar).
+        // Anything in the window that must stay above the keyboards and that the stream must
+        // be kept clear of (the quick bar).
         for (int i = 0; i < content.getChildCount(); i++) {
             View child = content.getChildAt(i);
-            if (child instanceof KeyboardVisibleArea.Listener) {
-                area.addListener((KeyboardVisibleArea.Listener) child);
+            if (child instanceof KeyboardVisibleArea.Obstruction) {
+                KeyboardVisibleArea.Obstruction o = (KeyboardVisibleArea.Obstruction) child;
+                obstructions.add(o);
+                o.setObstructionChangedListener(this::update);
             }
         }
         game.getApplication().registerActivityLifecycleCallbacks(this);
@@ -429,8 +435,31 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
                 visibleBottom = Math.min(visibleBottom, windowHeight - imeInset);
             }
         }
-        area.publish(0, topInset, windowWidth, visibleBottom);
-        applyLift(pip ? windowHeight : visibleBottom, topInset);
+        // Keyboards are placed; now what stands over the stream on top of them.
+        int keyboardTop = visibleBottom;
+        int visibleLeft = 0;
+        int visibleRight = windowWidth;
+        containerRect(container);
+        for (int i = 0; i < obstructions.size(); i++) {
+            KeyboardVisibleArea.Obstruction o = obstructions.get(i);
+            o.placeAboveKeyboards(pip ? windowHeight : keyboardTop);
+            if (pip || !o.obstructionInWindow(keyboardTop, obstruction)) {
+                continue;
+            }
+            visible[0] = visibleLeft;
+            visible[1] = visibleRight;
+            visible[2] = visibleBottom;
+            clearOf(container, obstruction, visible);
+            visibleLeft = visible[0];
+            visibleRight = visible[1];
+            visibleBottom = visible[2];
+        }
+        area.publish(visibleLeft, topInset, visibleRight, visibleBottom);
+        if (pip) {
+            applyLift(0, 0, windowWidth, windowHeight);
+        } else {
+            applyLift(visibleLeft, topInset, visibleRight, visibleBottom);
+        }
     }
 
     /** Below API 30: the IME is whatever of the window's bottom the visible frame lost. */
@@ -452,22 +481,56 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
                 View.MeasureSpec.makeMeasureSpec(content.getHeight(), View.MeasureSpec.AT_MOST));
     }
 
-    private void applyLift(int visibleBottom, int visibleTop) {
-        float target = 0f;
-        if (prefs.liftStream) {
-            View parent = (View) streamContainer.getParent();
-            parent.getLocationInWindow(location);
-            float top = location[1] + streamContainer.getTop();
-            float bottom = location[1] + streamContainer.getBottom();
-            target = StreamLift.liftFor(top, bottom, visibleTop, visibleBottom, area.focusY());
-        }
-        if (Math.abs(target - liftTarget) < 0.5f) {
+    private final int[] visible = new int[3];
+
+    /**
+     * Narrows the visible area so the stream is kept clear of one obstruction. A bar wider than
+     * tall covers from its top down; one taller than wide covers its side of the stream. One
+     * that does not overlap the stream's columns at all (it sits in the letterbox) costs
+     * nothing.
+     *
+     * @param visible {left, right, bottom} in window pixels, narrowed in place
+     */
+    static void clearOf(Rect container, Rect obstruction, int[] visible) {
+        if (obstruction.right <= container.left || obstruction.left >= container.right
+                || obstruction.bottom <= container.top || obstruction.top >= container.bottom) {
             return;
         }
-        liftTarget = target;
-        streamContainer.animate().translationY(target).setDuration(LIFT_MS)
+        if (obstruction.width() >= obstruction.height()) {
+            visible[2] = Math.min(visible[2], obstruction.top);
+        } else if (obstruction.centerX() > container.centerX()) {
+            visible[1] = Math.min(visible[1], obstruction.left);
+        } else {
+            visible[0] = Math.max(visible[0], obstruction.right);
+        }
+    }
+
+    /** The stream container's layout box in window pixels, without the lift. */
+    private void containerRect(Rect out) {
+        View parent = (View) streamContainer.getParent();
+        parent.getLocationInWindow(location);
+        out.set(location[0] + streamContainer.getLeft(), location[1] + streamContainer.getTop(),
+                location[0] + streamContainer.getRight(), location[1] + streamContainer.getBottom());
+    }
+
+    private void applyLift(int visibleLeft, int visibleTop, int visibleRight, int visibleBottom) {
+        float lift = 0f;
+        float shift = 0f;
+        if (prefs.liftStream) {
+            containerRect(container);
+            lift = StreamLift.liftFor(container.top, container.bottom, visibleTop, visibleBottom, area.focusY());
+            shift = StreamLift.shiftFor(container.left, container.right, visibleLeft, visibleRight);
+        }
+        if (Math.abs(lift - liftTarget) < 0.5f && Math.abs(shift - shiftTarget) < 0.5f) {
+            return;
+        }
+        liftTarget = lift;
+        shiftTarget = shift;
+        streamContainer.animate().translationY(lift).translationX(shift).setDuration(LIFT_MS)
                 .setInterpolator(decelerate).start();
     }
+
+    private float shiftTarget;
 
     float liftTarget() {
         return liftTarget;

@@ -18,6 +18,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | Fn layer | a **Super** key (a lone Super press: Start menu / KDE launcher) and Super+L, F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |
 | Above the system keyboard | a one-row strip: Esc, Tab, Ctrl, Alt, Super, ← ↑ ↓ →, and a key to switch to the full PC keyboard (Termux's extra-keys idea). Setting: *PC keys above the system keyboard* |
 | Stream | slides up out from under any keyboard (system, strip or PC) and back when it closes. Setting: *Move the stream above the keyboard* |
+| Quick bar (toolbar) | **always on screen** by default — across the bottom in portrait (in the letterbox below the stream), down the right-hand side in landscape (in the letterbox beside a 16:9 stream on a 19.5–20:9 phone). The stream is kept clear of it: where the bar does overlap the stream (a keyboard is open, or the letterbox is too narrow), the stream moves up or left out from under it, never shrinks. Setting *Auto-hide toolbar* (off by default) restores the old 3-second collapse to a handle line; then the bar is a transient overlay and the stream does not move for it. A two-finger tap still toggles it either way |
 | System bars | in full screen, only the status bar hides; the navigation bar stays and the window is laid out above it. Setting: *Keep the navigation bar visible* (off = the old immersive mode) |
 
 ## Modifier behaviour (Ctrl, Alt, Shift, Super, Fn)
@@ -175,7 +176,34 @@ the host only when committed, as key events or, for Cyrillic, `ACTION_MULTIPLE` 
 on, composition is now live and duplicate-free. Turning it on by default is a behaviour change
 for every user and wants its own PR.
 
+## The quick bar no longer hides
+
+The owner: *"why also buttons bar is still hiding to this line? let's always show it"*.
+`QuickBarView` collapsed to a 48×6 dp handle 3 s after every interaction. Now it stays
+(`QuickBarAlwaysVisibleTest` failed on the old bar, passes now), with *Auto-hide toolbar* for
+anyone who wants the old behaviour. It is a `KeyboardVisibleArea.Obstruction`: the controller
+places it above any keyboard, then narrows the stream's visible area by it — bottom for a
+horizontal bar, right or left for a vertical one — only where it actually overlaps the stream
+(`PcKeyboardController.clearOf`). The stream then lifts (`StreamLift.liftFor`) or slides left
+into spare letterbox (`StreamLift.shiftFor`). The published `KeyboardVisibleArea` includes the
+bar, so PR #16's `setBottomObstruction` consumer gets it for free. The bar lives inside the
+content view, which with the navigation bar kept is laid out above that bar, so the two never
+overlap.
+
+**No defaults migration.** The setting is new: no install has a stored value, so every existing
+install reads the default (off = always visible) exactly like a new one, and nothing collides
+with #16's bump of `applyDefaultsMigration()` to schema 2 (`QuickBarPreferencesTest` runs the
+migration and checks).
+
+**Nothing else collapses to a line.** Checked: the Artemis floating menu button is replaced by
+the bar, the zoom-toggle button is top-centre and static, and the virtual-controller and
+on-screen-keyboard configure buttons are fixed translucent buttons with no timer.
+
 ## Known limits
+
+- In landscape on a 16:10 or wider stream (or a tablet), the letterbox is too narrow for the
+  bar, and the stream can only slide left as far as its own left letterbox allows; the rest of
+  the overlap stays covered.
 
 - Before the cursor has been seen (no pointer input since the stream started), landscape lifts
   with no point of interest: the bottom of the stream on the keyboard.

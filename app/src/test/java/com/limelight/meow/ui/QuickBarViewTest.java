@@ -79,18 +79,86 @@ public class QuickBarViewTest {
         legacy.onPcKeyboard();
     }
 
+    private static QuickBarView laidOut(QuickBarView bar, int w, int h) {
+        bar.measure(View.MeasureSpec.makeMeasureSpec(w, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(h, View.MeasureSpec.EXACTLY));
+        bar.layout(0, 0, w, h);
+        return bar;
+    }
+
+    private static void idle(long seconds) {
+        org.robolectric.shadows.ShadowLooper.idleMainLooper(seconds, java.util.concurrent.TimeUnit.SECONDS);
+    }
+
     @Test
     public void itRidesAboveTheKeyboard() {
-        QuickBarView bar = bar();
-        bar.measure(View.MeasureSpec.makeMeasureSpec(1080, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(2400, View.MeasureSpec.EXACTLY));
-        bar.layout(0, 0, 1080, 2400);
-        bar.onVisibleAreaChanged(0, 0, 1080, 1400);
-        bar.animate().setDuration(0);
-        org.robolectric.shadows.ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS);
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.placeAboveKeyboards(1400);
+        idle(1);
         assertEquals(-1000f, bar.getTranslationY(), 1f);
-        bar.onVisibleAreaChanged(0, 0, 1080, 2400);
-        org.robolectric.shadows.ShadowLooper.idleMainLooper(1, java.util.concurrent.TimeUnit.SECONDS);
+        bar.placeAboveKeyboards(2400);
+        idle(1);
         assertEquals(0f, bar.getTranslationY(), 1f);
+    }
+
+    @Test
+    public void theAutoHideSettingRestoresTheOldCollapse() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.setAutoHide(true);
+        bar.onStreamStarted();
+        idle(10);
+        assertTrue(!QuickBarAlwaysVisibleTest.shownWithin(findByDescription(bar, "Keyboard"), bar));
+    }
+
+    @Test
+    public void aTwoFingerToggleStillHidesAndShows() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.onStreamStarted();
+        bar.toggleFromGesture();
+        idle(1);
+        assertTrue(!bar.isBarShown());
+        bar.toggleFromGesture();
+        idle(1);
+        assertTrue(bar.isBarShown());
+    }
+
+    @Test
+    public void aShownPermanentBarIsAnObstructionAndAnAutoHidingOneIsNot() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.onStreamStarted();
+        idle(1);
+        laidOut(bar, 1080, 2400);
+        android.graphics.Rect r = new android.graphics.Rect();
+        assertTrue(bar.obstructionInWindow(2400, r));
+        assertTrue("at the bottom: " + r, r.bottom > 2200 && r.width() > r.height());
+        assertTrue("placed above a keyboard too: " + r, bar.obstructionInWindow(1400, r) && r.bottom <= 1400 + 20);
+        bar.setAutoHide(true);
+        assertTrue(!bar.obstructionInWindow(2400, r));
+        bar.setAutoHide(false);
+        bar.hideImmediately();
+        assertTrue(!bar.obstructionInWindow(2400, r));
+    }
+
+    @Test
+    public void obstructionChangesAreReported() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        int[] calls = {0};
+        bar.setObstructionChangedListener(() -> calls[0]++);
+        bar.onStreamStarted();
+        bar.hideImmediately();
+        idle(1);
+        assertTrue(calls[0] >= 2);
+    }
+
+    @Test
+    @Config(sdk = {33}, qualifiers = "land")
+    public void inLandscapeTheBarStandsDownTheRightSide() {
+        QuickBarView bar = laidOut(bar(), 2400, 1080);
+        bar.onStreamStarted();
+        idle(1);
+        laidOut(bar, 2400, 1080);
+        android.graphics.Rect r = new android.graphics.Rect();
+        assertTrue(bar.obstructionInWindow(1080, r));
+        assertTrue("vertical, at the right edge: " + r, r.height() > r.width() && r.right >= 2400 - 60);
     }
 }

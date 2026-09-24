@@ -98,7 +98,7 @@ public class PcKeyboardWiringTest {
 
     // ---- helpers ----------------------------------------------------------------------------
 
-    static String read(String relativePath) throws IOException {
+    public static String read(String relativePath) throws IOException {
         File dir = new File("").getAbsoluteFile();
         for (int up = 0; up < 6 && dir != null; up++, dir = dir.getParentFile()) {
             File candidate = new File(dir, relativePath);

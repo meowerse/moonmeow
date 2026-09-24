@@ -25,6 +25,23 @@ public final class StreamLift {
     }
 
     /**
+     * The sideways twin of {@link #liftFor}, for something standing at the right edge (the
+     * quick bar in landscape, in the letterbox when it is wide enough): slide left out from
+     * under it by as much as the space on the left allows, never shrinking and never moving
+     * right.
+     *
+     * @return the translationX to apply, zero or negative
+     */
+    public static float shiftFor(float containerLeft, float containerRight, float visibleLeft,
+                                 float visibleRight) {
+        if (containerRight <= visibleRight) {
+            return 0f;
+        }
+        float room = Math.max(0f, containerLeft - visibleLeft);
+        return -Math.min(containerRight - visibleRight, room);
+    }
+
+    /**
      * @param containerTop    the stream container's top, in window pixels, without any lift
      * @param containerBottom its bottom, likewise
      * @param visibleTop      the first window row not covered from above (a visible status bar)

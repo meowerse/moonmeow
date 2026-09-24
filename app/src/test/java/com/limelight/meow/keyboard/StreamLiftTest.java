@@ -64,4 +64,21 @@ public class StreamLiftTest {
     public void degenerateBandIsIgnored() {
         assertEquals(0f, StreamLift.liftFor(0, 1080, 500, 400, NO_FOCUS), 0f);
     }
+
+    @Test
+    public void aSideBarInTheLetterboxMovesNothing() {
+        assertEquals(0f, StreamLift.shiftFor(240, 2160, 0, 2250), 0f);
+    }
+
+    @Test
+    public void aSideBarOverTheStreamSlidesItLeftIntoTheSpareLetterbox() {
+        // A 16:10-ish stream with 100 px letterbox each side; the bar covers from 2180.
+        assertEquals(-100f, StreamLift.shiftFor(100, 2300, 0, 2180), 0.01f);
+        assertEquals(-50f, StreamLift.shiftFor(100, 2300, 0, 2250), 0.01f);
+    }
+
+    @Test
+    public void withNoRoomOnTheLeftNothingMoves() {
+        assertEquals(0f, StreamLift.shiftFor(0, 2400, 0, 2300), 0f);
+    }
 }
