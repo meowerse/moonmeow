@@ -528,10 +528,16 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
         liftTarget = lift;
         shiftTarget = shift;
         streamContainer.animate().translationY(lift).translationX(shift).setDuration(LIFT_MS)
-                .setInterpolator(decelerate).start();
+                .setInterpolator(decelerate).withEndAction(streamMoved).start();
     }
 
     private float shiftTarget;
+    /** Tells the area the stream settled at its new place (the binder re-reports). */
+    private final Runnable streamMoved = this::notifyStreamMoved;
+
+    private void notifyStreamMoved() {
+        area.onStreamMoved();
+    }
 
     float liftTarget() {
         return liftTarget;

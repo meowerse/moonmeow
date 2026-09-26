@@ -213,6 +213,7 @@ public class GamePcKeyboardFollowTest {
             settle();
         }
         settle();
+        assertTrue("the stream lifted above the keyboard: " + pc.liftTarget(), pc.liftTarget() < 0f);
         float y = cursorWindowY();
         assertTrue("the host cursor (window y " + y + ") stays above the PC keyboard (top "
                 + keyboardTop + ")", y <= keyboardTop);

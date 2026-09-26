@@ -51,6 +51,8 @@ public class MeowDefaultsCoexistTest {
         assertTrue(ViewportPreference.isEnabled(ctx));
         assertTrue(prefs.getBoolean(CursorFollowPreference.KEY, false));
         assertTrue(prefs.getBoolean(AutoBitratePreference.KEY, false));
+        assertTrue("auto cursor zoom", prefs.getBoolean(com.limelight.meow.cursor.AutoCursorZoom.KEY,
+                com.limelight.meow.cursor.AutoCursorZoom.DEFAULT));
         PcKeyboardPreferences keyboard = PcKeyboardPreferences.read(ctx);
         assertTrue("navigation bar kept", keyboard.keepNavBar);
         assertTrue("stream lift", keyboard.liftStream);

@@ -1066,9 +1066,15 @@ public final class CursorFollowController
         // Moving the visible rectangle right means moving the content left.
         float originX = transform[0];
         float originY = transform[1];
-        moveView(-stepX * transform[2], -stepY * transform[3]);
-        if (view.transform(afterPan) && Math.abs(afterPan[0] - originX) < 0.01f
-                && Math.abs(afterPan[1] - originY) < 0.01f) {
+        float panX = -stepX * transform[2];
+        float panY = -stepY * transform[3];
+        moveView(panX, panY);
+        // Only a pan that was asked for and not made is a refusal. A zero step is the motion
+        // holding while it brakes from the other direction, and must keep the follow going.
+        boolean requested = Math.abs(panX) > 0.01f || Math.abs(panY) > 0.01f;
+        if (requested && view.transform(afterPan)
+                && (Math.abs(panX) <= 0.01f || Math.abs(afterPan[0] - originX) < 0.01f)
+                && (Math.abs(panY) <= 0.01f || Math.abs(afterPan[1] - originY) < 0.01f)) {
             // The view refused the pan: it is already as far as it goes (an overlay such as
             // the PC keyboard covers the rows the cursor is on). Asking again every vsync
             // would never get further and would never stop; settle and wait for a change.

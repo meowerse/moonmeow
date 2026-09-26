@@ -172,6 +172,40 @@ public class CursorFollowControllerTest {
     }
 
     @Test
+    public void aReversalWhileTheViewBrakesStillCompletesTheFollow() {
+        // Following right, then the cursor comes back past the left comfort margin and
+        // nothing more comes in. While the motion brakes from the rightward follow it holds
+        // (zero steps); a hold is not a refused pan, and every such follow must complete.
+        StringBuilder failures = new StringBuilder();
+        for (int framesBefore = 1; framesBefore <= 20; framesBefore++) {
+            for (int target = 1250; target <= 1900; target += 130) {
+                for (int backBy = 5; backBy <= 60; backBy += 11) {
+                    tearDown();
+                    setUp();
+                    controller.onCursorPosition(target, 540, true, 1);
+                    frames.runUi();
+                    for (int i = 0; i < framesBefore && frames.frame != null; i++) {
+                        Choreographer.FrameCallback f = frames.frame;
+                        frames.frame = null;
+                        frames.now += 17;
+                        f.doFrame(frames.nanos += 16_666_667L);
+                    }
+                    int back = Math.round(view.x + backBy);
+                    controller.onCursorPosition(back, 540, true, 2);
+                    frames.runUi();
+                    frames.settle();
+                    if (back - view.x < 480f * CursorFollowController.COMFORT_MARGIN - 1f
+                            && view.x > 0f) {
+                        failures.append(" [").append(framesBefore).append(",").append(target)
+                                .append(",").append(backBy).append(" view.x=").append(view.x).append("]");
+                    }
+                }
+            }
+        }
+        assertEquals("follows cut short:" + failures, 0, failures.length());
+    }
+
+    @Test
     public void aHostPositionFromTheCallbackThreadIsDrainedOnTheUiThread() {
         frames.onUiThread = false;
         controller.onCursorPosition(1300, 540, true, 1);

@@ -16,10 +16,9 @@ import java.util.ArrayList;
  * {@code Game} needs no wiring for it. Consumers:
  * <ul>
  *   <li>the quick bar, which rides above the keyboard instead of disappearing under it;</li>
- *   <li>the cursor follower (PR #16, {@code CursorFollowController}): its viewport binder
- *       should take its visible bottom from {@link #visibleBottom()} instead of subtracting
- *       only the IME inset, so the PC keyboard counts too, and call
- *       {@code ensureVisible()} from a listener registered here;</li>
+ *   <li>the viewport binder ({@code StreamViewportBinder}): it turns every change into its
+ *       bottom obstruction, so cursor follow and the host crop end above the keyboards, and
+ *       re-reports when the stream itself moves ({@link #setStreamMovedListener});</li>
  *   <li>and the other way round: whoever knows where the host cursor or caret is sets a
  *       {@link FocusSource}, and the stream lift keeps that point above the keyboard.</li>
  * </ul>
@@ -115,6 +114,22 @@ public final class KeyboardVisibleArea {
         this.focusSource = source;
     }
 
+    /**
+     * The stream container finished moving (the keyboard lift or a sideways slide): what is
+     * visible of the stream changed even though the covered area did not. UI thread.
+     */
+    public void setStreamMovedListener(Runnable listener) {
+        this.streamMovedListener = listener;
+    }
+
+    void onStreamMoved() {
+        if (streamMovedListener != null) {
+            streamMovedListener.run();
+        }
+    }
+
+    private Runnable streamMovedListener;
+
     /** The focus source's point moved enough to re-place the stream. UI thread. */
     public void onFocusMoved() {
         if (focusMovedListener != null) {
@@ -124,6 +139,11 @@ public final class KeyboardVisibleArea {
 
     void setFocusMovedListener(Runnable listener) {
         this.focusMovedListener = listener;
+    }
+
+    /** Tests outside this package: observe {@link #onFocusMoved}. */
+    public void setFocusMovedListenerForTest(Runnable listener) {
+        setFocusMovedListener(listener);
     }
 
     private Runnable focusMovedListener;
@@ -145,8 +165,9 @@ public final class KeyboardVisibleArea {
         return bottom;
     }
 
-    /** Publishes a new area; listeners hear about real changes only. */
-    void publish(int left, int top, int right, int bottom) {
+    /** Publishes a new area; listeners hear about real changes only. The keyboard controller
+     * is the only production caller; public for the binder's tests. */
+    public void publish(int left, int top, int right, int bottom) {
         if (known && left == this.left && top == this.top && right == this.right && bottom == this.bottom) {
             return;
         }

@@ -156,10 +156,29 @@ container covered, the cursor could sit on rows the view can never pan to. The f
 requested a frame every vsync forever (a pan that `PanZoomHandler` clamps to nothing never
 reaches "settled") — in Robolectric an out-of-memory, on a phone a wasted vsync loop. A pan
 the view refuses now settles the follower
-(`aPanTheViewRefusesEndsTheFollowInsteadOfRequestingFramesForever` failed before the fix).
+(`aPanTheViewRefusesEndsTheFollowInsteadOfRequestingFramesForever` failed before the fix). Only a
+requested, non-zero pan counts: a zero step is the motion holding while it brakes from the other
+direction, and the follow goes on (`aReversalWhileTheViewBrakesStillCompletesTheFollow`, which
+failed on the first version of the fix). With the lift off, a cursor on rows under the keyboard
+stays there until the keyboard closes or the cursor moves up.
+
+**The stream moving also re-reports.** The lift and the sideways slide animate the container;
+when the animation ends the controller calls `KeyboardVisibleArea.onStreamMoved()`, and the
+binder recomputes what is visible and re-reports the crop, so a re-lift for the cursor with no
+change in what covers the window still updates the host.
+
+**Accepted deviation: the lift follows the cursor only with cursor follow on.** The focus source
+is #16's `HostCursor`, which is fed only when cursor follow is enabled (on by default since
+schema 2). With it off the lift has no point of interest and puts the stream's bottom on the
+keyboard, as before PR #17 had a cursor at all. Re-feeding the cursor with follow off would mean
+installing #16's input tap for a disabled feature; not done.
+
+**Horizontal obstructions stay local.** The binder takes only the area's bottom: #16 has a bottom
+obstruction and no side one. The side-standing quick bar is placed only in a letterbox, so it
+never covers the stream it would need to report.
 
 **Defaults.** #16's `MeowDefaults` schema 2 turns viewport follow, cursor follow and auto
-bitrate on for existing installs. This branch's four settings are new keys whose defaults are
+bitrate on for existing installs (auto cursor zoom is on by its default). This branch's four settings are new keys whose defaults are
 the "on" behaviour, so existing installs read them on without a step of their own;
 `MeowDefaultsCoexistTest` runs the migration on a schema-1 install and checks all seven.
 

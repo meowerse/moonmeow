@@ -161,6 +161,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         return scratchFocus[1] + follow.cursor().y() * scratchFocus[3];
     }
 
+    private final KeyboardVisibleArea.Listener keyboardAreaListener = (l, t, r, b) -> onKeyboardAreaChanged(b);
+    private final Runnable streamMovedListener = this::onVisibleAreaChanged;
+
     /** Window pixels below the area left visible by keyboards and bars. UI thread. */
     void onKeyboardAreaChanged(int visibleBottomInWindow) {
         View decor = parent.getRootView();
@@ -182,7 +185,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         this.parent = parent;
         this.visibleArea = KeyboardVisibleArea.install(parent);
         this.visibleArea.setFocusSource(this::cursorFocusY);
-        this.visibleArea.addListener((l, t, r, b) -> onKeyboardAreaChanged(b));
+        this.visibleArea.addListener(keyboardAreaListener);
+        this.visibleArea.setStreamMovedListener(streamMovedListener);
 
         if (handler != null) {
             this.thread = null;
@@ -283,6 +287,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         this.streamWidth = Math.max(1, streamWidth);
         this.streamHeight = Math.max(1, streamHeight);
         this.streamStarted = true;
+        lastNotifiedFocusY = Float.NaN;
         this.contentFrame = null;
         if (compositor != null) {
             compositor.onStreamStarted(this.streamWidth, this.streamHeight);
@@ -424,6 +429,12 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
      * calls this unconditionally.
      */
     public void release() {
+        // The keyboard area lives on the window's decor: leave it holding nothing of ours.
+        visibleArea.removeListener(keyboardAreaListener);
+        visibleArea.setFocusSource(null);
+        visibleArea.setStreamMovedListener(null);
+        mainHandler.removeCallbacks(focusMoved);
+        focusMovePosted = false;
         MeowViewportBridge.clearEchoListener(this);
         live = false;
         streamStarted = false;
