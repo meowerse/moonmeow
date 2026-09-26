@@ -91,6 +91,8 @@ public class RelativeTouchContext implements TouchContext {
 
     private static final int SCROLL_SPEED_FACTOR = 5;
 
+    private final com.limelight.meow.cursor.SubPixelAccumulator meowRemainder = new com.limelight.meow.cursor.SubPixelAccumulator(); // MEOW-TOUCH(cursor-follow)
+
     public RelativeTouchContext(NvConnection conn, int actionIndex,
                                 int referenceWidth, int referenceHeight,
                                 View view, PreferenceConfiguration prefConfig)
@@ -279,7 +281,8 @@ public class RelativeTouchContext implements TouchContext {
                                 (short) targetView.getHeight());
                     }
                     else {
-                        conn.sendMouseMove((short) (deltaX*prefConfig.touchPadSensitivity*0.01f), (short) (deltaY*prefConfig.touchPadYSensitity*0.01f));
+                        // MEOW-TOUCH(cursor-follow): carry the sub-pixel remainder instead of truncating it away
+                        conn.sendMouseMove(meowRemainder.x(deltaX*prefConfig.touchPadSensitivity*0.01f), meowRemainder.y(deltaY*prefConfig.touchPadYSensitity*0.01f));
                     }
                 }
 

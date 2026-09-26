@@ -44,9 +44,14 @@ public final class MeowViewportBridge implements ViewportReporter.Sender {
          * @param height        applied height
          * @param desktopWidth  captured desktop width in host pixels, or 0 if not reported
          * @param desktopHeight captured desktop height in host pixels, or 0 if not reported
+         * @param frameIndex    host frame number of the first frame encoded with this
+         *                      rectangle (the {@code frameNumber} the decoder sees), or 0
+         *                      from an echo-v1 host that does not report it. Real frame
+         *                      numbers start at 1, so "apply once frameNumber >= frameIndex"
+         *                      degenerates to "apply on receipt" for 0.
          */
         void onViewportApplied(int x, int y, int width, int height,
-                               int desktopWidth, int desktopHeight);
+                               int desktopWidth, int desktopHeight, int frameIndex);
     }
 
     private static volatile EchoListener echoListener;
@@ -106,13 +111,14 @@ public final class MeowViewportBridge implements ViewportReporter.Sender {
      * rumble, HDR and clipboard delivery.
      */
     static void onViewportEcho(int x, int y, int width, int height,
-                               int desktopWidth, int desktopHeight) {
+                               int desktopWidth, int desktopHeight, int frameIndex) {
         EchoListener listener = echoListener;
         if (listener == null) {
             return;
         }
         try {
-            listener.onViewportApplied(x, y, width, height, desktopWidth, desktopHeight);
+            listener.onViewportApplied(x, y, width, height, desktopWidth, desktopHeight,
+                    frameIndex);
         } catch (RuntimeException | Error ignored) {
             // A misbehaving listener must not abort a shared native callback thread.
         }

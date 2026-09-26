@@ -121,6 +121,7 @@ public final class ViewportReporter {
     private final Runnable deadlineTask = this::onEchoDeadline;
 
     private boolean enabled;
+    private boolean capabilityProbe;
     private boolean streaming;
     private HostSupport support = HostSupport.UNSUPPORTED;
     private int probesSent;
@@ -166,6 +167,25 @@ public final class ViewportReporter {
         return enabled;
     }
 
+    /**
+     * Probe the host even while crop reporting is {@linkplain #setEnabled off}.
+     *
+     * <p>The echo is the only way to learn that a host runs the meow extensions, and the
+     * cursor and bitrate extensions must not be sent to a host that has not proven it (they
+     * are opt-in and a stock host would only log them). With this on, a stream whose user
+     * turned viewport cropping off still sends the one full-frame probe — which asks the host
+     * for exactly what it streams anyway — and records {@link HostSupport#SUPPORTED} on the
+     * echo, but never sends a crop. Takes effect at the next {@link #onStreamStarted}.
+     */
+    public void setCapabilityProbe(boolean probe) {
+        this.capabilityProbe = probe;
+    }
+
+    /** True once the host has answered a probe this session: it runs the meow extensions. */
+    public boolean isHostProven() {
+        return streaming && support == HostSupport.SUPPORTED;
+    }
+
     /** True while rectangles the user produces are actually being transmitted. */
     public boolean isActive() {
         return enabled && streaming && support == HostSupport.SUPPORTED;
@@ -203,7 +223,11 @@ public final class ViewportReporter {
         return referenceFrame;
     }
 
-    /** The last rectangle the host said it applied, or null if it has not said. */
+    /**
+     * The last rectangle the host said it applied, or null if it has not said (or said
+     * something outside the stream frame). This is what the presented transform is composed
+     * from — see {@code StreamViewportBinder#onViewportApplied}.
+     */
     public ViewportRect appliedRect() {
         return appliedRect;
     }
@@ -228,7 +252,7 @@ public final class ViewportReporter {
         this.streaming = true;
         this.support = HostSupport.PROBING;
         scheduler.cancel();
-        if (!enabled) {
+        if (!enabled && !capabilityProbe) {
             this.support = HostSupport.UNSUPPORTED;
             return;
         }
@@ -264,12 +288,14 @@ public final class ViewportReporter {
      * @param height        applied height, in stream pixels
      * @param desktopWidth  captured desktop width in host pixels, or 0 if not reported
      * @param desktopHeight captured desktop height in host pixels, or 0 if not reported
+     * @return true when the echo was accepted, so {@link #appliedRect()} and
+     *         {@link #desktopWidth()} now describe it
      */
-    public void onViewportApplied(int x, int y, int width, int height,
-                                  int desktopWidth, int desktopHeight) {
-        if (!streaming || !enabled || support == HostSupport.UNSUPPORTED) {
+    public boolean onViewportApplied(int x, int y, int width, int height,
+                                     int desktopWidth, int desktopHeight) {
+        if (!streaming || (!enabled && !capabilityProbe) || support == HostSupport.UNSUPPORTED) {
             // Late echo from a stream that has already ended, or from one we gave up on.
-            return;
+            return false;
         }
 
         boolean wasProbing = support == HostSupport.PROBING;
@@ -284,10 +310,11 @@ public final class ViewportReporter {
             deferredRect = null;
             // The probe carried a rectangle too. If the user never moved, it is the same
             // one, and repeating it would be a JNI call the library only drops again.
-            if (!toSend.equals(probeRect)) {
+            if (!toSend.equals(probeRect) && enabled) {
                 deliver(toSend);
             }
         }
+        return true;
     }
 
     /** The rectangle of the stream frame the user can currently see. */
@@ -306,7 +333,7 @@ public final class ViewportReporter {
 
     /** The probe deadline expired. Retry, or write the host off. */
     void onEchoDeadline() {
-        if (!streaming || !enabled || support != HostSupport.PROBING) {
+        if (!streaming || (!enabled && !capabilityProbe) || support != HostSupport.PROBING) {
             return;
         }
         if (probesSent < PROBE_ATTEMPTS) {

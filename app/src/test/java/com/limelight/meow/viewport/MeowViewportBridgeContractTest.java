@@ -78,8 +78,8 @@ public class MeowViewportBridgeContractTest {
         // GetStaticMethodID resolves by name AND descriptor. A mismatch returns NULL and the
         // echo is silently never delivered.
         String source = read(JNI_SOURCE);
-        assertTrue("meowjni.c must resolve onViewportEcho as (IIIIII)V; found:\n" + source,
-                Pattern.compile("\"onViewportEcho\"\\s*,\\s*\"\\(IIIIII\\)V\"")
+        assertTrue("meowjni.c must resolve onViewportEcho as (IIIIIII)V; found:\n" + source,
+                Pattern.compile("\"onViewportEcho\"\\s*,\\s*\"\\(IIIIIII\\)V\"")
                         .matcher(source).find());
     }
 
@@ -110,12 +110,14 @@ public class MeowViewportBridgeContractTest {
         // The C function in meowjni.c is reached through a struct member in callbacks.c.
         // Present but unreferenced, it links fine and is never called.
         String callbacks = read(CALLBACKS);
-        assertTrue("callbacks.c must point .setViewport at MeowBridgeClSetViewport; found:\n"
+        // V2, not V1: the library calls exactly one of the two for an echo, and only V2
+        // carries the frame index the frame-accurate crop swap depends on.
+        assertTrue("callbacks.c must point .setViewportV2 at MeowBridgeClSetViewportV2; found:\n"
                         + declarationLines(callbacks),
-                Pattern.compile("\\.setViewport\\s*=\\s*MeowBridgeClSetViewport")
+                Pattern.compile("\\.setViewportV2\\s*=\\s*MeowBridgeClSetViewportV2")
                         .matcher(callbacks).find());
-        assertTrue("meowjni.c must define MeowBridgeClSetViewport",
-                read(JNI_SOURCE).contains("void MeowBridgeClSetViewport("));
+        assertTrue("meowjni.c must define MeowBridgeClSetViewportV2",
+                read(JNI_SOURCE).contains("void MeowBridgeClSetViewportV2("));
         // One declaration, included by both translation units. An `extern` repeated in
         // callbacks.c could drift from the definition in meowjni.c, and a parameter-list
         // mismatch across translation units is undefined behaviour the compiler cannot see.
@@ -125,7 +127,7 @@ public class MeowViewportBridgeContractTest {
                 !callbacks.contains("extern void MeowBridgeClSetViewport"));
         assertTrue("meowjni.h must declare it",
                 read("app/src/main/jni/moonlight-core/meowjni.h")
-                        .contains("void MeowBridgeClSetViewport("));
+                        .contains("void MeowBridgeClSetViewportV2("));
     }
 
     @Test
@@ -143,7 +145,7 @@ public class MeowViewportBridgeContractTest {
                         .matcher(rules).find());
         assertTrue("the keep rule must name onViewportEcho with its exact parameter list",
                 Pattern.compile("static\\s+void\\s+onViewportEcho\\s*\\(\\s*int\\s*,\\s*int\\s*,"
-                        + "\\s*int\\s*,\\s*int\\s*,\\s*int\\s*,\\s*int\\s*\\)")
+                        + "\\s*int\\s*,\\s*int\\s*,\\s*int\\s*,\\s*int\\s*,\\s*int\\s*\\)")
                         .matcher(rules).find());
     }
 

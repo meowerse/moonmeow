@@ -125,29 +125,43 @@ the lift; a physical keyboard arriving hides the PC keyboard (like the system ke
 detaching it changes nothing. The system keyboard opening while the PC keyboard is up replaces
 it; opening the PC keyboard hides the system keyboard.
 
-## The "visible area changed" signal (for PR #16)
+## Wired to cursor follow and the host crop (PR #16)
 
 `KeyboardVisibleArea` is published per window and found from any view with
-`KeyboardVisibleArea.of(view)`:
+`KeyboardVisibleArea.of(view)`. Its visible bottom is what no keyboard (system, strip, PC) and
+no permanent quick bar covers. Since #16 merged, the two features are wired both ways, all in
+`StreamViewportBinder`:
 
-- `visibleTop()` / `visibleBottom()` — window pixels not covered by a status bar or by any
-  keyboard (system, strip, PC). `addListener(Listener)` is told on every real change.
-- `setFocusSource(FocusSource)` — whoever knows where the host cursor or caret is on the stream
-  container returns its y (container pixels), and the lift centres it above the keyboard.
+- **Keyboards → follow and crop.** The binder listens to the area and turns every change into
+  `setBottomObstruction(windowHeight - visibleBottom)`, #16's overlay API. The visible
+  rectangle the follower keeps the cursor in, and the host is asked to crop to, therefore ends
+  above whichever keyboard or bar is open, not only above the IME.
+- **Follow → lift.** The binder is the area's `FocusSource`: the host cursor
+  (`CursorFollowController.cursor()`, reported or dead-reckoned) mapped through the live
+  transform into container pixels. When the follower's frames see the cursor move by more than
+  an eighth of the container, the binder posts `onFocusMoved()` and the stream lift re-places
+  the stream, so the rows under the cursor come back into reach even though part of the
+  container is hidden behind the keyboard.
+- **Insets have one owner per view.** #16's binder owns `setOnApplyWindowInsetsListener` on the
+  stream container; the keyboard controller owns it on its own keyboard view. Neither replaces
+  the other.
 
-How `feat/real-viewport-cursor-bitrate` should consume it, once both are merged:
-1. In `StreamViewportBinder`, replace `decorHeight - imeBottomInset(decor)` with
-   `KeyboardVisibleArea.of(parent).visibleBottom()` when the area `isKnown()`, so the PC keyboard
-   and the strip count as covering the stream, not only the IME.
-2. Register a `KeyboardVisibleArea.Listener` that calls `onVisibleAreaChanged()` (it already
-   re-reports the viewport and calls `cursorFollow.ensureVisible()`), instead of relying on an
-   `OnApplyWindowInsetsListener`, which the PC keyboard does not trigger.
-3. This branch already makes `StreamViewportBinder` the `FocusSource` (the last cursor position
-   it was handed, in container pixels) and calls `onFocusMoved()` on large moves. #16 rewrites
-   that class: keep the two `recordCursorViewY` calls, or replace the source with one backed by
-   `HostCursor`, whose host-reported position is better than any estimate.
+`GamePcKeyboardFollowTest` drives it through `Game` in an attached window: zoomed 3x in touch
+trackpad mode, the PC keyboard opened, the cursor driven to the desktop's last row. The stream
+lifts, the obstruction equals the keyboard's cover, and the followed cursor ends above the
+keyboard's top edge; closing the keyboard clears the obstruction.
 
-Until #16 lands, its follower only sees the IME; nothing breaks either way.
+**A follower bug this surfaced (fixed in `CursorFollowController`).** With part of the
+container covered, the cursor could sit on rows the view can never pan to. The follower then
+requested a frame every vsync forever (a pan that `PanZoomHandler` clamps to nothing never
+reaches "settled") — in Robolectric an out-of-memory, on a phone a wasted vsync loop. A pan
+the view refuses now settles the follower
+(`aPanTheViewRefusesEndsTheFollowInsteadOfRequestingFramesForever` failed before the fix).
+
+**Defaults.** #16's `MeowDefaults` schema 2 turns viewport follow, cursor follow and auto
+bitrate on for existing installs. This branch's four settings are new keys whose defaults are
+the "on" behaviour, so existing installs read them on without a step of their own;
+`MeowDefaultsCoexistTest` runs the migration on a schema-1 install and checks all seven.
 
 ## Typing fixes found on the way
 

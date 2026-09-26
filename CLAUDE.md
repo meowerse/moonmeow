@@ -232,13 +232,13 @@ user complains about is in the protocol.
 If you believe you need a protocol change, stop and escalate. You almost certainly
 need a Java-layer change instead.
 
-Sealed does not mean *unmaintained*: our pin is a fork's. It is
-`meowerse/moonmeow-common-c` branch `meow` — upstream `874ac95` plus our viewport
-additions — and *measured 2026-09-24* it is **3 commits behind** the real project's
-`master` (`62e0663`, 2026-09-08) and 9 ahead. (This line used to say 39 behind; that was
-the old ClassicOldSong pin, `c999436`.) A separate change re-grafts `meow` onto
-`62e0663`. See "Upstream reality check" in §4 before concluding this submodule is fine
-because `git submodule status` is clean.
+Sealed does not mean *unmaintained*: our pin is a fork's — `meowerse/moonmeow-common-c`
+branch `meow`. Since 2026-09-24 that branch is merged with the real project's `master` at
+`62e0663` (security fixes included) and shares history with it, so "how far behind are we"
+is an ordinary `rev-list` count again. (Before that it was upstream `874ac95` plus our
+viewport additions, 3 behind; earlier still this line said 39 behind, which was the old
+ClassicOldSong pin `c999436`.) See "Upstream reality check" in §4 before concluding this
+submodule is fine because `git submodule status` is clean.
 
 ---
 
@@ -315,8 +315,17 @@ hazard applies to every change here, and `nm -D` alone does not prove it. Grep t
 slash-form `FindClass` strings too.
 
 Our own additions on `meow` are public API (`LiSendViewportEvent`,
-`LiSendViewportEventForced`, `ConnListenerSetViewport`), so a conflict there is a
-real API decision, not a formatting one. Read both sides.
+`LiSendViewportEventForced`, `ConnListenerSetViewport`/`ConnListenerSetViewportV2`,
+`LiSendCursorSubscribe`, `ConnListenerCursorPosition`, `LiSendReceiverReport`,
+`ConnListenerBitrateApplied`, `LiGetMeowVideoNetworkStats`), so a conflict there is a
+real API decision, not a formatting one. Read both sides. The wire format is
+`moonlight-common-c/docs/meow-protocol.md`.
+
+**Since 2026-09-24 `meow` shares history with `real/master`.** It used to be an orphan
+branch, which is why `git merge real/master` above needed `--allow-unrelated-histories`
+the first time. It no longer does: `meow` was re-grafted with a merge commit whose
+parents are the old `meow` tip (`78488f25`, still reachable — never force-push `meow`)
+and `real/master` `62e0663`. Every later sync is a plain `git merge real/master`.
 
 ### Upstream reality check — we track forks, verify against originals
 
@@ -342,20 +351,18 @@ a dead project, but there is now real work to pull. Pull it as cherry-picks per 
 never as a merge (26 conflicting paths, measured there).
 
 **The trap** — historical, kept because the lesson is not. Until 2026-08-25
-`.gitmodules` pointed the protocol core at a *fork*, not the original (it now points at
-`meowerse/moonmeow-common-c`, which is still a fork):
+`.gitmodules` pointed the protocol core at a *fork*, not the original
+(`ClassicOldSong/moonlight-common-c`); it now points at `meowerse/moonmeow-common-c`
+branch `meow`, which is still a fork:
 
-```
-[submodule "app/src/main/jni/moonlight-core/moonlight-common-c"]
-    url = https://github.com/ClassicOldSong/moonlight-common-c
-```
+*Historical, measured 2026-08-24:* the pin was then `c999436` (2025-09-01), **39 commits
+behind** the original and 6 ahead. *Current, 2026-09-24:* the pin is the `meow` tip
+`1869ace`, which contains `real/master` `62e0663` — 0 behind at the time of the bump.
+`git submodule status` reports it clean, because clean only means "matches the pin" — it
+says nothing about whether the pin is current, and a submodule's `origin` may not be the
+project's origin at all.
 
-Our pin is `c999436` (2025-09-01). Against the original that is **39 commits
-behind** and 6 ahead. `git submodule status` reports it clean, because clean only
-means "matches the pin" — it says nothing about whether the pin is current, and a
-submodule's `origin` may not be the project's origin at all.
-
-What the 39 missing commits include:
+What those 39 commits included (all merged into `meow` since):
 
 - `7b026e7` Harden RTSP handling for malformed Session headers and oversized responses — **security**
 - `518b244` Rewrite MbedTLS codepaths to use the modern PSA APIs
@@ -389,6 +396,11 @@ protocol core and one remedy.
 *and* the client→host viewport message that foveated streaming is built on
 (`LiSendViewportEvent`, `LiSendViewportEventForced`, `ConnListenerSetViewport`,
 control packet `0x3003`).
+
+**Extended, 2026-09-24 (owner-approved).** `meow` also carries echo v2 (the frame index
+a crop takes effect on), the host→client cursor position (`0x3004`) and the client→host
+receiver report with the host's applied-bitrate answer (`0x3005`), and was merged with
+`real/master` `62e0663`. The pin is `1869ace`.
 
 That second part was a §2 escalation, raised and approved: **no Java-layer route
 existed.** No message in the existing protocol can carry a rectangle from client to
@@ -523,7 +535,7 @@ Ordered by what is actually uncovered, not by what sounds important:
 
 ```bash
 ./gradlew assembleNonRoot_gameRelease     # release build, lintVital runs here
-./gradlew testNonRoot_gameReleaseUnitTest # 295 tests (2026-09-24), all must pass
+./gradlew testNonRoot_gameReleaseUnitTest # all must pass (414 on 2026-09-24)
 ```
 
 Then the runtime check in §5. Red gate → nothing gets pushed.

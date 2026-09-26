@@ -26,20 +26,20 @@ public class MeowViewportBridgeTest {
         // down. An unconditional clear would deregister the live stream and it would never
         // see an echo.
         final Object[] captured = new Object[1];
-        MeowViewportBridge.EchoListener stale = (x, y, w, h, dw, dh) -> {
+        MeowViewportBridge.EchoListener stale = (x, y, w, h, dw, dh, frame) -> {
         };
         MeowViewportBridge.EchoListener live =
-                (x, y, w, h, dw, dh) -> captured[0] = "called";
+                (x, y, w, h, dw, dh, frame) -> captured[0] = "called";
         MeowViewportBridge.setEchoListener(stale);
         MeowViewportBridge.setEchoListener(live);
 
         MeowViewportBridge.clearEchoListener(stale);
-        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0);
+        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0, 0);
         assertEquals("called", captured[0]);
 
         MeowViewportBridge.clearEchoListener(live);
         captured[0] = null;
-        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0);
+        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0, 0);
         assertNull(captured[0]);
     }
 
@@ -69,13 +69,14 @@ public class MeowViewportBridgeTest {
     @Test
     public void anEchoWithNoListenerRegisteredIsHarmless() {
         MeowViewportBridge.setEchoListener(null);
-        MeowViewportBridge.onViewportEcho(0, 0, 1920, 516, 5360, 1440);
+        MeowViewportBridge.onViewportEcho(0, 0, 1920, 516, 5360, 1440, 0);
     }
 
     @Test
     public void anEchoReachesTheRegisteredListener() {
-        final int[] seen = new int[6];
-        MeowViewportBridge.setEchoListener((x, y, w, h, dw, dh) -> {
+        final int[] seen = new int[7];
+        MeowViewportBridge.setEchoListener((x, y, w, h, dw, dh, frame) -> {
+            seen[6] = frame;
             seen[0] = x;
             seen[1] = y;
             seen[2] = w;
@@ -83,7 +84,8 @@ public class MeowViewportBridgeTest {
             seen[4] = dw;
             seen[5] = dh;
         });
-        MeowViewportBridge.onViewportEcho(10, 20, 300, 400, 5360, 1440);
+        MeowViewportBridge.onViewportEcho(10, 20, 300, 400, 5360, 1440, 4242);
+        assertEquals(4242, seen[6]);
         assertEquals(10, seen[0]);
         assertEquals(20, seen[1]);
         assertEquals(300, seen[2]);
@@ -96,10 +98,10 @@ public class MeowViewportBridgeTest {
     public void aThrowingListenerCannotEscapeBackIntoTheNativeCallbackThread() {
         // An exception left pending here would abort the next JNI call made from the
         // library's async callback thread -- which belongs to rumble, HDR or clipboard.
-        MeowViewportBridge.setEchoListener((x, y, w, h, dw, dh) -> {
+        MeowViewportBridge.setEchoListener((x, y, w, h, dw, dh, frame) -> {
             throw new IllegalStateException("boom");
         });
-        MeowViewportBridge.onViewportEcho(0, 0, 1920, 516, 0, 0);
+        MeowViewportBridge.onViewportEcho(0, 0, 1920, 516, 0, 0, 0);
     }
 
     @Test
@@ -108,10 +110,10 @@ public class MeowViewportBridgeTest {
         // handler thread has been quit.
         final Object[] captured = new Object[1];
         MeowViewportBridge.EchoListener listener =
-                (x, y, w, h, dw, dh) -> captured[0] = "called";
+                (x, y, w, h, dw, dh, frame) -> captured[0] = "called";
         MeowViewportBridge.setEchoListener(listener);
         MeowViewportBridge.clearEchoListener(listener);
-        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0);
+        MeowViewportBridge.onViewportEcho(0, 0, 1, 1, 0, 0, 0);
         assertNull(captured[0]);
     }
 
