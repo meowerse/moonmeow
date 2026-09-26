@@ -51,6 +51,7 @@ public class MeowDefaultsCoexistTest {
         assertTrue(ViewportPreference.isEnabled(ctx));
         assertTrue(prefs.getBoolean(CursorFollowPreference.KEY, false));
         assertTrue(prefs.getBoolean(AutoBitratePreference.KEY, false));
+        assertTrue("host audio (schema 3)", prefs.getBoolean(com.limelight.meow.audio.HostAudioPreference.KEY, false));
         assertTrue("auto cursor zoom", prefs.getBoolean(com.limelight.meow.cursor.AutoCursorZoom.KEY,
                 com.limelight.meow.cursor.AutoCursorZoom.DEFAULT));
         PcKeyboardPreferences keyboard = PcKeyboardPreferences.read(ctx);

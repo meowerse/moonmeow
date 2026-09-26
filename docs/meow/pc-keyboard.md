@@ -177,10 +177,20 @@ installing #16's input tap for a disabled feature; not done.
 obstruction and no side one. The side-standing quick bar is placed only in a letterbox, so it
 never covers the stream it would need to report.
 
-**Defaults.** #16's `MeowDefaults` schema 2 turns viewport follow, cursor follow and auto
-bitrate on for existing installs (auto cursor zoom is on by its default). This branch's four settings are new keys whose defaults are
+**With PR #18's frame presenter.** On API 33+ each frame is drawn into a child `SurfaceControl`
+of the stream `SurfaceView`, positioned and cropped by `FrameLayerGeometry` from the same view
+transform. It therefore moves with the lifted container and stays in the SurfaceView's plane,
+behind the app window, so the PC keyboard and the quick bar (views in that window) always draw
+over it; `PcKeyboardWiringTest.theVideoLayerStaysBelowTheKeyboardAndTheQuickBar` pins the
+parenting and `setZOrderOnTop(false)`. The crop the presenter asks the host for comes from the
+same visible rectangle, which ends above the keyboard through the bottom obstruction.
+
+**Defaults.** `MeowDefaults` schema 2 (#16) turns viewport follow, cursor follow and auto
+bitrate on for existing installs (auto cursor zoom is on by its default); schema 3 (#18) turns
+host audio on. This branch adds no step to either. This branch's four settings are new keys whose defaults are
 the "on" behaviour, so existing installs read them on without a step of their own;
-`MeowDefaultsCoexistTest` runs the migration on a schema-1 install and checks all seven.
+`MeowDefaultsCoexistTest` runs the migration (now to schema 3) on a schema-1 install and checks
+them all together.
 
 ## Typing fixes found on the way
 

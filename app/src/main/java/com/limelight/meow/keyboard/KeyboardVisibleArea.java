@@ -122,7 +122,8 @@ public final class KeyboardVisibleArea {
         this.streamMovedListener = listener;
     }
 
-    void onStreamMoved() {
+    @androidx.annotation.VisibleForTesting(otherwise = androidx.annotation.VisibleForTesting.PACKAGE_PRIVATE)
+    public void onStreamMoved() {
         if (streamMovedListener != null) {
             streamMovedListener.run();
         }
@@ -167,6 +168,7 @@ public final class KeyboardVisibleArea {
 
     /** Publishes a new area; listeners hear about real changes only. The keyboard controller
      * is the only production caller; public for the binder's tests. */
+    @androidx.annotation.VisibleForTesting(otherwise = androidx.annotation.VisibleForTesting.PACKAGE_PRIVATE)
     public void publish(int left, int top, int right, int bottom) {
         if (known && left == this.left && top == this.top && right == this.right && bottom == this.bottom) {
             return;

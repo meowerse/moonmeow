@@ -96,6 +96,23 @@ public class PcKeyboardWiringTest {
                 "new com.limelight.meow.keyboard.ImeInputConnection(this, mInputCallbacks)");
     }
 
+    @Test
+    public void theVideoLayerStaysBelowTheKeyboardAndTheQuickBar() throws IOException {
+        // PR #18's presenter draws each frame into its own SurfaceControl. The PC keyboard and
+        // the quick bar are ordinary views in the app window, so they cover the video only as
+        // long as that layer lives under the window: a child of the stream SurfaceView's own
+        // surface (which is behind the window, not "on top"), never a layer of its own above.
+        String presenter = read("app/src/main/java/com/limelight/meow/viewport/SurfaceFramePresenter.java");
+        assertContains("the video layer must be parented to the SurfaceView's surface",
+                presenter, "SurfaceControl parent = view.getSurfaceControl();");
+        assertContains("... as a child of it", presenter, ".setParent(parent)");
+        String game = read(GAME);
+        assertContains("the stream SurfaceView must stay behind the window",
+                game, "streamSurfaceView.setZOrderOnTop(false)");
+        assertTrue("nothing may put the stream SurfaceView on top of the window",
+                !game.contains("setZOrderOnTop(true)") && !presenter.contains("setZOrderOnTop(true)"));
+    }
+
     // ---- helpers ----------------------------------------------------------------------------
 
     public static String read(String relativePath) throws IOException {

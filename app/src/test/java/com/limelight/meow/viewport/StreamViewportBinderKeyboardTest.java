@@ -47,7 +47,7 @@ public class StreamViewportBinderKeyboardTest {
     private CursorFollowController follow;
 
     /** Frames that never run: this test drives positions, not motion. */
-    private static final class NoFrames implements CursorFollowController.Frames {
+    private static class NoFrames implements CursorFollowController.Frames {
         @Override public long uptimeMillis() { return 0L; }
         @Override public void requestFrame(Choreographer.FrameCallback callback) { }
         @Override public boolean isUiThread() { return true; }
@@ -132,6 +132,42 @@ public class StreamViewportBinderKeyboardTest {
         binder.visibleReferenceRect(v);
         idle();
         assertEquals("a large one is", 2, moved[0]);
+    }
+
+    @Test
+    public void theStreamSettlingAfterALiftReReportsWhatIsVisible() throws Exception {
+        // The lift moved the container; nothing about what covers the window changed. The
+        // binder must recompute: a cursor that was under the keyboard's rows is chased again.
+        KeyboardVisibleArea area = KeyboardVisibleArea.of(parent);
+        area.publish(0, 0, W, 700);
+        idle();
+        int[] visibleChecks = {0};
+        CursorFollowController counting = new CursorFollowController(binder,
+                new com.limelight.meow.gesture.InlinePinchZoomController.ZoomTarget() {
+                    @Override public void pinchBy(float s, float fx, float fy) { }
+                    @Override public void panBy(float dx, float dy) { }
+                    @Override public float getScaleFactor() { return 1f; }
+                    @Override public float getChildX() { return 0f; }
+                    @Override public float getChildY() { return 0f; }
+                }, true, new NoFrames() {
+                    @Override public void requestFrame(Choreographer.FrameCallback callback) {
+                        // Run the frame at once: the pan target refuses, so it settles.
+                        visibleChecks[0]++;
+                        callback.doFrame(visibleChecks[0] * 16_666_667L);
+                    }
+                });
+        binder.setCursorFollow(counting);
+        counting.onStreamStarted(W, H);
+        counting.onCursorPosition(960, 1000, true, 1);
+        idle();
+        int before = visibleChecks[0];
+        parent.setTranslationY(-300f);
+        area.onStreamMoved();
+        idle();
+        assertTrue("the cursor was being followed before", before > 0);
+        assertTrue("the move re-armed the follower through onVisibleAreaChanged: " + visibleChecks[0]
+                + " vs " + before, visibleChecks[0] > before);
+        counting.onStreamStopped();
     }
 
     @Test
