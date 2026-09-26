@@ -90,4 +90,42 @@ public class ViewportCompositionWiringTest {
                 pan.contains("streamView.getX()"));
         assertFalse(pan.contains("streamView.getY()"));
     }
+
+    // ---- frame-exact crop (per-frame presentation) ------------------------------------
+
+    @Test
+    public void everyRenderingReleaseIsStampedFirst() throws IOException {
+        String renderer = code(RENDERER);
+        String policy = body(renderer, "private void releaseWithPolicy(");
+        int stamp = policy.indexOf("FrameStamps.onRelease(bufferIndex, frameTimeNanos)");
+        assertTrue("stamped before any release in the policy", stamp >= 0
+                && stamp < policy.indexOf("videoDecoder.releaseOutputBuffer("));
+
+        String frame = body(renderer, "public void doFrame(");
+        int doStamp = frame.indexOf("FrameStamps.onRelease(nextOutputBuffer, frameTimeNanos)");
+        assertTrue(doStamp >= 0 && doStamp
+                < frame.indexOf("videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos)"));
+    }
+
+    @Test
+    public void everyBufferIsPairedWithItsPresentationTimeBeforeItIsReleased() throws IOException {
+        String renderer = code(RENDERER);
+        int latest = renderer.indexOf("FrameStamps.onOutput(__last, __lastPtsUs)");
+        assertTrue(latest >= 0 && latest < renderer.indexOf("releaseWithPolicy(__last,", latest));
+        int queued = renderer.indexOf("FrameStamps.onOutput(lastIndex, presentationTimeUs)");
+        assertTrue("before the index is handed to the Choreographer thread", queued >= 0
+                && queued < renderer.indexOf("outputBufferQueue.add(lastIndex)", queued));
+    }
+
+    @Test
+    public void theDecoderRendersIntoWhatTheBinderChoosesAndTheLayerGetsTheFrameRate()
+            throws IOException {
+        String game = code(GAME);
+        assertTrue(game.contains("decoderRenderer.setRenderTarget(viewportBinder != null"
+                + " ? viewportBinder.decoderSurface(streamContainer.getSurface(), displayWidth,"
+                + " displayHeight, prefConfig.enableHdr) : streamContainer.getSurface())"));
+        String created = body(game, "public void surfaceCreated(");
+        assertTrue(created.contains("viewportBinder.setFrameRate(desiredFrameRate)"));
+    }
 }
+

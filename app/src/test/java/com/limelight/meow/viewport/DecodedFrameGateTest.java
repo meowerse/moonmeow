@@ -88,4 +88,13 @@ public class DecodedFrameGateTest {
         DecodedFrameGate.reset();
         assertFalse(DecodedFrameGate.hasPresented(10));
     }
+
+    @Test
+    public void aFrameIsNamedByTheTimestampItWasQueuedUnder() {
+        queue(1, 20, 1_000_000L);
+        org.junit.Assert.assertEquals(7, DecodedFrameGate.frameForPts(pts(7)));
+        org.junit.Assert.assertEquals("never queued", 0, DecodedFrameGate.frameForPts(pts(99)));
+        DecodedFrameGate.reset();
+        org.junit.Assert.assertEquals(0, DecodedFrameGate.frameForPts(pts(7)));
+    }
 }

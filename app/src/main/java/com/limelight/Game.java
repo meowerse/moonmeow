@@ -935,7 +935,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 attemptedConnection = true;
 
                 // Der Decoder erhält die jeweils aktive Oberfläche vom Container
-                decoderRenderer.setRenderTarget(streamContainer.getSurface());
+                decoderRenderer.setRenderTarget(viewportBinder != null ? viewportBinder.decoderSurface(streamContainer.getSurface(), displayWidth, displayHeight, prefConfig.enableHdr) : streamContainer.getSurface()); // MEOW-TOUCH(frame-exact-crop)
 
                 // Starten Sie die NvConnection
                 conn.start(new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx), // MEOW-TOUCH(host-audio)
@@ -3959,6 +3959,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
             holder.getSurface().setProducerThrottlingEnabled(false);
         }
+        if (viewportBinder != null) viewportBinder.setFrameRate(desiredFrameRate); // MEOW-TOUCH(frame-exact-crop)
     }
 
     @Override

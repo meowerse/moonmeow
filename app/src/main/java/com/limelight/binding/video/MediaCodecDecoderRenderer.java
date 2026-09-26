@@ -64,6 +64,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
     // Helper: release with low-latency policy (immediate only when very near to now)
     private void releaseWithPolicy(int bufferIndex, long frameTimeNanos) {
+        com.limelight.meow.viewport.FrameStamps.onRelease(bufferIndex, frameTimeNanos); // MEOW-TOUCH(frame-exact-crop)
         try {
             long now = System.nanoTime();
             boolean immediate = preferLowerDelays && (frameTimeNanos <= now + 300_000L);
@@ -1052,6 +1053,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                         // ULL: present at next VSYNC (no scheduling)
                         releaseWithPolicy(nextOutputBuffer, System.nanoTime());} else {
                         // Smooth/Balanced: keep timestamp scheduling
+                        com.limelight.meow.viewport.FrameStamps.onRelease(nextOutputBuffer, frameTimeNanos); // MEOW-TOUCH(frame-exact-crop)
                         videoDecoder.releaseOutputBuffer(nextOutputBuffer, frameTimeNanos);
                     }
 
@@ -1175,6 +1177,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
 
                             if (__last >= 0) {
                                 long __nowNs = System.nanoTime();
+                                com.limelight.meow.viewport.FrameStamps.onOutput(__last, __lastPtsUs); // MEOW-TOUCH(frame-exact-crop)
                                 releaseWithPolicy(__last, System.nanoTime());
 
                                 // Update decode->present EWMA and decode stats if we have a valid PTS
@@ -1356,6 +1359,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                                 }
 
                                 // Add this buffer
+                                com.limelight.meow.viewport.FrameStamps.onOutput(lastIndex, presentationTimeUs); // MEOW-TOUCH(frame-exact-crop)
                                 outputBufferQueue.add(lastIndex);
                                 // NB: in BALANCED non presentiamo qui; lasciamo il fallback stats sotto
                             }
