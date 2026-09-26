@@ -270,9 +270,21 @@ host reports its cursor (0x3004); DR = it does not (dead reckoning).
   build's flavour) are never owned by the client and mark the estimate as a guess.
 * **Soft keyboard below API 30** is not seen (no IME inset API); overlays can declare
   themselves with `StreamViewportBinder.setBottomObstruction`.
-* **The crop swap and the follower are independent.** While the view eases, the host crop
-  follows with the usual viewport round trip, so the edges of a pan show the soft zoom of the
-  previous crop for a moment (see `MEOW-TOUCH(viewport-compose)`).
+* **The crop swap and the follower are independent, and a pan no longer resizes or jumps
+  (2026-09-26).** The owner's report on build 1d7816d8 (portrait, Trackpad, 5360x1440 at 6.6x):
+  *"weirdly resized, bigger smaller during moving … resizing, jumps is not ok"*. While the view
+  moves -- a follow pan, a finger pan -- the host crop follows in steps: the guard band keeps
+  one size for as long as the zoom does (20% a side, never grown by speed or tightened on
+  settle), is placed ahead of the motion by the measured crop round trip, and moves only when
+  the view nears its edge (about three times a second in a steady pan). On API 33+ each decoded
+  frame is put on screen together with its own crop transform, so a step is invisible; below
+  33 (and for HDR) the swap still lands within one or two display frames
+  (`MEOW-TOUCH(viewport-compose)`, `MEOW-TOUCH(frame-exact-crop)`).
+* **Black at the leading edge of a fast pan is accepted** (the owner, same report: "black
+  things is ok"). A pan faster than the band's headroom -- about 3.5 views a second at the
+  measured ~100 ms crop round trip over Tailscale -- shows the edge of the received crop until
+  the next crop arrives. The content under the finger or cursor still moves exactly with the
+  pan: the view carries the pan, the crop only what the frame shows.
 * **Rows 29 and 34 are reasoning, not tests.**
 * **Device behaviour is verified by the orchestrator with the user**, not here: the rows are
   pinned against Robolectric's `Game`, a fake host and pumped vsyncs.

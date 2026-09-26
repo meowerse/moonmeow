@@ -32,6 +32,14 @@ package com.limelight.meow.viewport;
  * 1.7. Exactness would need the echo to carry the desktop-space source, which the protocol
  * does not.
  *
+ * <p><b>Exact when the request is known.</b> The enumeration above is the fallback. The client
+ * knows the rectangle it asked for, and the host's {@code to_desktop()} and {@code sanitize()}
+ * are deterministic, so {@link #exactMapping} runs them on the <em>request</em> -- not on the
+ * rounded echo -- and accepts the source only if {@code to_reference()} of it reproduces the
+ * echo exactly. That source is the one the host used, and the mapping built from it is exact:
+ * with the frame-exact swap this is what keeps the picture from stepping by a pixel or two at
+ * every crop change of a pan (at 6.6x one reference pixel is seven screen pixels).
+ *
  * <p>Every path that is not a real crop — no desktop extent and a full-frame echo, a refused
  * request, a request that covers the whole desktop — returns {@link FrameMapping#IDENTITY},
  * because that is what the host streams in all of those cases.
@@ -120,6 +128,115 @@ public final class HostCropPlan {
         }
         return new FrameMapping((low[0] + high[0]) / 2, (low[1] + high[1]) / 2,
                 (low[2] + high[2]) / 2, (low[3] + high[3]) / 2);
+    }
+
+    /**
+     * The exact mapping for an echo that answers {@code request}, or null when the echo is not
+     * what the host makes of that request (it answered another one, clamped it differently, or
+     * the desktop extent is unknown) -- then {@link #mappingFor} is the fallback.
+     */
+    public static FrameMapping exactMapping(ViewportRect request, ViewportRect applied,
+                                            int desktopWidth, int desktopHeight,
+                                            int streamWidth, int streamHeight) {
+        if (request == null || applied == null || desktopWidth <= 0 || desktopHeight <= 0
+                || streamWidth <= 0 || streamHeight <= 0) {
+            return null;
+        }
+        ViewportReferenceFrame reference =
+                ViewportReferenceFrame.of(desktopWidth, desktopHeight, streamWidth, streamHeight);
+        if (reference == null) {
+            return null;
+        }
+        int[] source = new int[4];
+        if (!hostSource(request, desktopWidth, desktopHeight, reference, source)) {
+            return null;
+        }
+        if (!applied.equals(hostEcho(source, desktopWidth, desktopHeight, reference))) {
+            return null;
+        }
+        double[] layout = new double[4];
+        int result = layout(source[0], source[1], source[2], source[3], desktopWidth,
+                desktopHeight, streamWidth, streamHeight, reference, layout);
+        if (result != CROPPED) {
+            return FrameMapping.IDENTITY;
+        }
+        return new FrameMapping(layout[0], layout[1], layout[2], layout[3]);
+    }
+
+    /**
+     * {@code sanitize(to_desktop(request))}: the desktop source the host crops to for a
+     * request, into {@code out} as {x, y, width, height}. Allocation-free.
+     *
+     * @return false when the host refuses the request (it then streams the whole desktop)
+     */
+    static boolean hostSource(ViewportRect request, int captureWidth, int captureHeight,
+                              ViewportReferenceFrame reference, int[] out) {
+        if (captureWidth < MIN_SOURCE_EXTENT || captureHeight < MIN_SOURCE_EXTENT) {
+            return false;
+        }
+        return hostAxis(request.x, request.width, reference.contentX, reference.contentWidth,
+                captureWidth, out, 0)
+                && hostAxis(request.y, request.height, reference.contentY,
+                reference.contentHeight, captureHeight, out, 1);
+    }
+
+    /**
+     * One axis of {@code sanitize(to_desktop(request))}; the host treats the two axes
+     * independently. Writes the origin to {@code out[at]} and the extent to {@code out[at + 2]}.
+     * Allocation-free.
+     *
+     * @return false when the host refuses the request on this axis
+     */
+    static boolean hostAxis(int start, int length, int contentStart, int contentLength,
+                            int capture, int[] out, int at) {
+        if (contentLength <= 0 || length <= 0) {
+            return false;
+        }
+        // to_desktop(): intersect with the content, floor the origin, ceil the far edge.
+        long near = Math.max(start, contentStart);
+        long far = Math.min((long) start + length, (long) contentStart + contentLength);
+        if (far <= near) {
+            return false;
+        }
+        double scale = (double) capture / (double) contentLength;
+        int origin = clamp((int) Math.floor((double) (near - contentStart) * scale),
+                0, capture - 1);
+        int extent = clamp((int) Math.ceil((double) (far - contentStart) * scale),
+                origin + 1, capture) - origin;
+        // sanitize()
+        extent = Math.min(extent, capture - origin);
+        if (extent < MIN_SOURCE_EXTENT) {
+            extent = MIN_SOURCE_EXTENT;
+            origin = Math.min(origin, capture - extent);
+        }
+        origin = floorEven(origin);
+        extent = floorEven(Math.min(extent, capture - origin));
+        if (extent < MIN_SOURCE_EXTENT) {
+            return false;
+        }
+        out[at] = origin;
+        out[at + 2] = extent;
+        return true;
+    }
+
+    /** {@code to_reference(source)}: what the host echoes for a desktop source. */
+    static ViewportRect hostEcho(int[] source, int captureWidth, int captureHeight,
+                                 ViewportReferenceFrame reference) {
+        double sx = (double) reference.contentWidth / (double) captureWidth;
+        double sy = (double) reference.contentHeight / (double) captureHeight;
+        int left = reference.contentX + (int) Math.round(source[0] * sx);
+        int top = reference.contentY + (int) Math.round(source[1] * sy);
+        int right = reference.contentX + (int) Math.round((source[0] + source[2]) * sx);
+        int bottom = reference.contentY + (int) Math.round((source[1] + source[3]) * sy);
+        int x = clamp(left, reference.contentX, reference.contentX + reference.contentWidth - 1);
+        int y = clamp(top, reference.contentY, reference.contentY + reference.contentHeight - 1);
+        int width = clamp(right, x + 1, reference.contentX + reference.contentWidth) - x;
+        int height = clamp(bottom, y + 1, reference.contentY + reference.contentHeight) - y;
+        return new ViewportRect(x, y, width, height);
+    }
+
+    private static int clamp(int value, int min, int max) {
+        return Math.max(min, Math.min(value, max));
     }
 
     /** More even columns than this never round to one reference pixel below 16:1. */

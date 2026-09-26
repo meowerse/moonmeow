@@ -213,4 +213,77 @@ public class HostCropPlanTest {
                     crop.referenceY(fy), mapping.toReferenceY(fy), tolerance);
         }
     }
+
+    // ---- the exact mapping, from the request -------------------------------------------
+
+    /** The host's own arithmetic, transcribed independently of HostCropPlan. */
+    private static final SunmeowCropModel LIVE = new SunmeowCropModel(5360, 1440, 1920, 1080);
+    private static final SunmeowCropModel PORTRAIT = new SunmeowCropModel(5360, 1440, 1220, 2712);
+
+    @Test
+    public void theHostSourceOfARequestIsTheHostsOwn() {
+        Random random = new Random(3);
+        int[] mine = new int[4];
+        for (SunmeowCropModel host : new SunmeowCropModel[] {LIVE, PORTRAIT}) {
+            ViewportReferenceFrame reference = ViewportReferenceFrame.of(host.captureWidth,
+                    host.captureHeight, host.surfaceWidth, host.surfaceHeight);
+            for (int i = 0; i < 5000; i++) {
+                ViewportRect request = new ViewportRect(random.nextInt(host.surfaceWidth),
+                        random.nextInt(host.surfaceHeight), 1 + random.nextInt(900),
+                        1 + random.nextInt(900));
+                int[] theirs = host.source(request);
+                boolean accepted = HostCropPlan.hostSource(request, host.captureWidth,
+                        host.captureHeight, reference, mine);
+                assertEquals(request.toString(), theirs != null, accepted);
+                if (theirs != null) {
+                    org.junit.Assert.assertArrayEquals(request.toString(), theirs, mine);
+                    assertEquals(host.echo(theirs), HostCropPlan.hostEcho(mine,
+                            host.captureWidth, host.captureHeight, reference));
+                }
+            }
+        }
+    }
+
+    /**
+     * With the request known the mapping is exact -- the estimate from the echo alone is off
+     * by up to ~1.7 reference pixels, which at 6.6x is over ten screen pixels.
+     */
+    @Test
+    public void theMappingOfAnAnsweredRequestIsExact() {
+        Random random = new Random(5);
+        int exact = 0;
+        for (SunmeowCropModel host : new SunmeowCropModel[] {LIVE, PORTRAIT}) {
+            ViewportRect content = host.content();
+            for (int i = 0; i < 3000; i++) {
+                int w = 80 + random.nextInt(content.width - 80);
+                int h = 40 + random.nextInt(Math.max(1, content.height - 40));
+                ViewportRect request = new ViewportRect(
+                        content.x + random.nextInt(content.width - w + 1),
+                        content.y + random.nextInt(Math.max(1, content.height - h + 1)), w, h);
+                int[] source = host.source(request);
+                ViewportRect echo = host.echo(source);
+                FrameMapping m = HostCropPlan.exactMapping(request, echo, host.captureWidth,
+                        host.captureHeight, host.surfaceWidth, host.surfaceHeight);
+                org.junit.Assert.assertNotNull(request.toString(), m);
+                FrameMapping truth = host.trueMapping(source);
+                assertEquals(truth.scaleX, m.scaleX, 1e-12);
+                assertEquals(truth.scaleY, m.scaleY, 1e-12);
+                assertEquals(truth.offsetX, m.offsetX, 1e-9);
+                assertEquals(truth.offsetY, m.offsetY, 1e-9);
+                exact++;
+            }
+        }
+        assertTrue(exact == 6000);
+    }
+
+    @Test
+    public void anEchoThatDoesNotAnswerTheRequestIsNotTakenAsExact() {
+        ViewportRect request = new ViewportRect(300, 400, 672, 379);
+        ViewportRect other = LIVE.echo(LIVE.source(new ViewportRect(340, 400, 672, 379)));
+        org.junit.Assert.assertNull(HostCropPlan.exactMapping(request, other, 5360, 1440,
+                1920, 1080));
+        org.junit.Assert.assertNull("no desktop extent", HostCropPlan.exactMapping(request,
+                LIVE.echo(LIVE.source(request)), 0, 0, 1920, 1080));
+    }
 }
+

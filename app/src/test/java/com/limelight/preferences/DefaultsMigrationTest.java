@@ -133,7 +133,7 @@ public class DefaultsMigrationTest {
         assertTrue(canonical.getBoolean(ViewportPreference.KEY, false));
         assertTrue(canonical.getBoolean(CursorFollowPreference.KEY, false));
         assertTrue(canonical.getBoolean(AutoBitratePreference.KEY, false));
-        assertEquals(2, canonical.getInt(PreferenceConfiguration.DEFAULTS_MIGRATION_PREF_STRING, 0));
+        assertEquals(3, canonical.getInt(PreferenceConfiguration.DEFAULTS_MIGRATION_PREF_STRING, 0));
     }
 
     @Test

@@ -277,4 +277,32 @@ public class ViewportCompositorTest {
         assertEquals(100 + (ViewportCompositor.MAX_PENDING + 2) * 20,
                 compositor.presentedMapping().offsetX, 1.0);
     }
+
+    // ---- per-frame presentation -------------------------------------------------------
+
+    @Test
+    public void withATimelineTheViewKeepsTheLogicalTransformThroughACrop() {
+        CropTimeline timeline = new CropTimeline();
+        compositor.setTimeline(timeline);
+        zoomInto480x270();
+        hostAppliesQuarter(40);
+        frames.presentedUpTo = 40;
+        vsync.fire();
+        // The view is exactly what PanZoomHandler wrote; the crop is the presenter's business
+        // (the binder writes the timeline, not the compositor).
+        assertEquals(4f, view.getScaleX(), 0f);
+        assertEquals(logical.x, view.getX(), 0f);
+        assertEquals(0, compositor.pendingCount());
+        assertSame(FrameMapping.IDENTITY, timeline.mappingFor(41));
+        assertSame(FrameMapping.IDENTITY, compositor.presentedMapping());
+    }
+
+    @Test
+    public void aMappingTheBinderComputedIsPresentedAsGiven() {
+        FrameMapping exact = new FrameMapping(0.25, 0.25, 480.5, 269.75);
+        zoomInto480x270();
+        compositor.onCropMapped(exact, 0);
+        assertSame(exact, compositor.presentedMapping());
+        assertSingleMagnification(exact);
+    }
 }
