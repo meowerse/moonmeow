@@ -760,4 +760,22 @@
 
     <string name="title_checkbox_full_screen">Enable Full Screen</string>
     <string name="summary_checkbox_full_screen">Hide system bars with immersive mode</string>
+
+    <!-- moonmeow PC keyboard (docs/meow/pc-keyboard.md) -->
+    <string name="meow_pc_keyboard_name">PC keyboard</string>
+    <string name="meow_pc_keyboard_state_latched">%1$s, on for the next key</string>
+    <string name="meow_pc_keyboard_state_locked">%1$s, locked on</string>
+    <string name="meow_quickbar_pc_keyboard">PC</string>
+    <string name="meow_quickbar_pc_keyboard_description">Show or hide the PC keyboard</string>
+    <string name="meow_quickbar_system_keyboard">Keyboard</string>
+    <string name="meow_quickbar_system_keyboard_description">Show or hide the system keyboard</string>
+    <string name="category_meow_keyboard">Keyboards</string>
+    <string name="title_checkbox_meow_keep_nav_bar">Keep the navigation bar visible</string>
+    <string name="summary_checkbox_meow_keep_nav_bar">In full screen, hide only the status bar. The stream is letterboxed anyway, so the navigation bar costs no picture and back and home stay one tap away.</string>
+    <string name="title_checkbox_meow_lift_stream">Move the stream above the keyboard</string>
+    <string name="summary_checkbox_meow_lift_stream">When a keyboard opens, slide the stream up so the part under the keyboard stays visible, and keep it clear of the toolbar. It is never shrunk.</string>
+    <string name="title_checkbox_meow_quickbar_auto_hide">Auto-hide toolbar</string>
+    <string name="summary_checkbox_meow_quickbar_auto_hide">Collapse the in-stream toolbar to a small handle after a few seconds. Off: the toolbar stays on screen, beside or below the stream rather than over it. A two-finger tap shows or hides it either way.</string>
+    <string name="title_checkbox_meow_ime_extra_keys">PC keys above the system keyboard</string>
+    <string name="summary_checkbox_meow_ime_extra_keys">Show a row with Esc, Tab, Ctrl, Alt, Super and the arrows above the system keyboard. Ctrl, Alt and Super apply to the next key or letter you type.</string>
 </resources>

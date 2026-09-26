@@ -7,6 +7,8 @@ import android.os.HandlerThread;
 import android.os.Looper;
 import android.view.View;
 
+import com.limelight.meow.keyboard.KeyboardVisibleArea;
+
 import com.limelight.LimeLog;
 import com.limelight.meow.bitrate.BitrateSession;
 import com.limelight.meow.cursor.CursorFollowController;
@@ -75,6 +77,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
 
     /** Window pixels at the bottom covered by an overlay; see {@link #setBottomObstruction}. */
     private volatile int bottomObstructionPx;
+    /** Window pixels at the right edge covered by an overlay; see {@link #setRightObstruction}. */
+    private volatile int rightObstructionPx;
 
     /**
      * Mirrors {@code reporter.isLive()} for the UI thread, so a gesture does not have to
@@ -178,6 +182,80 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     /** Scratch for {@link #logicalTransform}. UI thread. */
     private final float[] scratchTransform = new float[3];
 
+    /**
+     * The window's keyboard area (the PC keyboard, its strip, the system keyboard, the quick
+     * bar). This binder both consumes and feeds it: every published change becomes the bottom
+     * obstruction, so cursor follow and the host crop end above whatever covers the stream;
+     * and the host cursor is its focus source, so the stream lift keeps the cursor in view.
+     */
+    private final KeyboardVisibleArea visibleArea;
+    private final float[] scratchFocus = new float[5];
+
+    /**
+     * The host cursor's y in parent (stream container) pixels, or NaN before the follower
+     * knows where it is. UI thread, no allocation.
+     */
+    float cursorFocusY() {
+        CursorFollowController follow = cursorFollow;
+        if (follow == null || !follow.cursor().isKnown() || !transform(scratchFocus)) {
+            return Float.NaN;
+        }
+        return scratchFocus[1] + follow.cursor().y() * scratchFocus[3];
+    }
+
+    private final KeyboardVisibleArea.Listener keyboardAreaListener = (l, t, r, b) -> {
+        onKeyboardAreaChanged(b);
+        onKeyboardAreaRightChanged(r);
+    };
+
+    /** Window pixels right of the area left visible (a side-standing quick bar). UI thread. */
+    void onKeyboardAreaRightChanged(int visibleRightInWindow) {
+        View decor = parent.getRootView();
+        int windowWidth = decor != null ? decor.getWidth() : 0;
+        setRightObstruction(windowWidth > 0 ? windowWidth - visibleRightInWindow : 0);
+    }
+
+    /**
+     * The side twin of {@link #setBottomObstruction}: {@code widthPx} window pixels at the right
+     * edge cover the stream (the quick bar standing down the side in landscape). Any thread.
+     */
+    public void setRightObstruction(int widthPx) {
+        int clamped = Math.max(0, widthPx);
+        if (rightObstructionPx != clamped) {
+            rightObstructionPx = clamped;
+            onVisibleAreaChanged();
+        }
+    }
+    private final Runnable streamMovedListener = this::onVisibleAreaChanged;
+
+    private final KeyboardVisibleArea.FocusSource focusSource = new KeyboardVisibleArea.FocusSource() {
+        @Override
+        public float focusY() {
+            return cursorFocusY();
+        }
+
+        @Override
+        public float focusX() {
+            return cursorFocusX();
+        }
+    };
+
+    /** The host cursor's x in parent pixels, or NaN. UI thread, no allocation. */
+    float cursorFocusX() {
+        CursorFollowController follow = cursorFollow;
+        if (follow == null || !follow.cursor().isKnown() || !transform(scratchFocus)) {
+            return Float.NaN;
+        }
+        return scratchFocus[0] + follow.cursor().x() * scratchFocus[2];
+    }
+
+    /** Window pixels below the area left visible by keyboards and bars. UI thread. */
+    void onKeyboardAreaChanged(int visibleBottomInWindow) {
+        View decor = parent.getRootView();
+        int windowHeight = decor != null ? decor.getHeight() : 0;
+        setBottomObstruction(windowHeight > 0 ? windowHeight - visibleBottomInWindow : 0);
+    }
+
     public StreamViewportBinder(View streamView, View parent) {
         this(streamView, parent, null, null);
     }
@@ -190,6 +268,10 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
         this.streamView = streamView;
         this.parent = parent;
+        this.visibleArea = KeyboardVisibleArea.install(parent);
+        this.visibleArea.setFocusSource(focusSource);
+        this.visibleArea.addListener(keyboardAreaListener);
+        this.visibleArea.setStreamMovedListener(streamMovedListener);
 
         if (handler != null) {
             this.thread = null;
@@ -370,6 +452,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         this.streamWidth = Math.max(1, streamWidth);
         this.streamHeight = Math.max(1, streamHeight);
         this.streamStarted = true;
+        lastNotifiedFocusY = Float.NaN;
+        lastNotifiedFocusX = Float.NaN;
         this.contentFrame = null;
         if (compositor != null) {
             compositor.onStreamStarted(this.streamWidth, this.streamHeight);
@@ -524,6 +608,14 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
      * calls this unconditionally.
      */
     public void release() {
+        // The keyboard area lives on the window's decor: leave it holding nothing of ours.
+        visibleArea.removeListener(keyboardAreaListener);
+        visibleArea.setFocusSource(null);
+        visibleArea.setStreamMovedListener(null);
+        bottomObstructionPx = 0;
+        rightObstructionPx = 0;
+        mainHandler.removeCallbacks(focusMoved);
+        focusMovePosted = false;
         MeowViewportBridge.clearEchoListener(this);
         live = false;
         streamStarted = false;
@@ -771,7 +863,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         // The soft keyboard covers the bottom of the window without resizing it here (the
         // stream window is fullscreen): what is under it is not visible.
         return windowFromLocationInWindow(loc[0], loc[1], parentWidth, parentHeight,
-                decorWidth,
+                Math.max(1, decorWidth - rightObstructionPx),
                 Math.max(1, decorHeight - Math.max(imeBottomInset(decor), bottomObstructionPx)),
                 scratchWindow);
     }
@@ -909,7 +1001,42 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         out[1] = (top - transform[2]) / childHeight * streamHeight;
         out[2] = (right - left) / childWidth * streamWidth;
         out[3] = (bottom - top) / childHeight * streamHeight;
+        checkFocusMoved();
         return true;
+    }
+
+    /**
+     * The follower asks for the visible rectangle on every frame it runs, so this is where a
+     * cursor that has moved far (an eighth of the container) is noticed and the keyboard lift
+     * told to re-place the stream: with a keyboard open, part of the container is hidden, and
+     * only moving the container itself brings the rows under the cursor back into reach.
+     * Posted, not called, so the lift never runs inside the follower's frame.
+     */
+    private void checkFocusMoved() {
+        float y = cursorFocusY();
+        float x = cursorFocusX();
+        if (Float.isNaN(y) || focusMovePosted) {
+            return;
+        }
+        boolean moved = Float.isNaN(lastNotifiedFocusY)
+                || Math.abs(y - lastNotifiedFocusY) > parent.getHeight() / 8f
+                || Math.abs(x - lastNotifiedFocusX) > parent.getWidth() / 8f;
+        if (moved) {
+            lastNotifiedFocusY = y;
+            lastNotifiedFocusX = x;
+            focusMovePosted = true;
+            mainHandler.post(focusMoved);
+        }
+    }
+
+    private float lastNotifiedFocusY = Float.NaN;
+    private float lastNotifiedFocusX = Float.NaN;
+    private boolean focusMovePosted;
+    private final Runnable focusMoved = this::notifyFocusMoved;
+
+    private void notifyFocusMoved() {
+        focusMovePosted = false;
+        visibleArea.onFocusMoved();
     }
 
     /** The desktop inside the frame, {left, top, right, bottom}; the whole frame if unknown. */

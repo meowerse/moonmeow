@@ -204,6 +204,8 @@ public final class CursorFollowController
     private boolean haveTransform;
     /** Set while the controller itself moves the view, so it does not react to its own pans. */
     private boolean moving;
+    /** Scratch for the transform after a pan, to tell a refused pan. UI thread. */
+    private final float[] afterPan = new float[5];
     /** Set while the controller itself sends an absolute position. */
     private boolean placing;
     /** Whether that placement should arm the follower (only a move the user made). */
@@ -1062,7 +1064,24 @@ public final class CursorFollowController
                     + " visible " + describeVisible());
         }
         // Moving the visible rectangle right means moving the content left.
-        moveView(-stepX * transform[2], -stepY * transform[3]);
+        float originX = transform[0];
+        float originY = transform[1];
+        float panX = -stepX * transform[2];
+        float panY = -stepY * transform[3];
+        moveView(panX, panY);
+        // Only a pan that was asked for and not made is a refusal. A zero step is the motion
+        // holding while it brakes from the other direction, and must keep the follow going.
+        boolean requested = Math.abs(panX) > 0.01f || Math.abs(panY) > 0.01f;
+        if (requested && view.transform(afterPan)
+                && (Math.abs(panX) <= 0.01f || Math.abs(afterPan[0] - originX) < 0.01f)
+                && (Math.abs(panY) <= 0.01f || Math.abs(afterPan[1] - originY) < 0.01f)) {
+            // The view refused the pan: it is already as far as it goes (an overlay such as
+            // the PC keyboard covers the rows the cursor is on). Asking again every vsync
+            // would never get further and would never stop; settle and wait for a change.
+            remember();
+            settled();
+            return;
+        }
         remember();
 
         if (Math.abs(needX - stepX) <= CursorFollowMotion.SETTLE_PX

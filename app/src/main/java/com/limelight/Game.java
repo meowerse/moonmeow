@@ -35,6 +35,7 @@ import com.limelight.meow.bitrate.BitrateSession;
 import com.limelight.meow.cursor.CursorFollowController;
 import com.limelight.meow.cursor.CursorFollowPreference;
 import com.limelight.meow.ui.QuickBarView;
+import com.limelight.meow.keyboard.PcKeyboardController;
 import com.limelight.meow.viewport.StreamViewportBinder;
 import com.limelight.meow.viewport.ReferencePointer;
 import com.limelight.meow.viewport.ViewportPreference;
@@ -318,6 +319,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
     private ImageButton floatingMenuButton;
     private ImageButton overlayToggleButton;
     private QuickBarView quickBarView;
+    private PcKeyboardController pcKeyboard; // MEOW-TOUCH(pc-keyboard)
     private LocalCursorScaler localCursorScaler;
     private float floatingButtonDX, floatingButtonDY;
     private boolean isButtonMoving = false;
@@ -957,7 +959,8 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         try {
             ViewGroup rootContent = findViewById(android.R.id.content);
             quickBarView = new QuickBarView(this, new QuickBarView.Listener() {
-                @Override public void onKeyboard() { toggleKeyboard(); }
+                @Override public void onKeyboard() { if (pcKeyboard != null) pcKeyboard.preferSystemKeyboard(); toggleKeyboard(); } // MEOW-TOUCH(pc-keyboard)
+                @Override public void onPcKeyboard() { if (pcKeyboard != null) pcKeyboard.toggle(); } // MEOW-TOUCH(pc-keyboard)
                 @Override public void onToggleLocalCursor() { toggleLocalCursor(); }
                 @Override public void onCycleMouseMode() { cycleMouseMode(); }
                 @Override public void onTogglePerfOverlay() { toggleHUD(); }
@@ -971,6 +974,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         } catch (Throwable e) {
             e.printStackTrace();
         }
+        pcKeyboard = PcKeyboardController.attach(this, streamContainer, prefConfig); // MEOW-TOUCH(pc-keyboard)
 
         //fixed size + pacing without back-pressure on MTK
         try {
@@ -1490,6 +1494,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
         // We can't guarantee the state of modifiers keys which may have
         // lifted while focus was not on us. Clear the modifier state.
+        if (pcKeyboard != null) pcKeyboard.onWindowFocusChanged(hasFocus, modifierFlags); // MEOW-TOUCH(pc-keyboard)
         this.modifierFlags = 0;
 
         // With Android native pointer capture, capture is lost when focus is lost,
@@ -1683,6 +1688,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         public void run() {
             // TODO: Do we want to use WindowInsetsController here on R+ instead of
             // SYSTEM_UI_FLAG_IMMERSIVE_STICKY? They seem to do the same thing as of S...
+            if (pcKeyboard != null && pcKeyboard.applySystemBars()) return; // MEOW-TOUCH(pc-keyboard)
 
             // In multi-window mode on N+, we need to drop our layout flags or we'll
             // be drawing underneath the system UI.
@@ -2185,6 +2191,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
                 return true;
             }
 
+            if (pcKeyboard != null) pcKeyboard.beforeExternalKey(event.getKeyCode()); // MEOW-TOUCH(pc-keyboard)
             conn.sendKeyboardInput(translated, KeyboardPacket.KEY_DOWN, getModifierState(event),
                     keyboardTranslator.hasNormalizedMapping(event.getKeyCode(), deviceId) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
         }
@@ -2260,6 +2267,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
             conn.sendKeyboardInput(translated, KeyboardPacket.KEY_UP, getModifierState(event),
                     keyboardTranslator.hasNormalizedMapping(event.getKeyCode(), deviceId) ? 0 : MoonBridge.SS_KBE_FLAG_NON_NORMALIZED);
+            if (pcKeyboard != null) pcKeyboard.afterExternalKey(event.getKeyCode()); // MEOW-TOUCH(pc-keyboard)
         }
 
         return true;
@@ -2283,6 +2291,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
             return false;
         }
 
+        if (pcKeyboard != null && pcKeyboard.onImeText(event.getCharacters())) return true; // MEOW-TOUCH(pc-keyboard)
         conn.sendUtf8Text(event.getCharacters());
         return true;
     }
@@ -2468,6 +2477,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     @Override
     public void toggleKeyboard() {
+        if (pcKeyboard != null && pcKeyboard.onToggleKeyboard()) return; // MEOW-TOUCH(pc-keyboard)
         if (isOnExternalDisplay()) {
             ExternalDisplayControlActivity.toggleKeyboard();
         } else {
@@ -4105,6 +4115,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
 
     @Override
     public void onBackPressed() {
+        if (pcKeyboard != null && pcKeyboard.onBackPressed()) return; // MEOW-TOUCH(pc-keyboard)
         if(prefConfig.enableBackMenu){
             showGameMenu(null);
             return;
@@ -4464,6 +4475,7 @@ public class Game extends AppCompatActivity implements SurfaceHolder.Callback,
         if (!prefConfig.enableCommitText || conn == null) {
             return false;
         }
+        if (pcKeyboard != null && pcKeyboard.onImeText(text)) return true; // MEOW-TOUCH(pc-keyboard)
         enqueueCommitText(text.toString());
         return true;
     }

@@ -1411,3 +1411,63 @@ Deliberately **not** changed: `ic_launcher.xml`/`ic_pc_scut.xml` themselves, the
 **text** metadata, and `store-assets/lime_layer.svg` (the old wedge source; unused by the
 build). There is no `ic_launcher_round`: the manifest declares no `roundIcon`, and adaptive
 icons are masked to the launcher's shape on every supported API level.
+
+---
+
+## `MEOW-TOUCH(pc-keyboard)`
+
+*Added 2026-09-24.* **Feature:** the on-screen PC keyboard, the strip above the system
+keyboard, moving the stream out from under keyboards, keeping the navigation bar, and two
+typing fixes. Design and behaviour table: `docs/meow/pc-keyboard.md`.
+
+**Why upstream had to be touched at all:** every keyboard entry point (key events, committed
+text, the keyboard toggle, back, focus loss, immersive mode) lives in `Game`, and the IME's
+input connection is created by `StreamContainer`. Each site is one line calling into
+`meow/keyboard/PcKeyboardController`; `PcKeyboardWiringTest` fails if any is removed.
+
+### `app/src/main/java/com/limelight/Game.java` — 12 sites, one line each
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 318 | field declaration | `private PcKeyboardController pcKeyboard;` |
+| 934 | quick-bar listener, `onKeyboard` (existing line, changed) | calls `pcKeyboard.preferSystemKeyboard()` before `toggleKeyboard()` |
+| 935 | quick-bar listener | new `onPcKeyboard()` → `pcKeyboard.toggle()` |
+| 949 | `onCreate`, after the quick bar | `PcKeyboardController.attach(this, streamContainer, prefConfig)` |
+| 1469 | `onWindowFocusChanged`, before `modifierFlags = 0` | `pcKeyboard.onWindowFocusChanged(hasFocus, modifierFlags)` — **bug fix**: releases modifiers on the host before Game forgets them |
+| 1663 | `hideSystemUi` runnable | `if (pcKeyboard.applySystemBars()) return;` — keep-navigation-bar policy |
+| 2164 | `handleKeyDown`, before `KEY_DOWN` is sent | `pcKeyboard.beforeExternalKey(...)` — latched modifiers apply to physical/IME keys |
+| 2240 | `handleKeyUp`, after `KEY_UP` is sent | `pcKeyboard.afterExternalKey(...)` |
+| 2264 | `handleKeyMultiple`, before `sendUtf8Text` | `pcKeyboard.onImeText(...)` |
+| 2450 | `toggleKeyboard` | `pcKeyboard.onToggleKeyboard()` — last-used keyboard |
+| 4194 | `onBackPressed` | `pcKeyboard.onBackPressed()` — back hides the PC keyboard |
+| 4553 | `handleCommitText` | `pcKeyboard.onImeText(text)` |
+
+Plus one import, untokenised.
+
+### `app/src/main/java/com/limelight/ui/StreamContainer.java` — 1 site
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 192 | `onCreateInputConnection` | the anonymous `BaseInputConnection` (11 lines) replaced by `new ImeInputConnection(this, mInputCallbacks)`. **Bug fix**: the old one left composed words in the base class's buffer, which `finishComposingText()` sent to the host a second time. The now-unused `BaseInputConnection` import is left, to keep the diff to the replaced block |
+
+### `app/src/main/res/xml/preferences.xml` — 1 site
+
+| Line | Site | Edit |
+| --- | --- | --- |
+| 506 | after the input category | a new *Keyboards* category with four checkboxes read by `PcKeyboardPreferences` and `QuickBarPreferences` (defaults asserted equal by their tests) |
+
+### Not tokenised, additive
+
+`res/values/strings.xml` (16 appended strings, English only — the meow convention),
+`res/values/meow_keyboard.xml` (one view-tag id), `res/drawable/meow_ic_pc_keyboard.xml`,
+`meow/ui/QuickBarView.java` (ours: the PC button, riding above keyboards),
+`meow/viewport/StreamViewportBinder.java` (ours, #16's class: feeds the keyboard area into
+`setBottomObstruction` and serves the host cursor as the lift's focus source),
+`meow/cursor/CursorFollowController.java` (ours, #16's class: a pan the view refuses settles
+the follower instead of looping every vsync); see `docs/meow/pc-keyboard.md`.
+
+### Coordination with PR #16 (`feat/real-viewport-cursor-bitrate`)
+
+That branch also edits `Game.java`, in different methods; the sites above are single lines
+and should merge cleanly. The visible-area contract it should consume
+(`KeyboardVisibleArea`) is described in `docs/meow/pc-keyboard.md`.
