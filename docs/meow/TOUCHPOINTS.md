@@ -809,36 +809,146 @@ files; the hooks keep their line endings. Everything else is in `meow/viewport/`
 `ReferencePointer`. `ZoomTarget` gained the three logical getters `PanZoomHandler` already had,
 so nothing reads the zoom back off the view — `LocalCursorScaler` included.
 
-**Guard band (2026-09-24).** The binder no longer asks for exactly the visible rectangle V:
-`GuardBand` asks for V plus a margin at the encode surface's aspect ratio, clamped into the
-desktop -- 10% a side at rest, growing with pan speed up to 35%, tightened back 300 ms after
-the view stops (only when the gain is over 15%; each tightening is a re-sharpen and a burst
-of bits), with the settle also re-offering the current request so one the library could not
-deliver is retried. The band logic runs on the part of V that shows desktop, so a view over
-the letterbox padding still gets hysteresis. The request is kept while V stays inside it (with 2% slack) and it is not more
-than 1.25x the size the margin calls for, so small pans and cursor-follow steps are shown sharp
-from pixels already received (the compositor presents V inside the applied crop at one
-magnification) instead of re-cropping the host every frame. The cost is 1/(1+2m) of the
-encoder's pixels per axis for V: 83% at rest. `GuardBandTest`,
-`StreamViewportBinderTest.smallPansInsideTheGuardBandDoNotChangeTheCrop`,
-`CropCompositionTest.aCropWithAGuardBandShowsTheViewAtOneMagnificationAndSmallPansStaySharp`.
+**Guard band (2026-09-24, reworked 2026-09-26).** The binder does not ask for exactly the
+visible rectangle V: `GuardBand` asks for V plus 20% a side at the encode surface's aspect
+ratio, clamped into the desktop. The owner's device test (portrait, Trackpad, 5360x1440 at
+6.6x) reported the picture "bigger smaller during moving": the first band grew with pan speed
+(10% to 35%) and tightened 300 ms after the view stopped, so every pan was a series of crops of
+different sizes, each a different host magnification. Now **the size is a function of V's size
+alone** (the zoom and the window), recomputed only when that changes by more than rounding, and
+nudged by up to 4 reference pixels to one whose host source extent (`to_desktop` floors one
+edge and ceils the other, `sanitize` even-aligns) is the same wherever the band sits, so the
+host's scale factor is exactly constant and consecutive crops differ by a translation. Speed
+only places the band: it is kept while V stays inside it with 3% slack, and re-placed around
+`V + velocity x lead` when V reaches that, where the lead is the measured request-to-echo time
+plus a frame. A steady pan re-crops about three times a second instead of once per input frame.
+The settle re-offers the current request (a retry) and never resizes it. The cost is
+1/(1+2m) = 71% of the encoder's pixels per axis for V when the encoder limits sharpness; at
+6.6x on the owner's desktop the band is ~1140 desktop pixels for 1220 encoder pixels, so it
+costs nothing there. `GuardBandTest` (red against the old band on six of its tests, including
+`theSizeNeverChangesWhileTheZoomIsConstant`: 577 vs 592),
+`StreamViewportBinderTest.aContinuousPanAsksForCropsOfOneSizeOnly`.
 
-**What remains inexact, stated.** The echo is rounded to whole reference pixels and does not
-carry the desktop-space source, so the recovered mapping is within one reference pixel for 99%
-of crops and within 1.75 for all (`HostCropPlanTest`). The swap is aligned to the frame the
-renderer hands to the display path, and a `SurfaceView` property change is not latched with
-the codec buffer, so the swap is within one or two display frames, not frame-exact: in balanced
-frame pacing the hook fires when a buffer enters the renderer's two-deep output queue, up to
-two vsyncs before `doFrame` releases it. The spec's "exact frame" wording is stronger than the
-Android surface pipeline can guarantee; A1 on hardware is where a one-frame pop at a crop swap
-would show. A stream stop keeps the presented crop so the frozen last frame is not magnified
-twice; the next stream start resets.
+**The swap is frame-exact on API 33+: `MEOW-TOUCH(frame-exact-crop)` below.** The view-property
+swap described next is kept for API < 33 and HDR streams.
+
+**Echoes are mapped exactly when they answer a request (2026-09-26).** The echo is rounded to
+whole reference pixels; estimated from it alone the mapping is within one reference pixel for
+99% of crops and within 1.75 for all -- at 6.6x one reference pixel is ~7 screen pixels, a step
+at every crop change even with an exact swap. `CropRequestHistory` keeps the last eight
+requests; `HostCropPlan.exactMapping` runs the host's `to_desktop` and `sanitize` on the
+*request*, and accepts the source only if `to_reference` of it reproduces the echo, so the
+mapping is the host's own (`HostCropPlanTest.theMappingOfAnAnsweredRequestIsExact`, 6000
+random crops, against `SunmeowCropModel`, an independent transcription of `viewport.h`). The
+estimate remains the fallback for an echo no recent request explains.
+
+**What remains inexact on the view-property path, stated.** The swap is aligned to the frame
+the renderer hands to the display path, and a `SurfaceView` property change is not latched with
+the codec buffer, so there the swap is within one or two display frames: in balanced frame
+pacing the hook fires when a buffer enters the renderer's two-deep output queue, up to two
+vsyncs before `doFrame` releases it. A stream stop keeps the presented crop so the frozen last
+frame is not magnified twice; the next stream start resets.
 
 Tested by `CropCompositionTest` (F1 end to end: 4x zoom, honoured crop, presented at 1:1 —
 red without the compositor), `ViewportCompositorTest` (the single-magnification invariant in
 every state: idle, mid-pinch, before and after the swap, v1 host, trailing echo, pan after
 swap, revocation, reconnect, PiP resize, out-of-order echoes), `HostCropPlanTest`,
 `DecodedFrameGateTest`, `ReferencePointerTest` and `ViewportCompositionWiringTest` (the hooks).
+
+---
+
+## `MEOW-TOUCH(frame-exact-crop)`
+
+**Feature:** every decoded frame reaches the screen together with the crop transform it was
+encoded with, so a crop change during a pan is invisible (the owner's report, 2026-09-26:
+"resizes so you cant clearly see where are you moving … resizing, jumps is not ok").
+
+**Why the view-property swap could not be fixed in place.** The presented transform was a
+`SurfaceView` property: it reaches SurfaceFlinger with the UI thread's next drawn frame. The
+decoded buffer reaches it straight from the codec. Nothing latches the two, so at a crop change
+the new picture showed under the old transform (or the reverse) for one or two display frames.
+`SurfaceView.applyTransactionToFrame` (API 34) looks like the answer and is not: RenderThread
+rewrites the same `SurfaceControl`'s position and matrix whenever the view moves (every pan
+frame), with its own ordering, so the two writers race. The only way to pair pixels and
+geometry is to submit them in one transaction.
+
+**How (API 33+, SDR).** The decoder renders into an `ImageReader`
+(`SurfaceFramePresenter`). For each image, `FrameSelector` names it: the timestamp it was
+released with gives its presentation time (`FrameStamps`), which gives its host frame number
+(`DecodedFrameGate.frameForPts`), which gives the crop it was encoded with (`CropTimeline`, fed
+by the compositor from the echoes, each keyed by the frame it starts on). The presenter then
+applies one `SurfaceControl.Transaction` with `setBuffer` and that crop's geometry
+(`FrameLayerGeometry`) on a child layer of the stream view's surface. The view keeps the
+user's logical transform, exactly as `PanZoomHandler` writes it, so pans draw with the UI at the
+display rate; the layer composes under it and changes only with the buffer it belongs to. The
+buffer goes back to the codec when SurfaceFlinger releases it, with the release fence set on the
+image. It also drops a frame older than the one on screen (the renderer releases from two
+threads and can release a queued older frame after a newer one).
+
+### Sites
+
+| File | Site | Edit |
+| --- | --- | --- |
+| `binding/video/MediaCodecDecoderRenderer.java` | first line of `releaseWithPolicy` | `FrameStamps.onRelease(bufferIndex, frameTimeNanos)` |
+| `binding/video/MediaCodecDecoderRenderer.java` | `doFrame`, before its timestamped release | `FrameStamps.onRelease(nextOutputBuffer, frameTimeNanos)` |
+| `binding/video/MediaCodecDecoderRenderer.java` | latest-only path, before `releaseWithPolicy(__last, …)` | `FrameStamps.onOutput(__last, __lastPtsUs)` |
+| `binding/video/MediaCodecDecoderRenderer.java` | balanced path, before `outputBufferQueue.add(lastIndex)` | `FrameStamps.onOutput(lastIndex, presentationTimeUs)` |
+| `Game.java` | `setOnSurfaceAvailable` | `setRenderTarget(viewportBinder != null ? viewportBinder.decoderSurface(…) : streamContainer.getSurface())` |
+| `Game.java` | end of `surfaceCreated` | `viewportBinder.setFrameRate(desiredFrameRate)` -- the layer needs the view surface's frame-rate vote; a vote on the (now empty) view surface does not reach it |
+
+The renderer's non-balanced release paths are not hooked: `Game` forces balanced pacing, so
+they never run. A buffer that cannot be named (no hook saw it) keeps the last crop and is
+counted. The renderer file is CRLF; the hooks keep its line endings.
+
+New code in `meow/viewport/`: `SurfaceFramePresenter` (Android), `FrameSelector`,
+`FrameStamps`, `CropTimeline`, `FrameLayerGeometry`, `CropRequestHistory`; the compositor gained
+`setTimeline`/`setRequestHistory`, `DecodedFrameGate` gained `frameForPts`, the binder
+`decoderSurface`/`setFrameRate`.
+
+**Not used when:** API < 33 (no `Transaction.setBuffer`), HDR requested (the image path would
+drop the codec's HDR metadata), no compositor, or the stream view is not a `SurfaceView` (the
+stereo modes). Construction failure falls back to the view's own surface.
+
+**Cost.** One reader hop instead of the codec queueing to the view's BLAST queue, which is also
+a transaction, so the step count is the same; what is added is the presenter thread's wake-up.
+`adb logcat -s MeowFrame` prints, every 5 s, frames presented, release-to-apply median and max,
+unnamed buffers, older frames dropped and late echoes. Allocation: this class adds none per
+frame, but the platform API allocates an `Image`, a `HardwareBuffer` and a `SyncFence` wrapper
+per frame; a stated deviation from "hot paths allocation-free", unavoidable on this API.
+
+**Late echoes.** The host sends the echo from the encode path once the frame is produced
+(`meow-protocol.md`), on the same link just ahead of that frame's video packets, so it arrives
+before the frame is decoded. If the control channel stalls (a retransmission) and the frame is
+shown first, that frame and the ones until the echo lands use the previous crop; the count is
+in the `MeowFrame` line.
+
+**Tested by** `SmoothPanSimulationTest` -- the owner's pan (portrait 1220x2712 stream, 5360x1440
+desktop, 6.6x, across the desktop at 1.9 views/s and back at 5.6) and a landscape diagonal pan
+at 4x, with a jittering link, the library's 50 ms rate limit, 60 fps host frames, decode and
+vsync release, all through production code, against `SunmeowCropModel`: every frame on screen
+shows each desktop pixel within 0.5 screen pixels of where the logical view puts it (measured:
+0.0), the request size never changes, and no frame goes backwards. Its negative controls show
+the measure fails for the view-property swap (a one-frame lag: thousands of pixels at the first
+crop, tens at each step) and for the echo-estimated mapping (3.0 px). Plus `FrameStampsTest`,
+`FrameSelectorTest`, `CropTimelineTest`, `FrameLayerGeometryTest` (composed with the view it is
+`ViewComposition`'s presented transform), `CropRequestHistoryTest`, `SurfaceFramePresenterTest`
+(the binder switches the compositor to per-frame, and back to the view's surface for HDR or a
+non-`SurfaceView`) and `ViewportCompositionWiringTest` (the hooks).
+
+---
+
+## `MEOW-TOUCH(host-audio)`
+
+**Feature:** the PC keeps its sound while the phone plays it too.
+
+`Game.java`, `setOnSurfaceAvailable`: `new AndroidAudioRenderer(Game.this, prefConfig.enableAudioFx)`.
+Artemis' "3d mode v1" (`08dd5406`) changed the second argument to `prefConfig.playHostAudio`,
+which is not what that parameter is: it is the equalizer switch, which opens an audio-effect
+session and skips the low-latency `AudioTrack`. With host audio now on by default (below) that
+would have cost every user the phone's low-latency audio path. This restores upstream Moonlight's
+argument. `HostAudioPreferenceTest` pins both halves and that the switch still reaches the launch
+query as `localAudioPlayMode=1` (sunmeow `nvhttp.cpp` `launch`/`resume` then leave the default
+sink alone and capture its monitor).
 
 ---
 
@@ -1055,6 +1165,17 @@ purpose: until this release a crop was magnified twice, which is a good reason t
 it off), cursor follow and automatic bitrate. Pinned by `DefaultsMigrationTest` (virgin
 install, an install at schema 1, off switches that stay off, profile stores never written) and
 `MeowDefaultsTest`.
+
+### Schema 3 (2026-09-26): host audio on
+
+`MeowDefaults.SCHEMA_VERSION` = 3. Below schema 3 it switches on "Play audio on host PC"
+(`checkbox_host_audio`, `meow/audio/HostAudioPreference`): the owner listens on the PC's
+headphones and on the phone at once, and with it off a Sunshine host moves its default sink to
+the stream's virtual sink for the session, silencing the PC. Fresh installs get it from the XML
+default (`res/xml/preferences.xml`, `checkbox_host_audio`, `false` → `true`, marked) and
+`PreferenceConfiguration.DEFAULT_HOST_AUDIO` (now `HostAudioPreference.DEFAULT`, marked). The
+off switch stays in Settings, and one turned off after the migration stays off
+(`HostAudioPreferenceTest`, `MeowDefaultsTest`, `DefaultsMigrationTest`).
 
 ### `app/src/main/java/com/limelight/meow/viewport/ViewportPreference.java`
 
