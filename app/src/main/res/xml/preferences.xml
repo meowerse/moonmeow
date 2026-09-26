@@ -522,8 +522,10 @@
             android:summary="@string/summary_checkbox_enable_sops"
             android:title="@string/title_checkbox_enable_sops"
             app:iconSpaceReserved="false" />
+        <!-- MEOW-TOUCH(defaults): was false. Must match HostAudioPreference.DEFAULT; existing
+             installs get it once from MeowDefaults (schema 3). -->
         <CheckBoxPreference
-            android:defaultValue="false"
+            android:defaultValue="true"
             android:key="checkbox_host_audio"
             android:summary="@string/summary_checkbox_host_audio"
             android:title="@string/title_checkbox_host_audio"
