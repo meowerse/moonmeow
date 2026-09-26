@@ -26,9 +26,13 @@ public class CursorFollowControllerTest {
         float x = 720f;
         float y = 405f;
         float zoom = 4f;
+        boolean laidOut = true;
 
         @Override
         public boolean visibleReferenceRect(float[] out) {
+            if (!laidOut) {
+                return false;
+            }
             out[0] = x;
             out[1] = y;
             out[2] = 480f;
@@ -774,6 +778,39 @@ public class CursorFollowControllerTest {
         assertTrue(1919f <= view.x + 480f);
         // The user pans away; later the keyboard opens (a re-check), and the host is silent.
         view.x = 200f;
+        controller.ensureVisible();
+        frames.settle();
+        assertEquals(200f, view.x, 0f);
+    }
+    @Test
+    public void aCursorAnAppHidesMidScreenRightAfterAMoveIsNotChased() {
+        // A game or video player captures and hides the cursor right after a trackpad move;
+        // the hide lands mid-desktop, not against an edge, so it is not the KWin edge case.
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        float before = view.x;
+        controller.onRelativeMove(40, 0);
+        controller.onCursorPosition(1500, 540, false, 2);
+        frames.runUi();
+        frames.settle();
+        assertEquals(before, view.x, 0f);
+    }
+
+    @Test
+    public void aHiddenFollowCutShortByADisarmDoesNotPullTheViewLater() {
+        controller.onCursorPosition(960, 540, true, 1);
+        frames.runUi();
+        frames.settle();
+        controller.onRelativeMove(40, 0);
+        controller.onCursorPosition(1919, 540, false, 2);
+        frames.runUi();
+        // The view loses its layout mid-follow (the frame guard disarms), then gets it back.
+        view.laidOut = false;
+        frames.settle();
+        view.laidOut = true;
+        view.x = 200f;
+        frames.advance(CursorFollowController.POINTER_INPUT_WINDOW_MS + 1);
         controller.ensureVisible();
         frames.settle();
         assertEquals(200f, view.x, 0f);

@@ -896,8 +896,12 @@ public final class CursorFollowController
                         && Math.abs(x - followHiddenX) <= 1f)
                     || (onHorizontalEdge(followHiddenY) && onHorizontalEdge(y)
                         && Math.abs(y - followHiddenY) <= 1f));
-        boolean pinned = !seenVisible && (onVerticalEdge(x) || onHorizontalEdge(y));
-        if (slid || (driven && (wasVisible || pinned))) {
+        // Only a hide against the desktop edge is the compositor's doing (KWin reports no
+        // cursor once the user pushes it off the captured edge); a hide mid-desktop is an
+        // application capturing the pointer (a game, a video player) and is never chased.
+        boolean atEdge = onVerticalEdge(x) || onHorizontalEdge(y);
+        boolean pinned = !seenVisible && atEdge;
+        if (slid || (driven && atEdge && (wasVisible || pinned))) {
             followHiddenX = x;
             followHiddenY = y;
             return true;
@@ -1012,7 +1016,9 @@ public final class CursorFollowController
         if (!armed || !enabled || !streamStarted || !cursor.isKnown()
                 || (!cursor.isVisible() && !followHidden)
                 || !view.visibleReferenceRect(visible) || !view.transform(transform)) {
-            disarm();
+            // Any stop, not only a settle, ends a hidden follow: a latch left behind would pull
+            // the view to a stale point on the next unrelated re-check (keyboard, resize).
+            settled();
             return;
         }
         view.contentBounds(bounds);
