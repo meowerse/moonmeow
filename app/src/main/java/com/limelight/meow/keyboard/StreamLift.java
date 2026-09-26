@@ -25,11 +25,12 @@ public final class StreamLift {
     }
 
     /**
-     * The smallest lift that puts {@code focusY} (container pixels) at least {@code margin}
-     * above {@code visibleBottom}: zero while it already is, never more than bottom-aligning
-     * the stream with {@code visibleBottom}, never upward of zero. For an overlay the stream
-     * is not otherwise moved for (the quick bar): only the rows the view cannot pan out from
-     * under it cost a move, and only that much.
+     * The nudge for an overlay the stream is not otherwise moved for (the quick bar): zero
+     * while {@code focusY} (container pixels) is at least {@code margin} above
+     * {@code visibleBottom}; otherwise the stream's bottom edge on {@code visibleBottom}, which
+     * costs at most the overlay's size. Not "just enough": the focus is reported once per
+     * eighth of the view, so a cursor that keeps drifting after the report would end under
+     * the overlay again. Works on either axis (bottom edge, or right edge for a side bar).
      */
     public static float nudgeFor(float containerTop, float containerBottom, float visibleBottom,
                                  float focusY, float margin) {
@@ -37,11 +38,10 @@ public final class StreamLift {
             return 0f;
         }
         float focusWindowY = containerTop + focusY;
-        float need = visibleBottom - margin - focusWindowY;
-        if (need >= 0f) {
+        if (visibleBottom - margin - focusWindowY >= 0f) {
             return 0f;
         }
-        return Math.max(visibleBottom - containerBottom, need);
+        return visibleBottom - containerBottom;
     }
 
     /**

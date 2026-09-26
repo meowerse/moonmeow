@@ -245,6 +245,51 @@ public class GamePcKeyboardFollowTest {
     }
 
     @Test
+    public void inLandscapeWithTheStreamFillingTheViewTheSideBarStaysShownAndTheCursorLeftOfIt()
+            throws Exception {
+        withQuickBar = true;
+        launch();
+        quickBar.onStreamStarted();
+        layoutWindow();
+        PcKeyboardController pc = field("pcKeyboard");
+        pc.update();
+        layoutWindow();
+        pc.update();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10));
+        settle();
+
+        assertTrue("the bar is shown", quickBar.isBarShown());
+        android.graphics.Rect bar = new android.graphics.Rect();
+        assertTrue(quickBar.obstructionInWindow(winH, bar));
+        assertTrue("down the right side: " + bar, bar.height() > bar.width());
+        Field right = StreamViewportBinder.class.getDeclaredField("rightObstructionPx");
+        right.setAccessible(true);
+        assertEquals("the binder's right obstruction is the bar's cover", winW - bar.left, right.getInt(binder));
+        Field bottom = StreamViewportBinder.class.getDeclaredField("bottomObstructionPx");
+        bottom.setAccessible(true);
+        assertEquals("nothing covers the bottom", 0, bottom.getInt(binder));
+
+        // Drive the cursor to the desktop's right edge: the last columns no pan reaches.
+        float y = container.getHeight() / 2f;
+        for (int stroke = 0; stroke < 12; stroke++) {
+            game.onTouch(container, finger(MotionEvent.ACTION_DOWN, 100f, y));
+            for (int i = 1; i <= 40; i++) {
+                game.onTouch(container, finger(MotionEvent.ACTION_MOVE, 100f + i * 30f, y));
+            }
+            game.onTouch(container, finger(MotionEvent.ACTION_UP, 1300f, y));
+            settle();
+        }
+        settle();
+        float[] t = new float[5];
+        assertTrue(binder.transform(t));
+        int[] at = new int[2];
+        container.getLocationInWindow(at);
+        float x = at[0] + t[0] + ShadowMoonBridgeWithHost.referenceX() * t[2];
+        assertTrue("the host cursor (window x " + x + ") ends left of the bar (left " + bar.left + ")",
+                x <= bar.left);
+    }
+
+    @Test
     public void withThePcKeyboardOpenTheFollowedCursorStaysAboveIt() throws Exception {
         launch();
         PcKeyboardController pc = field("pcKeyboard");

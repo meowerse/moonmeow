@@ -1,6 +1,7 @@
 package com.limelight.meow.keyboard;
 
 import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertTrue;
 
 import org.junit.Test;
 
@@ -90,8 +91,25 @@ public class StreamLiftTest {
     }
 
     @Test
-    public void aNudgeLiftsOnlyAsFarAsTheFocusNeeds() {
-        assertEquals(2285f - 24f - 2300f, StreamLift.nudgeFor(0, 2400, 2285, 2300f, 24f), 0.01f);
+    public void aNudgeBottomAlignsOnceTheFocusIsUnderTheBar() {
+        // One step, not "just enough": the cursor keeps drifting down after the one report
+        // the binder sends per eighth of the view, so anything short of bottom-aligned
+        // leaves the last rows under the bar (real device: bar top 2040, 63 px margin).
+        assertEquals(2285f - 2400f, StreamLift.nudgeFor(0, 2400, 2285, 2300f, 24f), 0.01f);
+    }
+
+    @Test
+    public void aCursorThatDriftsOnToTheLastRowAfterTheNudgeIsStillAboveTheBar() {
+        float lift = StreamLift.nudgeFor(0, 2400, 2040, 2100f, 63f);
+        assertTrue("the desktop's last row (2400) ends above the bar at 2040: " + (2400 + lift),
+                2400 + lift <= 2040);
+    }
+
+    @Test
+    public void aNudgeWorksSidewaysForASideBar() {
+        // The same rule on the x axis: container 0..1920, the side bar from 1830.
+        assertEquals(0f, StreamLift.nudgeFor(0, 1920, 1830, 900f, 24f), 0f);
+        assertEquals(1830f - 1920f, StreamLift.nudgeFor(0, 1920, 1830, 1900f, 24f), 0.01f);
     }
 
     @Test

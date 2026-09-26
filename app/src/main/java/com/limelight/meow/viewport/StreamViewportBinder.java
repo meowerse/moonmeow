@@ -228,6 +228,27 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     }
     private final Runnable streamMovedListener = this::onVisibleAreaChanged;
 
+    private final KeyboardVisibleArea.FocusSource focusSource = new KeyboardVisibleArea.FocusSource() {
+        @Override
+        public float focusY() {
+            return cursorFocusY();
+        }
+
+        @Override
+        public float focusX() {
+            return cursorFocusX();
+        }
+    };
+
+    /** The host cursor's x in parent pixels, or NaN. UI thread, no allocation. */
+    float cursorFocusX() {
+        CursorFollowController follow = cursorFollow;
+        if (follow == null || !follow.cursor().isKnown() || !transform(scratchFocus)) {
+            return Float.NaN;
+        }
+        return scratchFocus[0] + follow.cursor().x() * scratchFocus[2];
+    }
+
     /** Window pixels below the area left visible by keyboards and bars. UI thread. */
     void onKeyboardAreaChanged(int visibleBottomInWindow) {
         View decor = parent.getRootView();
@@ -248,7 +269,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         this.streamView = streamView;
         this.parent = parent;
         this.visibleArea = KeyboardVisibleArea.install(parent);
-        this.visibleArea.setFocusSource(this::cursorFocusY);
+        this.visibleArea.setFocusSource(focusSource);
         this.visibleArea.addListener(keyboardAreaListener);
         this.visibleArea.setStreamMovedListener(streamMovedListener);
 
@@ -432,6 +453,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         this.streamHeight = Math.max(1, streamHeight);
         this.streamStarted = true;
         lastNotifiedFocusY = Float.NaN;
+        lastNotifiedFocusX = Float.NaN;
         this.contentFrame = null;
         if (compositor != null) {
             compositor.onStreamStarted(this.streamWidth, this.streamHeight);
@@ -590,6 +612,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         visibleArea.removeListener(keyboardAreaListener);
         visibleArea.setFocusSource(null);
         visibleArea.setStreamMovedListener(null);
+        bottomObstructionPx = 0;
+        rightObstructionPx = 0;
         mainHandler.removeCallbacks(focusMoved);
         focusMovePosted = false;
         MeowViewportBridge.clearEchoListener(this);
@@ -990,17 +1014,23 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
      */
     private void checkFocusMoved() {
         float y = cursorFocusY();
+        float x = cursorFocusX();
         if (Float.isNaN(y) || focusMovePosted) {
             return;
         }
-        if (Float.isNaN(lastNotifiedFocusY) || Math.abs(y - lastNotifiedFocusY) > parent.getHeight() / 8f) {
+        boolean moved = Float.isNaN(lastNotifiedFocusY)
+                || Math.abs(y - lastNotifiedFocusY) > parent.getHeight() / 8f
+                || Math.abs(x - lastNotifiedFocusX) > parent.getWidth() / 8f;
+        if (moved) {
             lastNotifiedFocusY = y;
+            lastNotifiedFocusX = x;
             focusMovePosted = true;
             mainHandler.post(focusMoved);
         }
     }
 
     private float lastNotifiedFocusY = Float.NaN;
+    private float lastNotifiedFocusX = Float.NaN;
     private boolean focusMovePosted;
     private final Runnable focusMoved = this::notifyFocusMoved;
 

@@ -18,7 +18,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | Fn layer | a **Super** key (a lone Super press: Start menu / KDE launcher) and Super+L, F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |
 | Above the system keyboard | a one-row strip: Esc, Tab, Ctrl, Alt, Super, ← ↑ ↓ →, and a key to switch to the full PC keyboard (Termux's extra-keys idea). Setting: *PC keys above the system keyboard* |
 | Stream | slides up out from under any keyboard (system, strip or PC) and back when it closes. Setting: *Move the stream above the keyboard* |
-| Quick bar (toolbar) | **always on screen** unless *Auto-hide toolbar* is on. Placed in a letterbox when one is deep or wide enough (bottom first, then the right-hand side), so it covers nothing. When the stream fills the view — the normal case on a phone with auto cursor zoom — it stands over the stream on the edge that hides the least of it (across the bottom in portrait, down the right side in landscape) and is reported to the viewport binder as a bottom or right obstruction: cursor follow keeps the cursor clear of it and the host crop ends at it. The stream is not moved for it, except the least lift that brings the cursor above it when the cursor is on the desktop's last rows (no pan can reach those). With a keyboard open it rides above the keyboard, across the bottom. *Auto-hide toolbar* (off by default) restores the 3-second collapse; a two-finger tap toggles it either way |
+| Quick bar (toolbar) | **always on screen** unless *Auto-hide toolbar* is on. Placed in a letterbox when one is deep or wide enough (bottom first, then the right-hand side), so it covers nothing. When the stream fills the view — the normal case on a phone with auto cursor zoom — it stands over the stream on the edge that hides the least of it (across the bottom in portrait, down the right side in landscape) and is reported to the viewport binder as a bottom or right obstruction: cursor follow keeps the cursor clear of it and the host crop ends at it. The stream is not moved for it, except when the cursor is on the desktop's last rows or columns, which no pan reaches: then the stream is nudged by the bar's size, so they come out from under it. With a keyboard open it rides above the keyboard, across the bottom. *Auto-hide toolbar* (off by default) restores the 3-second collapse; a two-finger tap toggles it either way |
 | System bars | in full screen, only the status bar hides; the navigation bar stays and the window is laid out above it. Setting: *Keep the navigation bar visible* (off = the old immersive mode) |
 
 ## Modifier behaviour (Ctrl, Alt, Shift, Super, Fn)
@@ -231,9 +231,19 @@ horizontal bar, right or left for a vertical one — only where it actually over
 (`StreamLift.liftFor`). With none, the stream stays put and the bar is only an obstruction: the
 published `KeyboardVisibleArea` includes it, and the binder turns it into #16's
 `setBottomObstruction` (or `setRightObstruction` for the side bar), so cursor follow keeps the
-cursor above it and the host crop ends at it. The desktop's last rows are the exception, since no
-pan reaches them: there the stream is nudged up by exactly as much as brings the cursor above the
-bar (`StreamLift.nudgeFor`).
+cursor above it and the host crop ends at it. The desktop's last rows (bottom bar) or last columns (side bar) are
+the exception, since no pan reaches them: when the cursor is there the stream is nudged by the
+bar's size, bottom (or right) edge on the bar (`StreamLift.nudgeFor`, both axes; the binder's
+focus source gives the cursor's x as well as y). It is the whole size, not "just enough": the
+cursor is reported once per eighth of the view, so a partial nudge left a cursor still drifting
+down under the bar (review finding, `aCursorThatDriftsOnToTheLastRowAfterTheNudgeIsStillAboveTheBar`
+failed first). `GamePcKeyboardFollowTest.inLandscapeWithTheStreamFillingTheViewTheSideBarStaysShownAndTheCursorLeftOfIt`
+covers the side bar: right obstruction equal to its cover, the cursor driven to the desktop's
+right edge ends left of it.
+
+**A landscape keyboard keeps the bar too** (the owner's "always show it"; the earlier design made
+the bar transient there). The band above a landscape PC keyboard then also loses the bar's
+height; *Auto-hide toolbar* or the two-finger tap hide it. Flagged for the owner.
 
 A first version fell back to auto-hiding wherever no letterbox fits. With #16's auto cursor zoom
 the stream fills the view on every phone, so that fallback was the normal case and the bar
@@ -256,8 +266,10 @@ on-screen-keyboard configure buttons are fixed translucent buttons with no timer
 ## Known limits
 
 - Where no letterbox fits the bar it stands over the edge of the stream (owner: "let's always
-  show it"); the cursor is kept clear of it, but the desktop under the bar is only visible by
-  panning or with *Auto-hide toolbar* on.
+  show it"); the cursor is kept clear of it, and the desktop under the bar is visible by
+  panning, by the nudge when the cursor is on the last rows or columns, or with *Auto-hide
+  toolbar* on. Showing or hiding the bar changes the visible window, so the host crop resizes
+  once, as it does when a keyboard opens.
 - Clearing the stream of the bar follows *Move the stream above the keyboard*; with that off, or
   on an external display (no keyboard controller), the permanent bar may cover the stream.
 - A permanent bar also sits above the Artemis on-screen controls (virtual gamepad, custom

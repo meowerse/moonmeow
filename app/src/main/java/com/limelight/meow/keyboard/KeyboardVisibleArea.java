@@ -67,6 +67,11 @@ public final class KeyboardVisibleArea {
          * @return its y in the stream container's own pixels, or {@link Float#NaN} if unknown
          */
         float focusY();
+
+        /** Its x in the stream container's own pixels, or {@link Float#NaN} if unknown. */
+        default float focusX() {
+            return Float.NaN;
+        }
     }
 
     private final ArrayList<Listener> listeners = new ArrayList<>();
@@ -152,6 +157,11 @@ public final class KeyboardVisibleArea {
     /** The current point of interest, container pixels, or NaN. */
     public float focusY() {
         return focusSource != null ? focusSource.focusY() : Float.NaN;
+    }
+
+    /** The point of interest's x, container pixels, or NaN. */
+    public float focusX() {
+        return focusSource != null ? focusSource.focusX() : Float.NaN;
     }
 
     public boolean isKnown() {

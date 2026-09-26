@@ -106,6 +106,33 @@ public class StreamViewportBinderKeyboardTest {
     }
 
     @Test
+    public void theAreaRightEdgeBecomesTheRightObstructionAndNarrowsWhatIsVisible() throws Exception {
+        binder.onViewportApplied(0, 0, W, H, W, H, 0);
+        idle();
+        float[] full = new float[4];
+        assertTrue(binder.visibleReferenceRect(full));
+        KeyboardVisibleArea area = KeyboardVisibleArea.of(parent);
+        area.publish(0, 0, W - 200, H);
+        Field f = StreamViewportBinder.class.getDeclaredField("rightObstructionPx");
+        f.setAccessible(true);
+        assertEquals(200, f.getInt(binder));
+        float[] narrowed = new float[4];
+        assertTrue(binder.visibleReferenceRect(narrowed));
+        assertEquals("the visible width loses the side bar", full[2] - 200f, narrowed[2], 1f);
+        area.publish(0, 0, W, H);
+        assertEquals(0, f.getInt(binder));
+        float[] restored = new float[4];
+        assertTrue(binder.visibleReferenceRect(restored));
+        assertEquals(full[2], restored[2], 1f);
+    }
+
+    @Test
+    public void theFocusXIsTheHostCursorInContainerPixels() {
+        follow.onCursorPosition(1500, 810, true, 1);
+        assertEquals(1500f, KeyboardVisibleArea.of(parent).focusX(), 0.5f);
+    }
+
+    @Test
     public void theFocusIsTheHostCursorInContainerPixels() {
         KeyboardVisibleArea area = KeyboardVisibleArea.of(parent);
         assertTrue("unknown until the cursor is", Float.isNaN(area.focusY()));

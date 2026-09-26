@@ -460,7 +460,7 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
             // obstruction, and cursor follow keeps the cursor clear of it by panning. Only the
             // rows the view cannot pan to (the desktop's last ones, under the bar) need the
             // stream itself to move, and then only as far as brings the cursor above the bar.
-            applyNudge(visibleBottom);
+            applyNudge(visibleRight, visibleBottom);
         } else {
             applyLift(visibleLeft, topInset, visibleRight, visibleBottom);
         }
@@ -513,21 +513,29 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
      * The smallest lift that brings the point of interest above {@code visibleBottom} with a
      * margin, or none. Used when nothing but the quick bar covers the stream.
      */
-    private void applyNudge(int visibleBottom) {
+    private void applyNudge(int visibleRight, int visibleBottom) {
         float lift = 0f;
-        float focus = area.focusY();
-        if (prefs.liftStream && !Float.isNaN(focus)) {
+        float shift = 0f;
+        if (prefs.liftStream) {
             containerRect(container);
+            float margin = NUDGE_MARGIN_DP * game.getResources().getDisplayMetrics().density;
             lift = StreamLift.nudgeFor(container.top, container.bottom, visibleBottom,
-                    focus, NUDGE_MARGIN_DP * game.getResources().getDisplayMetrics().density);
+                    area.focusY(), margin);
+            // The side bar's twin: the desktop's last columns, which no pan reaches either.
+            shift = StreamLift.nudgeFor(container.left, container.right, visibleRight,
+                    area.focusX(), margin);
         }
-        if (Math.abs(lift - liftTarget) < 0.5f && Math.abs(shiftTarget) < 0.5f) {
+        if (Math.abs(lift - liftTarget) < 0.5f && Math.abs(shift - shiftTarget) < 0.5f) {
             return;
         }
         liftTarget = lift;
-        shiftTarget = 0f;
-        streamContainer.animate().translationY(lift).translationX(0f).setDuration(LIFT_MS)
+        shiftTarget = shift;
+        streamContainer.animate().translationY(lift).translationX(shift).setDuration(LIFT_MS)
                 .setInterpolator(decelerate).withEndAction(streamMoved).start();
+    }
+
+    float shiftTarget() {
+        return shiftTarget;
     }
 
     static final float NUDGE_MARGIN_DP = 24f;
