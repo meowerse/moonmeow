@@ -2,6 +2,7 @@ package com.limelight.meow.res;
 
 import android.content.SharedPreferences;
 
+import com.limelight.meow.audio.HostAudioPreference;
 import com.limelight.meow.bitrate.AutoBitratePreference;
 import com.limelight.meow.cursor.CursorFollowPreference;
 import com.limelight.meow.viewport.ViewportPreference;
@@ -25,11 +26,17 @@ import com.limelight.meow.viewport.ViewportPreference;
  *       feature on for existing installs. A {@code false} stored after this runs is a choice
  *       made about the working feature and is left alone.</li>
  * </ul>
+ *
+ * <h2>Version 3 (2026-09-26: the PC keeps its sound)</h2>
+ * <ul>
+ *   <li>{@link HostAudioPreference} -- Moonlight's "Play audio on host PC", so the host does
+ *       not move its default sink to the stream and the PC and the phone both play.</li>
+ * </ul>
  */
 public final class MeowDefaults {
 
     /** The migration schema this build writes. {@code PreferenceConfiguration} gates on it. */
-    public static final int SCHEMA_VERSION = 2;
+    public static final int SCHEMA_VERSION = 3;
 
     private MeowDefaults() {
     }
@@ -43,6 +50,9 @@ public final class MeowDefaults {
             editor.putBoolean(ViewportPreference.KEY, true);
             editor.putBoolean(CursorFollowPreference.KEY, true);
             editor.putBoolean(AutoBitratePreference.KEY, true);
+        }
+        if (migratedTo < 3) {
+            editor.putBoolean(HostAudioPreference.KEY, true);
         }
     }
 }

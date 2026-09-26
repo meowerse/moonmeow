@@ -89,6 +89,28 @@ public final class DecodedFrameGate {
     }
 
     /**
+     * The host frame number queued under {@code presentationTimeUs}, or 0 when it is no longer
+     * (or never was) in the ring. {@link SurfaceFramePresenter} uses it to name each frame it
+     * puts on screen. Any thread, allocation-free.
+     */
+    public static int frameForPts(long presentationTimeUs) {
+        for (int i = 0; i < RING_SIZE; i++) {
+            long frame = FRAMES.get(i);
+            if (frame == 0L) {
+                continue;
+            }
+            long pts = PTS.get(i);
+            if (FRAMES.get(i) != frame) {
+                continue;
+            }
+            if (pts == presentationTimeUs) {
+                return (int) frame;
+            }
+        }
+        return 0;
+    }
+
+    /**
      * Whether a frame numbered {@code frameIndex} or later has been handed to the display.
      *
      * @param frameIndex host frame number; 0 means "no frame to wait for" and is always true

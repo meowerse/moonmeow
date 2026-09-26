@@ -9,6 +9,7 @@ import android.content.SharedPreferences;
 
 import androidx.test.core.app.ApplicationProvider;
 
+import com.limelight.meow.audio.HostAudioPreference;
 import com.limelight.meow.bitrate.AutoBitratePreference;
 import com.limelight.meow.cursor.CursorFollowPreference;
 import com.limelight.meow.viewport.ViewportPreference;
@@ -37,7 +38,8 @@ public class MeowDefaultsTest {
         assertTrue(ViewportPreference.DEFAULT);
         assertTrue(CursorFollowPreference.DEFAULT);
         assertTrue(AutoBitratePreference.DEFAULT);
-        assertEquals(2, MeowDefaults.SCHEMA_VERSION);
+        assertTrue(HostAudioPreference.DEFAULT);
+        assertEquals(3, MeowDefaults.SCHEMA_VERSION);
     }
 
     @Test
@@ -54,12 +56,24 @@ public class MeowDefaultsTest {
     }
 
     @Test
-    public void anInstallAtSchemaTwoIsLeftAlone() {
+    public void anInstallAtSchemaTwoGetsHostAudioAndNothingElse() {
+        prefs.edit().putBoolean(HostAudioPreference.KEY, false).commit();
         SharedPreferences.Editor editor = prefs.edit();
         MeowDefaults.apply(2, editor);
         editor.commit();
+        assertTrue(prefs.getBoolean(HostAudioPreference.KEY, false));
         assertFalse(prefs.contains(CursorFollowPreference.KEY));
         assertFalse(prefs.contains(AutoBitratePreference.KEY));
+        assertFalse(prefs.contains(ViewportPreference.KEY));
+    }
+
+    @Test
+    public void anInstallAtSchemaThreeIsLeftAlone() {
+        SharedPreferences.Editor editor = prefs.edit();
+        MeowDefaults.apply(3, editor);
+        editor.commit();
+        assertFalse(prefs.contains(HostAudioPreference.KEY));
+        assertFalse(prefs.contains(CursorFollowPreference.KEY));
         assertFalse(prefs.contains(ViewportPreference.KEY));
     }
 }

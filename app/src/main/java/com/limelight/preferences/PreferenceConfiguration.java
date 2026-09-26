@@ -156,7 +156,7 @@ public class PreferenceConfiguration {
     private static final boolean DEFAULT_RESUME_WITHOUT_CONFIRM = false;
     private static final boolean DEFAULT_SOPS = true;
     private static final boolean DEFAULT_DISABLE_TOASTS = false;
-    private static final boolean DEFAULT_HOST_AUDIO = false;
+    private static final boolean DEFAULT_HOST_AUDIO = com.limelight.meow.audio.HostAudioPreference.DEFAULT; // MEOW-TOUCH(defaults): PC and phone both play
     private static final int DEFAULT_DEADZONE = 5;
     private static final int DEFAULT_OPACITY = 90;
     public static final String DEFAULT_LANGUAGE = "default";
@@ -860,6 +860,7 @@ private static int getFramePacingValue(Context context) {
 
         // Version 2: every meow feature on (spec D1), including viewport following again for
         // installs that turned it off while it double-magnified (F1, fixed with version 2).
+        // Version 3: host audio on, so the PC keeps playing while the phone plays too.
         MeowDefaults.apply(migratedTo, editor);
 
         editor.putInt(DEFAULTS_MIGRATION_PREF_STRING, DEFAULTS_MIGRATION_VERSION).apply();

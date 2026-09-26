@@ -184,8 +184,8 @@ public class StreamViewportBinderTest {
 
         drain();
         assertEquals(1, sender.sent.size());
-        // The visible half plus the resting guard band (10% each side).
-        assertEquals(Math.round(STREAM_W / 2 * 1.2f), sender.last().width);
+        // The visible half plus the guard band (20% each side, whatever the speed).
+        assertEquals(Math.round(STREAM_W / 2 * 1.4f), sender.last().width);
     }
 
     @Test
@@ -422,7 +422,7 @@ public class StreamViewportBinderTest {
         binder.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0, 0);
         drain();
         assertEquals("the restored crop, with its guard band, must reach the host",
-                Math.round(STREAM_W / 4 * 1.2f), sender.last().width);
+                Math.round(STREAM_W / 4 * 1.4f), sender.last().width);
     }
 
     @Test
@@ -448,4 +448,113 @@ public class StreamViewportBinderTest {
             // ok
         }
     }
+
+    // --- smooth panning ---------------------------------------------------------------
+
+    /** The owner's report: the picture resized while moving. Every crop of a pan is one size. */
+    @Test
+    public void aContinuousPanAsksForCropsOfOneSizeOnly() {
+        startSupported();
+        sender.sent.clear();
+        streamView.setScaleX(4f);
+        streamView.setScaleY(4f);
+        streamView.setY(-VIEW_H * 1.5f);
+        for (int i = 0; i <= 120; i++) {
+            // Fast, then slow: the size must not follow the speed.
+            float x = i < 60 ? -VIEW_W * 0.05f * i : -VIEW_W * 3f + VIEW_W * 0.01f * (i - 60);
+            streamView.setX(Math.max(-VIEW_W * 3f, x));
+            binder.onZoomTransformChanged();
+            org.robolectric.shadows.ShadowSystemClock.advanceBy(
+                    java.time.Duration.ofMillis(16));
+            drain();
+        }
+        assertTrue("the crop moved: " + sender.sent.size(), sender.sent.size() >= 3);
+        for (ViewportRect sent : sender.sent) {
+            assertEquals(sender.sent.get(0).width, sent.width);
+            assertEquals(sender.sent.get(0).height, sent.height);
+        }
+    }
+
+    @Test
+    public void theCropRoundTripIsMeasuredForTheBandsLead() {
+        startSupported();
+        streamView.setScaleX(4f);
+        streamView.setScaleY(4f);
+        streamView.setX(-VIEW_W);
+        streamView.setY(-VIEW_H);
+        binder.onZoomTransformChanged();
+        drain();
+        org.robolectric.shadows.ShadowSystemClock.advanceBy(java.time.Duration.ofMillis(90));
+        ViewportRect crop = sender.last();
+        binder.onViewportApplied(crop.x, crop.y, crop.width, crop.height, 0, 0, 7);
+        drain();
+        assertEquals(90L, binder.cropRoundTripMs());
+    }
+
+    @Test
+    public void withoutASurfaceViewTheDecoderKeepsTheViewsOwnSurface() {
+        android.view.Surface fallback = new android.view.Surface(
+                new android.graphics.SurfaceTexture(0));
+        binder.setTransformSource(new InlinePinchZoomControllerStub(),
+                new ViewportCompositor(streamView, new InlinePinchZoomControllerStub()));
+        assertTrue(fallback == binder.decoderSurface(fallback, STREAM_W, STREAM_H, false));
+    }
+
+    @Test
+    public void anEchoAnsweringARecentRequestIsMappedExactly() {
+        SunmeowCropModel host = new SunmeowCropModel(STREAM_W, STREAM_H, STREAM_W, STREAM_H);
+        ViewportCompositor compositor = new ViewportCompositor(streamView,
+                new InlinePinchZoomControllerStub(), frame -> true, onFrame -> { });
+        binder.setTransformSource(new InlinePinchZoomControllerStub(), compositor);
+        startSupported();
+        streamView.setScaleX(4f);
+        streamView.setScaleY(4f);
+        streamView.setX(-VIEW_W * 1.3f);
+        streamView.setY(-VIEW_H * 1.7f);
+        binder.onZoomTransformChanged();
+        drain();
+        ViewportRect request = sender.last();
+        int[] source = host.source(request);
+        ViewportRect echo = host.echo(source);
+        binder.onViewportApplied(echo.x, echo.y, echo.width, echo.height, STREAM_W, STREAM_H, 0);
+        drain();
+        FrameMapping truth = host.trueMapping(source);
+        assertEquals(truth.offsetX, compositor.presentedMapping().offsetX, 1e-9);
+        assertEquals(truth.scaleX, compositor.presentedMapping().scaleX, 1e-12);
+    }
+
+    @Test
+    public void anHdrStreamKeepsTheViewsOwnSurface() {
+        android.view.SurfaceView surfaceView = new android.view.SurfaceView(context);
+        StreamViewportBinder b = newBinder(surfaceView);
+        b.setEnabled(true);
+        b.setTransformSource(new InlinePinchZoomControllerStub());
+        android.view.Surface fallback = new android.view.Surface(
+                new android.graphics.SurfaceTexture(0));
+        assertTrue("HDR metadata would be lost on the image path",
+                fallback == b.decoderSurface(fallback, STREAM_W, STREAM_H, true));
+        assertTrue(!b.compositor().presentsPerFrame());
+        b.release();
+    }
+
+    @Test
+    public void withoutACompositorTheDecoderKeepsTheViewsOwnSurface() {
+        android.view.SurfaceView surfaceView = new android.view.SurfaceView(context);
+        StreamViewportBinder b = newBinder(surfaceView);
+        android.view.Surface fallback = new android.view.Surface(
+                new android.graphics.SurfaceTexture(0));
+        assertTrue(fallback == b.decoderSurface(fallback, STREAM_W, STREAM_H, false));
+        b.release();
+    }
+
+    /** A logical transform that stays at the identity. */
+    private static final class InlinePinchZoomControllerStub
+            implements com.limelight.meow.gesture.InlinePinchZoomController.ZoomTarget {
+        @Override public void pinchBy(float s, float fx, float fy) { }
+        @Override public void panBy(float dx, float dy) { }
+        @Override public float getScaleFactor() { return 1f; }
+        @Override public float getChildX() { return 0f; }
+        @Override public float getChildY() { return 0f; }
+    }
 }
+
