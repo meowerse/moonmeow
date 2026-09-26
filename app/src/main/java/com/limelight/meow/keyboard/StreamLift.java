@@ -25,6 +25,26 @@ public final class StreamLift {
     }
 
     /**
+     * The smallest lift that puts {@code focusY} (container pixels) at least {@code margin}
+     * above {@code visibleBottom}: zero while it already is, never more than bottom-aligning
+     * the stream with {@code visibleBottom}, never upward of zero. For an overlay the stream
+     * is not otherwise moved for (the quick bar): only the rows the view cannot pan out from
+     * under it cost a move, and only that much.
+     */
+    public static float nudgeFor(float containerTop, float containerBottom, float visibleBottom,
+                                 float focusY, float margin) {
+        if (Float.isNaN(focusY) || containerBottom <= visibleBottom) {
+            return 0f;
+        }
+        float focusWindowY = containerTop + focusY;
+        float need = visibleBottom - margin - focusWindowY;
+        if (need >= 0f) {
+            return 0f;
+        }
+        return Math.max(visibleBottom - containerBottom, need);
+    }
+
+    /**
      * The sideways twin of {@link #liftFor}, for something standing at the right edge (the
      * quick bar in landscape, in the letterbox when it is wide enough): slide left out from
      * under it by as much as the space on the left allows, never shrinking and never moving

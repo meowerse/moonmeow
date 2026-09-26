@@ -18,7 +18,7 @@ modifiers that stick so shortcuts are easy, balanced sizes, fast, polished.
 | Fn layer | a **Super** key (a lone Super press: Start menu / KDE launcher) and Super+L, F1–F12, PrtSc, ScrLk, Pause, Ins, Del, Home, End, PgUp, PgDn, Caps, Menu, volume/media, Ctrl+Alt+Del, Ctrl+Shift+Esc, Alt+F4, Alt+Tab, Ctrl+Shift+C/V (terminal copy/paste), Ctrl+Shift+Z, system-keyboard and hide keys. Same bottom row, same Shift and arrow positions as the main layer |
 | Above the system keyboard | a one-row strip: Esc, Tab, Ctrl, Alt, Super, ← ↑ ↓ →, and a key to switch to the full PC keyboard (Termux's extra-keys idea). Setting: *PC keys above the system keyboard* |
 | Stream | slides up out from under any keyboard (system, strip or PC) and back when it closes. Setting: *Move the stream above the keyboard* |
-| Quick bar (toolbar) | **always on screen** by default, placed where the letterbox actually is: in the bottom letterbox if it is deep enough (portrait), else down the right-hand one (landscape, a 16:9 stream on a 19.5–20:9 phone). The stream is kept clear of it: where it does overlap (a portrait keyboard is open), the stream moves up out from under it, never shrinks. Where no letterbox can hold it (a 16:9 or 16:10 window), and above a keyboard in landscape (the band is too thin to share), it behaves as with *Auto-hide toolbar*: collapses to a handle and the stream does not move for it. *Auto-hide toolbar* (off by default) restores the old 3-second collapse everywhere. A two-finger tap toggles it either way |
+| Quick bar (toolbar) | **always on screen** unless *Auto-hide toolbar* is on. Placed in a letterbox when one is deep or wide enough (bottom first, then the right-hand side), so it covers nothing. When the stream fills the view — the normal case on a phone with auto cursor zoom — it stands over the stream on the edge that hides the least of it (across the bottom in portrait, down the right side in landscape) and is reported to the viewport binder as a bottom or right obstruction: cursor follow keeps the cursor clear of it and the host crop ends at it. The stream is not moved for it, except the least lift that brings the cursor above it when the cursor is on the desktop's last rows (no pan can reach those). With a keyboard open it rides above the keyboard, across the bottom. *Auto-hide toolbar* (off by default) restores the 3-second collapse; a two-finger tap toggles it either way |
 | System bars | in full screen, only the status bar hides; the navigation bar stays and the window is laid out above it. Setting: *Keep the navigation bar visible* (off = the old immersive mode) |
 
 ## Modifier behaviour (Ctrl, Alt, Shift, Super, Fn)
@@ -173,9 +173,9 @@ schema 2). With it off the lift has no point of interest and puts the stream's b
 keyboard, as before PR #17 had a cursor at all. Re-feeding the cursor with follow off would mean
 installing #16's input tap for a disabled feature; not done.
 
-**Horizontal obstructions stay local.** The binder takes only the area's bottom: #16 has a bottom
-obstruction and no side one. The side-standing quick bar is placed only in a letterbox, so it
-never covers the stream it would need to report.
+**Side obstructions.** The binder takes the area's right edge too
+(`setRightObstruction`, the side twin of #16's `setBottomObstruction`), for the quick bar standing
+down the side of a landscape stream that fills the view.
 
 **With PR #18's frame presenter.** On API 33+ each frame is drawn into a child `SurfaceControl`
 of the stream `SurfaceView`, positioned and cropped by `FrameLayerGeometry` from the same view
@@ -227,9 +227,20 @@ The owner: *"why also buttons bar is still hiding to this line? let's always sho
 anyone who wants the old behaviour. It is a `KeyboardVisibleArea.Obstruction`: the controller
 places it above any keyboard, then narrows the stream's visible area by it — bottom for a
 horizontal bar, right or left for a vertical one — only where it actually overlaps the stream
-(`PcKeyboardController.clearOf`). The stream then lifts (`StreamLift.liftFor`) or slides left
-into spare letterbox (`StreamLift.shiftFor`). The published `KeyboardVisibleArea` includes the
-bar, so PR #16's `setBottomObstruction` consumer gets it for free. The bar lives inside the
+(`PcKeyboardController.clearOf`). With a keyboard open the stream lifts above both
+(`StreamLift.liftFor`). With none, the stream stays put and the bar is only an obstruction: the
+published `KeyboardVisibleArea` includes it, and the binder turns it into #16's
+`setBottomObstruction` (or `setRightObstruction` for the side bar), so cursor follow keeps the
+cursor above it and the host crop ends at it. The desktop's last rows are the exception, since no
+pan reaches them: there the stream is nudged up by exactly as much as brings the cursor above the
+bar (`StreamLift.nudgeFor`).
+
+A first version fell back to auto-hiding wherever no letterbox fits. With #16's auto cursor zoom
+the stream fills the view on every phone, so that fallback was the normal case and the bar
+collapsed again (seen on the emulator). The fallback is gone: only the setting collapses the bar.
+`GamePcKeyboardFollowTest.withTheStreamFillingTheViewTheQuickBarStaysShownAndTheCursorAboveIt`
+(portrait 1080x2400, stream filling the view) failed on that version: bar shown, obstruction equal
+to its cover, stream not moved for it, and the followed cursor ending above it. The bar lives inside the
 content view, which with *Keep the navigation bar visible* on is laid out above that bar, so the
 two never overlap; with it off the navigation bar only appears transiently, over everything.
 
@@ -244,8 +255,9 @@ on-screen-keyboard configure buttons are fixed translucent buttons with no timer
 
 ## Known limits
 
-- Where no letterbox fits the bar (16:9/16:10 windows, tablets, split-screen), it falls back to
-  auto-hiding rather than covering the stream for good. Owner decision if that should change.
+- Where no letterbox fits the bar it stands over the edge of the stream (owner: "let's always
+  show it"); the cursor is kept clear of it, but the desktop under the bar is only visible by
+  panning or with *Auto-hide toolbar* on.
 - Clearing the stream of the bar follows *Move the stream above the keyboard*; with that off, or
   on an external display (no keyboard controller), the permanent bar may cover the stream.
 - A permanent bar also sits above the Artemis on-screen controls (virtual gamepad, custom

@@ -66,6 +66,11 @@ public class GamePcKeyboardFollowTest {
     private StreamContainer container;
     private PanZoomHandler panZoom;
     private long eventTime;
+    /** The window; the stream container fills it (no letterbox), as with auto cursor zoom. */
+    private int winW = W;
+    private int winH = H;
+    private boolean withQuickBar;
+    private com.limelight.meow.ui.QuickBarView quickBar;
 
     @BeforeClass
     public static void quiet() {
@@ -137,6 +142,22 @@ public class GamePcKeyboardFollowTest {
         container = field("streamContainer");
         panZoom = field("panZoomHandler");
         assertNotNull(binder);
+        if (withQuickBar && field("quickBarView") == null) {
+            // Same early return: build the quick bar as Game.onCreate's block does, before the
+            // keyboard attaches (it finds the bar among the content's children).
+            quickBar = new com.limelight.meow.ui.QuickBarView(game,
+                    new com.limelight.meow.ui.QuickBarView.Listener() {
+                        @Override public void onKeyboard() { }
+                        @Override public void onToggleLocalCursor() { }
+                        @Override public void onCycleMouseMode() { }
+                        @Override public void onTogglePerfOverlay() { }
+                        @Override public void onOpenMenu() { }
+                    });
+            ((android.view.ViewGroup) game.findViewById(android.R.id.content)).addView(quickBar);
+            Field qb = Game.class.getDeclaredField("quickBarView");
+            qb.setAccessible(true);
+            qb.set(game, quickBar);
+        }
         if (field("pcKeyboard") == null) {
             // Robolectric has no AVC decoder, so Game.onCreate returns before its attach
             // line (pinned by PcKeyboardWiringTest). Attach exactly as that line does.
@@ -168,9 +189,9 @@ public class GamePcKeyboardFollowTest {
 
     private void layoutWindow() {
         View decor = game.getWindow().getDecorView();
-        decor.measure(View.MeasureSpec.makeMeasureSpec(W, View.MeasureSpec.EXACTLY),
-                View.MeasureSpec.makeMeasureSpec(H, View.MeasureSpec.EXACTLY));
-        decor.layout(0, 0, W, H);
+        decor.measure(View.MeasureSpec.makeMeasureSpec(winW, View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.makeMeasureSpec(winH, View.MeasureSpec.EXACTLY));
+        decor.layout(0, 0, winW, winH);
     }
 
     /** The host cursor's y in window pixels, through the binder's live transform. */
@@ -180,6 +201,47 @@ public class GamePcKeyboardFollowTest {
         int[] at = new int[2];
         container.getLocationInWindow(at);
         return at[1] + t[1] + ShadowMoonBridgeWithHost.referenceY() * t[3];
+    }
+
+    @Test
+    @Config(qualifiers = "w1080dp-h2400dp-port-mdpi")
+    public void withTheStreamFillingTheViewTheQuickBarStaysShownAndTheCursorAboveIt() throws Exception {
+        // The owner: "why also buttons bar is still hiding to this line? let's always show it".
+        // With auto cursor zoom the stream fills the view: there is no letterbox to stand in.
+        winW = 1080;
+        winH = 2400;
+        withQuickBar = true;
+        launch();
+        quickBar.onStreamStarted();
+        layoutWindow();
+        PcKeyboardController pc = field("pcKeyboard");
+        pc.update();
+        layoutWindow();
+        pc.update();
+        Shadows.shadowOf(Looper.getMainLooper()).idleFor(Duration.ofSeconds(10));
+        settle();
+
+        assertTrue("the bar is shown, not collapsed to its handle", quickBar.isBarShown());
+        android.graphics.Rect bar = new android.graphics.Rect();
+        assertTrue("and it is kept clear of: an obstruction", quickBar.obstructionInWindow(winH, bar));
+        Field obstruction = StreamViewportBinder.class.getDeclaredField("bottomObstructionPx");
+        obstruction.setAccessible(true);
+        assertEquals("the binder's obstruction is the bar's cover", winH - bar.top, obstruction.getInt(binder));
+        assertEquals("the stream is not moved for the bar alone", 0f, pc.liftTarget(), 0f);
+
+        float x = container.getWidth() / 2f;
+        for (int stroke = 0; stroke < 8; stroke++) {
+            game.onTouch(container, finger(MotionEvent.ACTION_DOWN, x, 200f));
+            for (int i = 1; i <= 40; i++) {
+                game.onTouch(container, finger(MotionEvent.ACTION_MOVE, x, 200f + i * 15f));
+            }
+            game.onTouch(container, finger(MotionEvent.ACTION_UP, x, 800f));
+            settle();
+        }
+        settle();
+        float y = cursorWindowY();
+        assertTrue("the host cursor (window y " + y + ") ends above the bar (top " + bar.top + ")",
+                y <= bar.top);
     }
 
     @Test

@@ -81,4 +81,21 @@ public class StreamLiftTest {
     public void withNoRoomOnTheLeftNothingMoves() {
         assertEquals(0f, StreamLift.shiftFor(0, 2400, 0, 2300), 0f);
     }
+
+    @Test
+    public void aNudgeIsZeroWhileTheFocusIsAboveTheBar() {
+        assertEquals(0f, StreamLift.nudgeFor(0, 2400, 2285, 1200f, 24f), 0f);
+        assertEquals(0f, StreamLift.nudgeFor(0, 2400, 2285, Float.NaN, 24f), 0f);
+        assertEquals("nothing covered", 0f, StreamLift.nudgeFor(0, 2000, 2285, 1990f, 24f), 0f);
+    }
+
+    @Test
+    public void aNudgeLiftsOnlyAsFarAsTheFocusNeeds() {
+        assertEquals(2285f - 24f - 2300f, StreamLift.nudgeFor(0, 2400, 2285, 2300f, 24f), 0.01f);
+    }
+
+    @Test
+    public void aNudgeNeverLiftsPastBottomAligned() {
+        assertEquals(2285f - 2400f, StreamLift.nudgeFor(0, 2400, 2285, 2399f, 200f), 0.01f);
+    }
 }

@@ -77,6 +77,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
 
     /** Window pixels at the bottom covered by an overlay; see {@link #setBottomObstruction}. */
     private volatile int bottomObstructionPx;
+    /** Window pixels at the right edge covered by an overlay; see {@link #setRightObstruction}. */
+    private volatile int rightObstructionPx;
 
     /**
      * Mirrors {@code reporter.isLive()} for the UI thread, so a gesture does not have to
@@ -201,7 +203,29 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         return scratchFocus[1] + follow.cursor().y() * scratchFocus[3];
     }
 
-    private final KeyboardVisibleArea.Listener keyboardAreaListener = (l, t, r, b) -> onKeyboardAreaChanged(b);
+    private final KeyboardVisibleArea.Listener keyboardAreaListener = (l, t, r, b) -> {
+        onKeyboardAreaChanged(b);
+        onKeyboardAreaRightChanged(r);
+    };
+
+    /** Window pixels right of the area left visible (a side-standing quick bar). UI thread. */
+    void onKeyboardAreaRightChanged(int visibleRightInWindow) {
+        View decor = parent.getRootView();
+        int windowWidth = decor != null ? decor.getWidth() : 0;
+        setRightObstruction(windowWidth > 0 ? windowWidth - visibleRightInWindow : 0);
+    }
+
+    /**
+     * The side twin of {@link #setBottomObstruction}: {@code widthPx} window pixels at the right
+     * edge cover the stream (the quick bar standing down the side in landscape). Any thread.
+     */
+    public void setRightObstruction(int widthPx) {
+        int clamped = Math.max(0, widthPx);
+        if (rightObstructionPx != clamped) {
+            rightObstructionPx = clamped;
+            onVisibleAreaChanged();
+        }
+    }
     private final Runnable streamMovedListener = this::onVisibleAreaChanged;
 
     /** Window pixels below the area left visible by keyboards and bars. UI thread. */
@@ -815,7 +839,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         // The soft keyboard covers the bottom of the window without resizing it here (the
         // stream window is fullscreen): what is under it is not visible.
         return windowFromLocationInWindow(loc[0], loc[1], parentWidth, parentHeight,
-                decorWidth,
+                Math.max(1, decorWidth - rightObstructionPx),
                 Math.max(1, decorHeight - Math.max(imeBottomInset(decor), bottomObstructionPx)),
                 scratchWindow);
     }

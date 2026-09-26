@@ -309,22 +309,20 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     }
 
     private boolean layoutKnown;
-    /** No place to stand without covering the stream: behave as auto-hide for now. */
-    private boolean transientBar;
 
     /**
-     * Where to stand, decided from where the letterbox actually is rather than from the
-     * orientation:
+     * Where to stand. With "auto-hide toolbar" off (the default) the bar is <em>always</em>
+     * shown; only the place changes:
      * <ul>
-     *   <li>a keyboard is open in portrait: across the bottom, ridden up above the keyboard;</li>
-     *   <li>a keyboard is open in landscape: across the bottom, but transient — the band above
-     *       a landscape keyboard is too thin to give a permanent bar a share of it, and the
-     *       keyboard has its own hide key;</li>
-     *   <li>otherwise: in the bottom letterbox if it is deep enough, else in the right-hand one
-     *       if it is wide enough, else (a 16:9 or 16:10 window with no letterbox) across the
-     *       bottom as a transient bar, exactly as with "auto-hide toolbar" on, rather than
-     *       covering the stream for good.</li>
+     *   <li>a keyboard is open: across the bottom, ridden up above the keyboard;</li>
+     *   <li>otherwise, in a letterbox if one is deep or wide enough (bottom first, then the
+     *       right-hand side), so it covers nothing;</li>
+     *   <li>otherwise (the stream fills the view, which auto cursor zoom makes the normal case
+     *       on a phone) over the stream, on the edge where it hides the least of it: across the
+     *       bottom in portrait, down the right-hand side in landscape. It is then an obstruction:
+     *       cursor follow keeps the cursor clear of it and the host crop ends at it.</li>
      * </ul>
+     * Only the setting makes it collapse on its own.
      */
     @Override
     public void arrange(Rect stream, int contentRight, int contentBottom, int keyboardTopInWindow) {
@@ -332,28 +330,18 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
         boolean keyboard = keyboardTopInWindow < contentBottom - 1;
         boolean landscapeWindow = getWidth() > getHeight();
         boolean vertical;
-        boolean nowTransient;
         if (keyboard) {
             vertical = false;
-            nowTransient = landscapeWindow;
         } else if (contentBottom - stream.bottom >= need) {
             vertical = false;
-            nowTransient = false;
         } else if (contentRight - stream.right >= need) {
             vertical = true;
-            nowTransient = false;
         } else {
-            vertical = false;
-            nowTransient = true;
+            vertical = landscapeWindow;
         }
         setVertical(vertical);
-        if (nowTransient != transientBar) {
-            transientBar = nowTransient;
-            // Re-arms the timer when transient, and cancels one armed earlier when not.
-            scheduleAutoHide();
-            if (!isTransient() && !hiddenByUser && getVisibility() == VISIBLE && !barVisible) {
-                showBar();
-            }
+        if (!autoHide && !hiddenByUser && getVisibility() == VISIBLE && !barVisible) {
+            showBar();
         }
     }
 
@@ -363,7 +351,7 @@ public class QuickBarView extends FrameLayout implements KeyboardVisibleArea.Obs
     static final int BAR_SPACE_DP = 90;
 
     private boolean isTransient() {
-        return autoHide || transientBar;
+        return autoHide;
     }
 
     /** Whether the bar collapses to a handle on its own (the "auto-hide toolbar" setting). */

@@ -79,11 +79,7 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
         this.area = KeyboardVisibleArea.install(content);
         this.hardKeyboard = hasHardKeyboard(game.getResources().getConfiguration());
 
-        area.setFocusMovedListener(() -> {
-            if (fullShown || imeVisible) {
-                update();
-            }
-        });
+        area.setFocusMovedListener(this::update);
         view.setActions(this);
         view.setVisibility(View.INVISIBLE);
         view.setElevation(12f * game.getResources().getDisplayMetrics().density);
@@ -456,8 +452,15 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
             visibleBottom = visible[2];
         }
         area.publish(visibleLeft, topInset, visibleRight, visibleBottom);
+        boolean keyboardOpen = keyboardTop < windowHeight - navInset;
         if (pip) {
             applyLift(0, 0, windowWidth, windowHeight);
+        } else if (!keyboardOpen) {
+            // No keyboard: the quick bar standing over the stream is reported as an
+            // obstruction, and cursor follow keeps the cursor clear of it by panning. Only the
+            // rows the view cannot pan to (the desktop's last ones, under the bar) need the
+            // stream itself to move, and then only as far as brings the cursor above the bar.
+            applyNudge(visibleBottom);
         } else {
             applyLift(visibleLeft, topInset, visibleRight, visibleBottom);
         }
@@ -505,6 +508,29 @@ public final class PcKeyboardController implements PcKeyboardView.Actions,
             visible[0] = Math.max(visible[0], obstruction.right);
         }
     }
+
+    /**
+     * The smallest lift that brings the point of interest above {@code visibleBottom} with a
+     * margin, or none. Used when nothing but the quick bar covers the stream.
+     */
+    private void applyNudge(int visibleBottom) {
+        float lift = 0f;
+        float focus = area.focusY();
+        if (prefs.liftStream && !Float.isNaN(focus)) {
+            containerRect(container);
+            lift = StreamLift.nudgeFor(container.top, container.bottom, visibleBottom,
+                    focus, NUDGE_MARGIN_DP * game.getResources().getDisplayMetrics().density);
+        }
+        if (Math.abs(lift - liftTarget) < 0.5f && Math.abs(shiftTarget) < 0.5f) {
+            return;
+        }
+        liftTarget = lift;
+        shiftTarget = 0f;
+        streamContainer.animate().translationY(lift).translationX(0f).setDuration(LIFT_MS)
+                .setInterpolator(decelerate).withEndAction(streamMoved).start();
+    }
+
+    static final float NUDGE_MARGIN_DP = 24f;
 
     /** The stream container's layout box in window pixels, without the lift. */
     private void containerRect(Rect out) {

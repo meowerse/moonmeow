@@ -170,7 +170,7 @@ public class QuickBarViewTest {
 
     @Test
     @Config(sdk = {33}, qualifiers = "land")
-    public void inLandscapeAKeyboardMakesTheBarHorizontalTransientAndOnScreen() {
+    public void inLandscapeAKeyboardMakesTheBarHorizontalAboveItAndStillShown() {
         QuickBarView bar = laidOut(bar(), 2400, 1080);
         bar.onStreamStarted();
         bar.arrange(rect(240, 0, 2160, 1080), 2400, 1080, 1080);
@@ -180,7 +180,8 @@ public class QuickBarViewTest {
         bar.placeAboveKeyboards(540);
         idle(1);
         android.graphics.Rect r = new android.graphics.Rect();
-        assertTrue("transient over a landscape keyboard: not an obstruction", !bar.obstructionInWindow(540, r));
+        assertTrue("an obstruction above the keyboard", bar.obstructionInWindow(540, r));
+        assertTrue("horizontal, above the keyboard: " + r, r.width() > r.height() && r.bottom <= 540 + 20);
         View kb = findByDescription(bar, "Keyboard");
         float top = bar.getTop() + bar.getTranslationY();
         for (View v = kb; v != bar; v = (View) v.getParent()) {
@@ -188,24 +189,46 @@ public class QuickBarViewTest {
         }
         assertTrue("the Keyboard button stays on screen: " + top, top >= 0 && top < 540);
         idle(10);
-        assertTrue("and it collapses like auto-hide", !bar.isBarShown());
+        assertTrue("and it stays shown", bar.isBarShown());
     }
 
     @Test
     @Config(sdk = {33}, qualifiers = "land")
-    public void withNoLetterboxAnywhereTheBarIsTransientRatherThanCoveringTheStream() {
+    public void withNoLetterboxAnywhereTheBarStaysShownDownTheSideOverTheStream() {
+        // Auto cursor zoom fills the view: no letterbox. The bar is still shown (the owner's
+        // request), on the edge that hides least of a landscape stream, as an obstruction.
         QuickBarView bar = laidOut(bar(), 1920, 1080);
         bar.onStreamStarted();
         bar.arrange(rect(0, 0, 1920, 1080), 1920, 1080, 1080);
         laidOut(bar, 1920, 1080);
-        android.graphics.Rect r = new android.graphics.Rect();
-        assertTrue(!bar.obstructionInWindow(1080, r));
-        idle(10);
-        assertTrue(!bar.isBarShown());
-        // A letterbox appears (the stream resized): the bar comes back for good.
-        bar.arrange(rect(0, 200, 1920, 880), 1920, 1080, 1080);
         idle(10);
         assertTrue(bar.isBarShown());
+        android.graphics.Rect r = new android.graphics.Rect();
+        assertTrue(bar.obstructionInWindow(1080, r));
+        assertTrue("vertical at the right: " + r, r.height() > r.width() && r.right >= 1920 - 20);
+    }
+
+    @Test
+    public void withNoLetterboxInPortraitTheBarStaysShownAcrossTheBottom() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.onStreamStarted();
+        bar.arrange(rect(0, 0, 1080, 2400), 1080, 2400, 2400);
+        laidOut(bar, 1080, 2400);
+        idle(10);
+        assertTrue(bar.isBarShown());
+        android.graphics.Rect r = new android.graphics.Rect();
+        assertTrue(bar.obstructionInWindow(2400, r));
+        assertTrue("across the bottom: " + r, r.width() > r.height() && r.bottom >= 2400 - 40);
+    }
+
+    @Test
+    public void onlyTheSettingCollapsesTheBar() {
+        QuickBarView bar = laidOut(bar(), 1080, 2400);
+        bar.setAutoHide(true);
+        bar.onStreamStarted();
+        bar.arrange(rect(0, 0, 1080, 2400), 1080, 2400, 2400);
+        idle(10);
+        assertTrue(!bar.isBarShown());
     }
 
     @Test
