@@ -37,6 +37,21 @@ public class InlinePinchZoomControllerTest {
             panX += dx;
             panY += dy;
         }
+
+        @Override
+        public float getScaleFactor() {
+            return accumulatedScale;
+        }
+
+        @Override
+        public float getChildX() {
+            return panX;
+        }
+
+        @Override
+        public float getChildY() {
+            return panY;
+        }
     }
 
     private RecordingTarget target;

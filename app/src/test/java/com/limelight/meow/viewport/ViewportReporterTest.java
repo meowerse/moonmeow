@@ -486,4 +486,65 @@ public class ViewportReporterTest {
         assertEquals(1, reporter.streamHeight());
         assertEquals(new ViewportRect(0, 0, 1, 1), sender.last());
     }
+
+    // ---- capability probe with cropping off ----------------------------------------
+
+    @Test
+    public void withCroppingOffAndNoProbeNothingIsEverSent() {
+        reporter.setEnabled(false);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        assertTrue(sender.sent.isEmpty());
+        assertFalse(reporter.isHostProven());
+    }
+
+    @Test
+    public void withCroppingOffTheProbeStillProvesAMeowHost() {
+        // The cursor and bitrate extensions are gated on this proof, so a user who turned
+        // cropping off must not lose them.
+        reporter.setEnabled(false);
+        reporter.setCapabilityProbe(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        assertEquals(1, sender.sent.size());
+        assertEquals(ViewportRect.full(STREAM_W, STREAM_H), sender.last());
+
+        ViewportReferenceFrame frame =
+                ViewportReferenceFrame.of(DESKTOP_W, DESKTOP_H, STREAM_W, STREAM_H);
+        ViewportRect full = frame.fullContent();
+        assertTrue(reporter.onViewportApplied(full.x, full.y, full.width, full.height,
+                DESKTOP_W, DESKTOP_H));
+        assertTrue(reporter.isHostProven());
+        assertEquals(full, reporter.appliedRect());
+    }
+
+    @Test
+    public void withCroppingOffTheProbeNeverSendsACrop() {
+        reporter.setEnabled(false);
+        reporter.setCapabilityProbe(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        reporter.onVisibleRectChanged(new ViewportRect(100, 100, 400, 100));
+        echoFullContent();
+        reporter.onVisibleRectChanged(new ViewportRect(200, 100, 400, 100));
+        assertEquals("only the probe", 1, sender.sent.size());
+        assertFalse(reporter.isLive());
+    }
+
+    @Test
+    public void aSilentHostIsNotProvenAndALateEchoIsRefused() {
+        reporter.setEnabled(false);
+        reporter.setCapabilityProbe(true);
+        reporter.onStreamStarted(STREAM_W, STREAM_H);
+        for (int i = 0; i < ViewportReporter.PROBE_ATTEMPTS; i++) {
+            scheduler.fire();
+        }
+        assertFalse(reporter.isHostProven());
+        assertFalse(reporter.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0));
+    }
+
+    @Test
+    public void anEchoAfterTheStreamStoppedIsNotAccepted() {
+        startSupportedStream();
+        reporter.onStreamStopped();
+        assertFalse(reporter.isHostProven());
+        assertFalse(reporter.onViewportApplied(0, 0, STREAM_W, STREAM_H, 0, 0));
+    }
 }

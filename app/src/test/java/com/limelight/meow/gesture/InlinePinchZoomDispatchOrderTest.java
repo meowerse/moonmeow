@@ -140,6 +140,21 @@ public class InlinePinchZoomDispatchOrderTest {
                         @Override
                         public void panBy(float dx, float dy) {
                         }
+
+                        @Override
+                        public float getScaleFactor() {
+                            return 1f;
+                        }
+
+                        @Override
+                        public float getChildX() {
+                            return 0f;
+                        }
+
+                        @Override
+                        public float getChildY() {
+                            return 0f;
+                        }
                     },
                     () -> zoomBeginCount++,
                     () -> zoomEndCount++);

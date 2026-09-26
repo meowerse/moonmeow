@@ -54,6 +54,13 @@
             seekbar:keyStep="1000"
             seekbar:min="0"
             seekbar:step="500" />
+        <!-- MEOW-TOUCH(auto-bitrate): must match AutoBitratePreference.DEFAULT. -->
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="checkbox_meow_auto_bitrate"
+            android:summary="@string/summary_checkbox_meow_auto_bitrate"
+            android:title="@string/title_checkbox_meow_auto_bitrate"
+            app:iconSpaceReserved="false" />
 
         <ListPreference
             android:defaultValue="latency"
@@ -372,8 +379,11 @@
         android:title="@string/category_input_settings"
         app:initialExpandedChildrenCount="1"
         app:iconSpaceReserved="false">
+        <!-- MEOW-TOUCH(defaults): Track pad (natural) for fresh installs; the app is
+             desktop-first. Existing installs already had "0" materialised by
+             PcView's setDefaultValues, so they keep it. See docs/meow/TOUCHPOINTS.md -->
         <ListPreference
-            android:defaultValue="0"
+            android:defaultValue="2"
             android:entries="@array/mouse_mode_names"
             android:entryValues="@array/mouse_mode_values"
             android:key="mouse_mode_list"
@@ -653,6 +663,23 @@
             android:key="checkbox_enable_viewport_follow"
             android:summary="@string/summary_checkbox_enable_viewport_follow"
             android:title="@string/title_checkbox_enable_viewport_follow"
+            app:iconSpaceReserved="false" />
+
+        <!-- MEOW-TOUCH(cursor-follow): must match CursorFollowPreference.DEFAULT. -->
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:key="checkbox_meow_cursor_follow"
+            android:summary="@string/summary_checkbox_meow_cursor_follow"
+            android:title="@string/title_checkbox_meow_cursor_follow"
+            app:iconSpaceReserved="false" />
+
+        <!-- MEOW-TOUCH(cursor-follow): must match AutoCursorZoom.DEFAULT. -->
+        <CheckBoxPreference
+            android:defaultValue="true"
+            android:dependency="checkbox_meow_cursor_follow"
+            android:key="checkbox_meow_auto_cursor_zoom"
+            android:summary="@string/summary_checkbox_meow_auto_cursor_zoom"
+            android:title="@string/title_checkbox_meow_auto_cursor_zoom"
             app:iconSpaceReserved="false" />
 
         <CheckBoxPreference

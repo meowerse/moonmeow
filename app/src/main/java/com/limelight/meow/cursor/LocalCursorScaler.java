@@ -1,8 +1,7 @@
 package com.limelight.meow.cursor;
 
-import android.view.View;
-
 import com.limelight.binding.input.capture.InputCaptureProvider;
+import com.limelight.meow.gesture.InlinePinchZoomController;
 import com.limelight.meow.viewport.ZoomTransformObserver;
 
 /**
@@ -14,23 +13,28 @@ import com.limelight.meow.viewport.ZoomTransformObserver;
  *
  * <p>Implements {@link ZoomTransformObserver} so it can be registered alongside
  * {@code StreamViewportBinder} via {@code PanZoomHandler.addZoomTransformObserver}.
+ *
+ * <p>Reads the user's <em>logical</em> zoom, not the stream view's scale: once the host crops,
+ * the view carries the presented transform, whose scale is the logical zoom times the host's
+ * crop factor and says nothing about how far the user has zoomed in.
  */
 public final class LocalCursorScaler implements ZoomTransformObserver {
 
-    private final View streamView;
+    private final InlinePinchZoomController.ZoomTarget zoom;
     private final InputCaptureProvider captureProvider;
 
-    public LocalCursorScaler(View streamView, InputCaptureProvider captureProvider) {
-        if (streamView == null || captureProvider == null) {
-            throw new IllegalArgumentException("streamView and captureProvider required");
+    public LocalCursorScaler(InlinePinchZoomController.ZoomTarget zoom,
+                             InputCaptureProvider captureProvider) {
+        if (zoom == null || captureProvider == null) {
+            throw new IllegalArgumentException("zoom and captureProvider required");
         }
-        this.streamView = streamView;
+        this.zoom = zoom;
         this.captureProvider = captureProvider;
     }
 
     @Override
     public void onZoomTransformChanged() {
-        float scale = streamView.getScaleX();
+        float scale = zoom.getScaleFactor();
         // Fallback to 1.0 if view not laid out yet or scale is nonsense; policy handles it.
         if (!(scale > 0f) || !Float.isFinite(scale)) {
             scale = 1.0f;

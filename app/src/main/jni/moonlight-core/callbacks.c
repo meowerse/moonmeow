@@ -413,10 +413,11 @@ static AUDIO_RENDERER_CALLBACKS BridgeAudioRendererCallbacks = {
         .capabilities = CAPABILITY_SUPPORTS_ARBITRARY_AUDIO_DURATION
 };
 
-// MEOW-TOUCH(viewport-follow): the host's viewport echo. Implemented in meowjni.c
-// so this upstream file gains only this include and the struct member below, and is
-// inert until MeowViewportBridge is initialised. The declaration is shared rather
-// than repeated here so the two translation units cannot drift.
+// MEOW-TOUCH(viewport-follow): the host's viewport echo, cursor position and applied
+// bitrate. Implemented in meowjni.c so this upstream file gains only this include and
+// the struct members below, and each is inert until its meow bridge class is
+// initialised. The declarations are shared rather than repeated here so the two
+// translation units cannot drift.
 // See docs/meow/TOUCHPOINTS.md
 #include "meowjni.h"
 
@@ -433,7 +434,9 @@ static CONNECTION_LISTENER_CALLBACKS BridgeConnListenerCallbacks = {
         .rumbleTriggers = BridgeClRumbleTriggers,
         .setMotionEventState = BridgeClSetMotionEventState,
         .setControllerLED = BridgeClSetControllerLED,
-        .setViewport = MeowBridgeClSetViewport,  // MEOW-TOUCH(viewport-follow)
+        .setViewportV2 = MeowBridgeClSetViewportV2,  // MEOW-TOUCH(viewport-follow)
+        .cursorPosition = MeowBridgeClCursorPosition,  // MEOW-TOUCH(cursor-follow)
+        .bitrateApplied = MeowBridgeClBitrateApplied,  // MEOW-TOUCH(auto-bitrate)
 };
 
 static bool

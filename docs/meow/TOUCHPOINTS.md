@@ -239,13 +239,11 @@ encoder.
 **Why it exists:** a 5360x1440 two-monitor desktop scaled into a 5-8 Mbps encoder is
 unreadable. The user pinches in to read something; every bit spent on the other 90% of
 the desktop is wasted. Reporting the visible rectangle lets a host that understands it
-spend the same bitrate on a fraction of the pixels. **This branch is the client half
-only** — it reports the rectangle and consumes the host's answer, and changes nothing
-about what the client renders.
+spend the same bitrate on a fraction of the pixels. This section is the reporting half;
+how the client *presents* a cropped frame is `MEOW-TOUCH(viewport-compose)` below.
 
-**Off by default.** See `ViewportPreference` for the argument. The preference is read once
-in `Game.onCreate`, so toggling it takes effect on the **next** stream, not the running
-one.
+**On by default** (see `MEOW-TOUCH(defaults)`). The preference is read once in
+`Game.onCreate`, so toggling it takes effect on the **next** stream, not the running one.
 
 ### `app/src/main/jni/moonlight-core/Android.mk` — 1 site
 
@@ -258,21 +256,25 @@ one.
 | Line | Site | Edit |
 | --- | --- | --- |
 | 416 | above `BridgeConnListenerCallbacks` | `#include "meowjni.h"` |
-| 436 | inside `BridgeConnListenerCallbacks` | `.setViewport = MeowBridgeClSetViewport,` |
+| 437-439 | inside `BridgeConnListenerCallbacks` | `.setViewportV2 = MeowBridgeClSetViewportV2,` plus `.cursorPosition` (`MEOW-TOUCH(cursor-follow)`) and `.bitrateApplied` (`MEOW-TOUCH(auto-bitrate)`) |
 
-The callback body itself lives in `meowjni.c`, not here, so this upstream file gains an
-include and a struct member and nothing else. The declaration is shared through
+`setViewportV2` replaced `setViewport` when the submodule moved to `meow` `1869ace`: the
+library calls exactly one of the two for an echo, and only V2 carries the frame index the
+frame-accurate crop swap needs. The callback bodies live in `meowjni.c`, not here, so this
+upstream file gains an include and struct members and nothing else. The declaration is shared through
 `meowjni.h` rather than repeated as an `extern` here: a parameter list that drifted between
 the two translation units is undefined behaviour the compiler cannot see, and this feature
 already changed that signature once. It is inert until
 `MeowViewportBridge` is class-initialised — which only happens when the preference is on —
 so an install that has not opted in reaches a `NULL` check and returns.
 
-**Read the JNI hazard section of `CLAUDE.md` before touching `meowjni.c`.** Two symbols
-bind by static mangled name:
-`Java_com_limelight_meow_viewport_MeowViewportBridge_sendViewport` and
-`..._nativeInit`. Moving or renaming `MeowViewportBridge` without renaming them produces a
-build that succeeds and dies at first call with `UnsatisfiedLinkError`.
+**Read the JNI hazard section of `CLAUDE.md` before touching `meowjni.c`.** Its symbols
+bind by static mangled name: `Java_com_limelight_meow_viewport_MeowViewportBridge_sendViewport`
+and `..._nativeInit`, and `Java_com_limelight_meow_stream_MeowStreamBridge_nativeInit`,
+`..._sendCursorSubscribe`, `..._sendReceiverReport` and `..._getVideoNetworkStats`. Moving or
+renaming either class without renaming them produces a build that succeeds and dies at first
+call with `UnsatisfiedLinkError`. `MeowStreamBridgeContractTest` pins the second class the way
+`MeowViewportBridgeContractTest` pins the first.
 
 There is deliberately **no `FindClass`** in that file even though it now calls back into
 Java. `nativeInit` is handed its `jclass` by the JNI calling convention, so the class
@@ -281,7 +283,8 @@ move would leave stale — which is the half `nm -D` cannot see, and the half th
 shipped broken in this repo once. `MeowViewportBridgeContractTest` derives both mangled
 names and the `(IIIIII)V` method descriptor from the class object, checks the struct member
 is wired, checks `meowjni.c` is on an **uncommented** `LOCAL_SRC_FILES` line, and fails if a
-`FindClass` or a slash-form class string ever appears.
+`FindClass` or a slash-form class string ever appears. The descriptor is `(IIIIIII)V` since
+echo v2 added the frame index.
 
 `meowjni.c` reaches `GetThreadEnv()`, which `callbacks.c` exports, rather than caching a
 `JNIEnv`: the echo arrives on moonlight-common-c's async callback thread, which is not a
@@ -291,7 +294,9 @@ Java thread.
 
 `MeowViewportBridge.onViewportEcho()` is called only from `meowjni.c`. R8 sees no Java
 caller and **strips it from the release dex** — verified against `dexdump` on the built
-APK, not assumed. `GetStaticMethodID()` then returns `NULL`, the host's echo is silently
+APK, not assumed. `MeowStreamBridge.onCursorPosition()` and `onBitrateApplied()` are in the
+same position and have a second rule of the same shape; `dexdump` on the release APK shows
+all three with their exact descriptors. `GetStaticMethodID()` then returns `NULL`, the host's echo is silently
 dropped, and capability detection never succeeds: a build that passes every other check
 while the feature quietly never engages. A `-keepclassmembers` rule names the method and
 its exact parameter list, and `MeowViewportBridgeContractTest.theEchoEntryPointSurvivesR8`
@@ -332,8 +337,8 @@ a setter and two calls.
 | Line | Site | Edit |
 | --- | --- | --- |
 | 160 | field declaration | `private StreamViewportBinder viewportBinder;` |
-| 506 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **when the render mode is `MODE_2D`** and attaches it to `panZoomHandler`; the preference is passed to `setEnabled` rather than gating construction |
-| 1739 | `onDestroy()`, before the capture provider is destroyed | one guarded `viewportBinder.release()` |
+| 510 | `onCreate`, after the inline-pinch wiring | a block that builds the binder **when the render mode is `MODE_2D`** and attaches it to `panZoomHandler`; the preference is passed to `setEnabled` rather than gating construction. The same block wires the logical transform (`setTransformSource`, `ReferencePointer.install`), the cursor follower and the bitrate session, and turns on the capability probe — see the sections below |
+| 1765 | `onDestroy()`, before the capture provider is destroyed | one guarded `viewportBinder.release()` (which also releases the follower and the bitrate session) and `ReferencePointer.uninstall` |
 | 3598 | inside `stopConnection()`'s teardown worker, above `conn.stop()` | one guarded `viewportBinder.onStreamStopped()` |
 | 3832 | `connectionStarted()` | one guarded `viewportBinder.onStreamStarted(displayWidth, displayHeight)` |
 
@@ -400,7 +405,7 @@ reading `prefConfig.width` here would be wrong.
 | `ZoomTransformObserver.java` | no | the one-method seam `PanZoomHandler` gained |
 | `MeowViewportBridge.java` | JNI | the native call out and the echo back in |
 | `HandlerDeadlineScheduler.java` | yes | `Scheduler` over a `Handler` |
-| `StreamViewportBinder.java` | yes | reads the views, owns the reporter's thread |
+| `StreamViewportBinder.java` | yes | reads the views, owns the reporter's thread; drives the compositor, the cursor follower and the bitrate session through the stream lifecycle |
 | `ViewportPreference.java` | yes | reads the preference, and documents why it defaults on |
 
 Tested by `app/src/test/java/com/limelight/meow/viewport/`.
@@ -497,38 +502,35 @@ are **gone**: `LiSendViewportEvent` already rate limits to 50 ms, drops redundan
 rectangles, retries failed sends and flushes the trailing one from the loss-stats thread.
 The second layer only delayed a below-threshold final rectangle from 50 ms to 120 ms.
 
-### Known gap: cropping and local zoom compose wrongly
+### Resolved: cropping and local zoom compose correctly
 
-When a host honours the viewport, the encoded frame stops being the whole desktop and
-becomes the crop, scaled up to the same encoder resolution. The client, meanwhile, is
-still displaying that frame under the user's local zoom — so the user sees the region they
-asked for magnified *again*, and absolute mouse coordinates (`getNormalizedCoordinates`
-&rarr; `LiSendMousePositionEvent`) now address the crop rather than the desktop.
+*Was "Known gap: cropping and local zoom compose wrongly".* When a host honoured the
+viewport, the encoded frame became the crop scaled up to the encoder resolution, and the
+client kept presenting it under the user's local zoom — the region magnified *twice* (F1) —
+while absolute input addressed the container rather than the point under the finger.
+Resolved in `MEOW-TOUCH(viewport-compose)` below, and without the contradiction this section
+used to worry about ("reset the viewport to full-frame when zoom returns to 1:1" versus "zoom
+is always back at 1:1 under composition"): the client never resets the user's zoom. The
+**logical** transform stays the user's view V over the uncropped frame; only the transform
+*presented* on the `SurfaceView` changes, per crop, on the frame the host names.
 
-**A second, smaller gap in the same area: the host's revocation echo is received and
-deliberately not acted on.** `meow::viewport::take_revocation_echo()` exists so the client
-learns the host dropped its crop by itself — an encoder reinit or a display-mode change
-mid-session. It arrives through the same callback, so `ViewportReporter` records it in
-`appliedRect()` and otherwise does nothing: the host is uncropped and the user stays zoomed
-into a full-desktop frame until they next move. Acting on it is not a one-liner, because an
-echo carrying the full content area is indistinguishable from "your request was refused",
-and re-sending on a refusal loops. It belongs with the composition work below.
+**The revocation echo is acted on now.** A revocation is simply a crop equal to the full
+content area, so it swaps to the identity mapping the same way, on its frame; the user stays
+zoomed with a soft picture until they next move, and the next move's rectangle asks the host
+for the crop again. Nothing re-sends on a refusal, so the refusal loop the old text warned
+about cannot happen.
 
-Wiring the echo did not make this fall out: the echo tells the client *what* was applied,
-but resolving the composition means the client resetting its local transform to 1:1 when the
-host confirms a crop and composing later zooms on top of the applied rectangle rather than on
-the raw frame — and that contradicts "reset the viewport to full-frame when zoom returns to
-1:1", because under composition zoom is *always* back at 1:1. `ViewportReporter.appliedRect()`
-and `referenceFrame()` are the inputs that work would need, and are exposed for it. It is a
-different feature from "report the rectangle", and it is the reason the preference ships off.
+`ViewportReporter.appliedRect()` is no longer caller-less: the compositor is fed from it, so a
+rectangle the reporter rejected as outside the stream frame never reaches the view.
 
 ### Deferred, stated plainly
 
-**The new strings are English-only.** `title_checkbox_enable_viewport_follow` and
-`summary_checkbox_enable_viewport_follow` exist only in `values/strings.xml`; the repo
-carries 33 locales. Nothing is *stale* — no other locale carries the key, so every one falls
-back cleanly — but a non-English user sees two English lines in Settings. That is acceptable
-only while the preference ships off, and it wants doing before it ships on.
+**The meow strings are English-only, and that is now the convention rather than a
+deferral.** The viewport, cursor-follow and automatic-bitrate titles and summaries and the
+overlay's applied-bitrate line exist only in `values/strings.xml`; the repo carries 33
+locales. Nothing is *stale* — no other locale carries the keys, so every one falls back
+cleanly — but a non-English user sees English lines in Settings. They ship on by default
+now; translating them is a separate, whole-app task.
 
 **`0x3003` sits inside Apollo's `0x3000` extension block.** If Apollo ever assigns that
 number to something else, an Apollo host's packet would be dispatched into `IDX_VIEWPORT`.
@@ -538,6 +540,11 @@ from the packet-type choice, not introduced here; the host half guards its own s
 `packet_type_collision()`.
 
 ### The submodule changed, and it is under separate review
+
+*2026-09-24:* the pin moved to `meow` `1869ace` — `meow` merged with `real/master` `62e0663`,
+plus echo v2 (`ConnListenerSetViewportV2`, frame index), 0x3004 cursor and 0x3005 receiver
+report. See `moonlight-common-c/docs/meow-protocol.md` and CLAUDE.md §4. The history below is
+the 2026-08-25 change.
 
 Findings 1, 5 and 6 could not be fixed in the Java layer alone, so
 `app/src/main/jni/moonlight-core/moonlight-common-c` moved on branch `meow` of
@@ -573,6 +580,9 @@ how far to pan, and dead-reckoning the cursor in the captured-pointer modes — 
 
 ### The bug this registry entry was created by
 
+*Historical: the method it describes, `handleCursorViewPosition`, is gone — see "What
+changed on 2026-09-24" below. The lesson about the gate still stands and is still pinned.*
+
 It shipped inside `MEOW-TOUCH(viewport-follow)` and did not work. Two independent gates,
 both of them the wrong gate:
 
@@ -593,88 +603,317 @@ both of them the wrong gate:
 `streamStarted` replaces `live` as the guard. It is the honest precondition: cursor-follow
 needs the negotiated stream size, and nothing else.
 
-### `app/src/main/java/com/limelight/Game.java` — 6 sites
+### What changed on 2026-09-24: follow the cursor, not the finger
+
+The first implementation followed whatever position the input path happened to hold: the
+finger in every touch mode (a `Game.java` block that read `getRawX()` of pointer 0 and
+allocated two arrays per event), and a dead-reckoned estimate fed by only two of the eight
+places that move the host cursor. Touch trackpad, gaming touch, physical touchpad, the
+on-screen keyboard's mouse keys and gamepad mouse emulation never reached it, relative
+deltas were over-read 2.8x on a 5360-wide desktop, the estimate was never reset, and a
+cursor held in the border slammed the view along a whole margin per event (F3).
+
+All of that is gone. `CursorFollowController` follows a single cursor model, `HostCursor`:
+
+- the host's own **0x3004** reports, once the host has proven it is a meow host (the first
+  viewport echo, which subscribes on the reporter thread) — exact in every mode, including
+  a cursor moved on the host itself;
+- otherwise **dead reckoning** fed by *every* movement the client sends, tapped where they
+  all converge (`NvConnection`), with relative deltas scaled by the echoed desktop extent
+  and `LiSendMouseMoveAsMousePositionEvent` mirrored exactly; reset on pointer-capture
+  toggles and on every stream start.
+
+A cursor change arms the follower; each vsync (`Choreographer`) moves the view one
+`CursorFollowMotion` step — an exponential ease capped at three views a second — toward
+keeping the cursor inside a 15% comfort margin, or a 4% edge band right after absolute or
+touch input (the cursor is under the finger then, and a tap near an edge must not slide the
+desktop away). Pans go through `PanZoomHandler.panBy`, so the new view reaches the host as a
+viewport update and the crop follows. Only cursor changes arm it, so a user who pans away
+from a still cursor stays where they panned.
+
+### The redesign after the first device test (2026-09-24, same PR)
+
+The behaviour contract — every input × mode × zoom state, the decisions and why — is
+**`docs/meow/cursor-follow-ux.md`**. In short: zoom anchors on the cursor and a manual pan
+carries it (pointer modes); against hosts without 0x3004 the client owns the pointer while
+zoomed, replaying relative motion as absolute positions clamped to the view, so the cursor
+cannot leave the screen; a fast regime brings an off-screen cursor back; "Remove animations"
+is respected. The upstream sites grew by two lines (below); everything else is in
+`meow/cursor/`.
+
+### `app/src/main/java/com/limelight/Game.java` — 4 sites
 
 | Line | Site | Edit |
 | --- | --- | --- |
-| 214 | field declaration | `private final RelativeCursorTracker relativeCursor = ...` |
-| 2838 | relative-mouse path, `absoluteMouseMode` branch | one call to `followDeadReckonedCursor`, with the delta rescaled by `RelativeCursorTracker.scaleDelta` |
-| 2847 | relative-mouse path, plain-relative branch | one call to `followDeadReckonedCursor` with the raw delta |
-| 3316 | absolute-touch (finger) path, after the touch contexts have had the event | one `viewportBinder.handleCursorViewPosition(...)` |
-| 3451 | private helper above `updateMousePosition` | `followDeadReckonedCursor`, ~25 lines |
-| 3541 | `updateMousePosition`, after `conn.sendMousePosition` | one `relativeCursor.moveToReferencePosition(...)` — the position just sent *is* the library's virtual cursor, so the estimate is told rather than left to drift — and one `viewportBinder.handleCursorViewPosition(...)` |
+| 217 | field declaration | `private CursorFollowController cursorFollow;` |
+| 510 | inside the `MEOW-TOUCH(viewport-follow)` block | construct the follower, give it a pointer sink (`conn.sendMousePosition`) and the touch-mode query, `viewportBinder.setCursorFollow(...)`; the binder drives its lifecycle |
+| setInputGrabState | after the capture change | `cursorFollow.resetEstimate()` — capture toggled, the estimate starts over |
+| applyMouseMode | after the touch contexts are rebuilt | `cursorFollow.ensureVisible()` |
 
-The two relative-mouse sites were ~35 lines of near-duplicated inline arithmetic, including
-a `ViewportGeometry.hostPointFromView(0,0,0,0,0,0,0,0); // keep class loaded` no-op and a
-comment admitting it had given up on the conversion. That is now one call each into
-`meow/cursor/`, which is where §2 says it should have been.
+Removed from `Game.java` in the same change: the `RelativeCursorTracker` field, the two
+`followDeadReckonedCursor` call sites in the relative-mouse branch and the helper, the
+~50-line finger-following block after the touch contexts, and the follow block in
+`updateMousePosition`. The relative-mouse branch is back to upstream's shape.
 
-### The delta was being accumulated in the wrong units
+### `app/src/main/java/com/limelight/nvstream/NvConnection.java` — 5 sites
 
-`absoluteMouseMode` sends movement with `LiSendMouseMoveAsMousePositionEvent(dx, dy, refW,
-refH)`, and the library normalises the delta **against that same reference** — `refW` here is
-`streamContainer`'s pixel width, not the stream width. So `n` container pixels move the host
-cursor by `n / refW` of the frame. Adding the raw `n` to a stream-pixel accumulator, which is
-what shipped, mis-scales the estimate by `streamWidth / containerWidth` on every single
-event, with nothing to correct it but running into a screen edge.
-`RelativeCursorTracker.scaleDelta` does the conversion, and says why in its javadoc.
+One line each, first statement of `sendMouseMove`, `sendMousePosition`,
+`sendMouseMoveAsMousePosition`, `sendTouchEvent` and `sendPenEvent`: a call into
+`CursorInputTap`. The touch and pen hooks pass the event type, pointer id and the normalised
+position, so in the direct-touch modes the first finger is followed into the edge band even
+against a host that never reports its cursor -- once it has travelled 24 px from where it
+went down, so a tap in the band is never dragged by a follow pan. In `sendMouseMove` it is `if (CursorInputTap.relative(...)) return;`: while
+zoomed against a host that does not report its cursor, the follower has already sent the move
+as an absolute position and the relative one must not also go out. This is the one funnel every input mode already goes through, and the only
+place where "every relative-send path" is true by construction. Fully-qualified, no import.
 
-The plain-relative branch keeps the raw delta on purpose: `LiSendMouseMoveEvent` passes
-deltas through and the host applies them in its own pixels.
+### `app/src/main/java/com/limelight/binding/input/touch/RelativeTouchContext.java` — 2 sites
+
+A `SubPixelAccumulator` field, and the gaming-mode `sendMouseMove` line routed through it.
+Upstream truncated `delta * sensitivity` per sample and dropped the fraction: at 150% a slow
+drag sent two thirds of its motion and at 70% none (`TouchDeltaAccumulationTest`, red before).
+CRLF file; the edit keeps its line endings.
+
+### `app/src/main/java/com/limelight/meow/viewport/StreamViewportBinder.java` — API for overlays
+
+Not an upstream site, recorded here because another feature is meant to call it:
+`setBottomObstruction(int windowPx)` declares that an on-screen overlay (the PC keyboard on
+`feat/pc-keyboard`) covers the bottom of the stream, and `onVisibleAreaChanged()` re-checks.
+The visible rectangle then ends above it, for cursor follow and for the host crop alike.
+
+### `app/src/main/res/xml/preferences.xml` — 1 site
+
+`checkbox_meow_cursor_follow`, default `true` — the explicit off switch.
+`CursorFollowPreferenceTest` checks the XML default against `CursorFollowPreference.DEFAULT`.
+
+### Emulator run against sunmeow PR #20 (2026-09-24): "a reporting host is not followed"
+
+The evidence was a `MeowFollow` log with relative-move lines and no "follow pan" line while
+the cursor left the view. That absence was the log, not the follower: one rate limit was
+shared by every activity line, and Choreographer runs input before animation callbacks in
+each frame, so during a swipe the input line took every slot and every pan line was
+suppressed. Each kind now has its own limit (`FollowLog.INPUT` / `VIEW` / `PAN`); pinned by
+`CursorFollowControllerTest.aFollowPanIsLoggedDuringAContinuousSwipeAgainstAReportingHost`,
+which fails on the shared limit. The "waiting for first report" field no longer reads true
+for a host that is reporting. The same run had the host report its cursor hidden at the
+desktop's right edge mid-swipe, which disarmed the follower short of it. A hidden cursor is
+now still followed where the user drove it -- it went hidden within 500 ms of pointer input,
+or, before the host has shown its cursor this stream, it is pinned against the desktop edge
+while driven (the resumed session, whose first report is the cursor still hidden where it
+was left), and a later hidden report within 1 px of the point it was decided at keeps it --
+decided per report so a follow in progress finishes. A cursor a game or
+video hid, or one hidden and wandering, is still never chased
+(`cursor-follow-ux.md` rows 20 and 44). The resume variant is
+`GameCursorFollowModesTest.aResumedSessionFollowsACursorLeftHiddenAtTheEdge`, which fails
+without the pinned rule. sunmeow's coalescer sends one report when the cursor hides and none
+while it stays hidden (`src/meow/cursor.h`, `coalescer_t::due`), so in the resumed case the
+first report arrives before any input and no driven report ever follows; the user's first
+relative move *into that edge* decides instead (`onDrivenWhileHostReports`), ignoring the
+desktop origin, which is sunmeow's placeholder for a cursor its capture never saw visible
+(`cursor_pipewire.h` starts at (0, 0) and only updates x/y while visible). Whether the
+resumed case works against real sunmeow therefore depends on the host reporting where the
+cursor actually is; `cursor-follow-ux.md` "Known limits" has the details. The fake host sends the same
+way by default; its `resendWhileHidden` knob models a host that does not, and no Game-level
+test uses it any more (the controller tests pin the slide rule). The Game-level reproduction is
+`GameCursorFollowModesTest.aReportingHostThatHidesTheCursorAtTheEdgeIsFollowedToIt`: the
+fake host reports 40 ms late from a callback thread and hides the cursor at the edge, and
+the test fails with the old rule (the view stopped at 734+304 of 1080). The emulator's
+geometry, a multi-touch-to-trackpad switch, and a second session in a new `Game` with the
+first torn down after it are replayed too (`aReportingHost*`); those pass on both. A
+reporting host's relative moves are now said once per stream, not four times a second.
+
+### Auto cursor zoom (2026-09-24, same PR)
+
+One more line in the `Game.onCreate` block that builds the follower:
+`cursorFollow.setAutoZoom(com.limelight.meow.cursor.AutoCursorZoom.isEnabled(this));`, plus a
+`checkbox_meow_auto_cursor_zoom` entry (default on, depends on cursor follow) in
+`res/xml/preferences.xml` and its two strings. When the desktop fills less than 60% of the
+window in one axis -- a 5360x1440 desktop on an upright phone is a 1220x330 px strip -- the
+stream starts zoomed so the desktop fills the window, centred on the cursor, and follow works
+from the first frame. The rule and its cap are in `AutoCursorZoom`; the controller measures at
+stream start, on each echo (which is when the desktop's box in the frame becomes known) and on
+a resize, and stops for the stream once the user zooms. The window it measures against comes
+from a new `ViewportView.window()`, which the binder answers with the same
+`windowInParentCoords` the visible rectangle uses. Contract: `cursor-follow-ux.md` rows 40-42.
+
+### Diagnostics: `adb logcat -s MeowFollow`
+
+`FollowLog` writes, in release builds (no proguard rule strips `android.util.Log`, pinned by
+`FollowLogTest`): at stream start the follow switch, touch-mode family, whether a pointer sink
+is wired and the zoom; when the host is proven and the subscription result; the first 0x3004
+report; and, rate-limited to one line per 250 ms with a count of what was dropped, each zoom or
+resize with the cursor estimate (exact/guess/host) and the visible rectangle, each follow pan
+with its step, need and margin, and every zoomed-in relative move the controller did *not*
+take over, with the reason. Nothing is formatted for a dropped line.
 
 ### New code (additive, in `meow/cursor/`)
 
 | File | Android? | What it is |
 | --- | --- | --- |
-| `CursorFollowPlanner.java` | no | edge-pan + catch-up, one rule at two distances |
-| `CursorFollowPlan.java` | no | the resulting `{dx, dy}`, with a shared no-move instance |
-| `RelativeCursorTracker.java` | no | dead-reckons the host cursor while the pointer is captured |
+| `FollowLog.java` | Log | the `MeowFollow` diagnostics, rate limited |
+| `AutoCursorZoom.java` | prefs | auto cursor zoom: its switch and the zoom rule (fill a strip, cap at 2 screen px per desktop px) |
+| `CursorFollowController.java` | Choreographer | arming, vsync stepping, margins, cross-thread inbox |
+| `CursorFollowMotion.java` | no | the per-axis target and the eased, speed-capped step |
+| `HostCursor.java` | no | host-reported or dead-reckoned cursor in reference pixels |
+| `CursorInputTap.java` | no | the static seam `NvConnection` calls |
+| `CursorFollowPreference.java` | yes | reads the off switch |
 
-Tested by `app/src/test/java/com/limelight/meow/cursor/` and, end to end against a real
-`PanZoomHandler`, by `viewport/CursorFollowBindingTest`.
+`CursorFollowPlanner`, `CursorFollowPlan` and `RelativeCursorTracker` were deleted with their
+tests; `ViewportGeometry.hostPointFromView`/`viewDeltaForHostDelta` went with them.
 
-`StreamViewportBinder.handleCursorViewPosition` and `handleCursorHostPosition` take an
-`InlinePinchZoomController.ZoomTarget` rather than a `PanZoomHandler`. Same object at
-runtime; the narrower type is the seam that already existed for inline pinch, and it is what
-lets the follow loop be tested without reaching for a `Game`.
+Tested by `app/src/test/java/com/limelight/meow/cursor/`, by
+`viewport/CursorFollowBindingTest` (real `PanZoomHandler`, binder and follower), and by
+`cursor/GameCursorFollowModesTest`, which builds a real `Game` under Robolectric and drives
+real `MotionEvent`s through its handlers — touch trackpad natural and gaming, physical
+touchpad, captured mouse relative and in absolute-mouse mode, a host that does not report,
+absolute touch, local cursor hover and multi-touch — against a fake meow host behind the
+natives (`shadows/ShadowMoonBridgeWithHost`). Nine of its eleven tests fail with following
+switched off; the other two are the negative controls.
 
-### What is deliberately *not* here
+**Allocation and threads.** Nothing on the per-event or per-vsync path allocates. Host
+positions (library callback thread) and relative moves from timer threads (fling momentum,
+gamepad mouse) are folded into atomics and drained by one reused runnable on the UI thread.
 
-**No new preference.** Cursor-follow is inert unless the user has zoomed in, and when they
-have, letting the cursor leave the screen is not a taste anyone holds. `setCursorFollowEnabled`
-exists on the binder for a future one; nothing reads a key today.
+---
 
-That argument is strongest on the dead-reckoned path, where the cursor really can leave the
-screen. It is weaker on the absolute path, where the pointer is an Android pointer and is
-visible by construction — there the behaviour is edge-scroll, which the user did ask for in
-so many words ("make cursor to the top of viewing part and it will move viewing part to the
-top while cursor still stays on the top border") but which is a taste rather than a rescue.
-**The rate is the open question, not the existence.** The cursor's offset within the crop is
-invariant under a pan — both the cursor's host coordinate and `visible.x` shift by the same
-amount — so a pointer held inside the border zone yields the same non-zero `dx` on every
-event, up to a full margin (12% of the crop) each time. It is bounded, because
-`updateMousePosition` only fires when the pointer actually moves and the clamp stops the crop
-at the content boundary, but a jiggle at the edge slams rather than scrolls. Slowing it means
-changing the model `CursorFollowPlanner` documents, so it is recorded here rather than done.
+## `MEOW-TOUCH(viewport-compose)`
 
-**The behaviour model is unchanged.** `CursorFollowPlanner` still pins the cursor to a margin
-line rather than recentring, for the reason its class comment gives: a recentre moves the crop
-further than the user asked and loses the region they were reading. This change makes the
-documented behaviour happen; it does not redefine it.
+**Feature:** present a host-cropped frame at exactly one magnification, and map absolute
+input into the uncropped frame (spec C2/C3, audit fact F1).
 
-**`LocalCursorScaler` came out from behind the viewport preference with it.** The `MEOW-CURSOR`
-block was nested inside the removed guard, so `enableEnlargeCursorAtLowZoom` silently did
-nothing for anyone who had viewport-following off. It has its own preference and the scaler is
-inert when that is unset, so this is the setting finally doing what it says — but it is a
-second feature changing population, and it is recorded rather than left to be discovered.
+**How.** `PanZoomHandler` stays the owner of the user's *logical* transform (zoom and pan
+over the uncropped reference frame) and writes it to the view exactly as before. The binder
+is notified right after, and its `ViewportCompositor` replaces it with the *presented*
+transform for whatever the decoded frame shows (`ViewComposition`): the identity while the
+host streams the whole desktop, and for a crop the logical transform divided by the host's
+magnification (`HostCropPlan`, a mirror of sunmeow's `plan()` that recovers the desktop
+source from the rounded echo). A pinch or pan shows at once as a soft zoom of the frame on
+screen; the sharp crop replaces it on the frame the echo names (`frame_index`), which
+`DecodedFrameGate` detects by pairing host frame numbers with codec timestamps. Hosts without
+echo v2 swap on receipt.
 
-**Absolute-pointer follow is edge-scroll by construction, not a bug.** On that path the cursor
-position is derived from the on-screen pointer *through* the transform, so panning moves the
-content under a stationary pointer and the cursor keeps its position within the crop. Holding
-the pointer in the border zone therefore scrolls continuously until the crop hits the boundary
-— which is exactly the "cursor stays on the border while the view moves" behaviour the feature
-was asked for. The dead-reckoned path is different and does converge: there the cursor has a
-host coordinate of its own, so the crop catches up and stops.
+### Sites
+
+| File | Site | Edit |
+| --- | --- | --- |
+| `utils/PanZoomHandler.java` | `panBy` | pan from the handler's own `childX/childY`, not `streamView.getX()` — the view now carries the presented transform |
+| `binding/video/MediaCodecDecoderRenderer.java` | `submitDecodeUnit`, after the timestamp is final | `DecodedFrameGate.onFrameQueued(frameNumber, timestampUs)` |
+| `binding/video/MediaCodecDecoderRenderer.java` | top of `updateDecodeLatencyStats` | `DecodedFrameGate.onFramePresented(presentationTimeUs)` — the one call every render path makes per presented frame |
+| `binding/input/touch/AbsoluteTouchContext.java` | `updatePosition` | the position mapped through `ReferencePointer.x/y` |
+| `Game.java` | `updateMousePosition` | the same, for the absolute mouse and the local cursor |
+| `Game.java` | `getStreamViewRelativeNormalizedXY` | the same, for native touch and pen |
+
+`MediaCodecDecoderRenderer.java`, `AbsoluteTouchContext.java` and `NvConnection.java` are CRLF
+files; the hooks keep their line endings. Everything else is in `meow/viewport/`:
+`FrameMapping`, `HostCropPlan`, `ViewComposition`, `ViewportCompositor`, `DecodedFrameGate`,
+`ReferencePointer`. `ZoomTarget` gained the three logical getters `PanZoomHandler` already had,
+so nothing reads the zoom back off the view — `LocalCursorScaler` included.
+
+**Guard band (2026-09-24).** The binder no longer asks for exactly the visible rectangle V:
+`GuardBand` asks for V plus a margin at the encode surface's aspect ratio, clamped into the
+desktop -- 10% a side at rest, growing with pan speed up to 35%, tightened back 300 ms after
+the view stops (only when the gain is over 15%; each tightening is a re-sharpen and a burst
+of bits), with the settle also re-offering the current request so one the library could not
+deliver is retried. The band logic runs on the part of V that shows desktop, so a view over
+the letterbox padding still gets hysteresis. The request is kept while V stays inside it (with 2% slack) and it is not more
+than 1.25x the size the margin calls for, so small pans and cursor-follow steps are shown sharp
+from pixels already received (the compositor presents V inside the applied crop at one
+magnification) instead of re-cropping the host every frame. The cost is 1/(1+2m) of the
+encoder's pixels per axis for V: 83% at rest. `GuardBandTest`,
+`StreamViewportBinderTest.smallPansInsideTheGuardBandDoNotChangeTheCrop`,
+`CropCompositionTest.aCropWithAGuardBandShowsTheViewAtOneMagnificationAndSmallPansStaySharp`.
+
+**What remains inexact, stated.** The echo is rounded to whole reference pixels and does not
+carry the desktop-space source, so the recovered mapping is within one reference pixel for 99%
+of crops and within 1.75 for all (`HostCropPlanTest`). The swap is aligned to the frame the
+renderer hands to the display path, and a `SurfaceView` property change is not latched with
+the codec buffer, so the swap is within one or two display frames, not frame-exact: in balanced
+frame pacing the hook fires when a buffer enters the renderer's two-deep output queue, up to
+two vsyncs before `doFrame` releases it. The spec's "exact frame" wording is stronger than the
+Android surface pipeline can guarantee; A1 on hardware is where a one-frame pop at a crop swap
+would show. A stream stop keeps the presented crop so the frozen last frame is not magnified
+twice; the next stream start resets.
+
+Tested by `CropCompositionTest` (F1 end to end: 4x zoom, honoured crop, presented at 1:1 —
+red without the compositor), `ViewportCompositorTest` (the single-magnification invariant in
+every state: idle, mid-pinch, before and after the swap, v1 host, trailing echo, pan after
+swap, revocation, reconnect, PiP resize, out-of-order echoes), `HostCropPlanTest`,
+`DecodedFrameGateTest`, `ReferencePointerTest` and `ViewportCompositionWiringTest` (the hooks).
+
+---
+
+## `MEOW-TOUCH(auto-bitrate)`
+
+**Feature:** automatic bitrate (spec C5). The user's bitrate setting becomes the ceiling;
+each stream starts at the last stable bitrate on that host; a 1 Hz 0x3005 receiver report
+(goodput, pre-FEC loss, RTT, decode queue and time) goes to a host that has proven it is a
+meow host; the performance overlay shows what the host applied.
+
+| File | Site | Edit |
+| --- | --- | --- |
+| `Game.java` | field | `private BitrateSession bitrateSession;` |
+| `Game.java` | inside the `MEOW-TOUCH(viewport-follow)` block | build the session, `viewportBinder.setBitrateSession(...)`, `setCapabilityProbe(true)` |
+| `Game.java` | `StreamConfiguration.Builder` | `.setBitrate(BitrateSession.negotiate(bitrateSession, <the setting>))` |
+| `binding/video/MediaCodecDecoderRenderer.java` | after the stats window flips | `DecodeTimeWindow.publish(...)` of the window the renderer already measured |
+| `binding/video/MediaCodecDecoderRenderer.java` | before the overlay text is finished | `BitrateOverlay.append(sb, ...)` |
+| `jni/moonlight-core/callbacks.c` | struct member | `.bitrateApplied = MeowBridgeClBitrateApplied` |
+| `res/xml/preferences.xml` | after the metered bitrate | `checkbox_meow_auto_bitrate`, default `true` |
+
+New code in `meow/bitrate/`: `StartingBitrate`, `ReceiverReport`, `ReceiverReporter` (pure),
+`BitrateMemory`, `BitrateSession`, `BitrateOverlay`, `DecodeTimeWindow`,
+`AutoBitratePreference`; and `meow/stream/MeowStreamBridge` for the JNI.
+
+**Stopping is ordered.** `BitrateSession.onStreamStopped()` runs from the binder on `Game`'s
+teardown worker, before `conn.stop()`, and blocks (bounded, 250 ms) until no report can still
+be in flight: sending after `LiStopConnection` is a use-after-free. A `stopped` latch keeps a
+host-proven signal that was still queued on the viewport thread from restarting reports after
+that drain. It persists the stable bitrate (an APPLIED value held for ten seconds), keyed per
+host *and* per metered/unmetered network, and forgets it when a proven host never answered
+this session, so a host that stopped adapting cannot keep capping later sessions.
+
+**No report without an RTT.** The wire has no "unknown" RTT and a 0 would become the host's
+windowed-minimum baseline (N4), so reports wait for ENet's first estimate and carry the last
+known one through a dropout. Only a report the library accepted counts toward the five-report
+give-up; a transient ENet failure does not.
+
+**Starting bitrate floor.** `StartingBitrate` never starts a remembered session below what
+keeps a desktop readable for the negotiated resolution and frame rate (0.04 bits per pixel per
+frame: ~5 Mbps at 1080p60, ~10 Mbps at 2160x3840x30), nor below a quarter of the setting, nor
+above the setting. A first session on a host always starts at the setting. `Game` passes
+`displayWidth, displayHeight, chosenFrameRate` on the same `setBitrate` line.
+
+**`CONN_STATUS_POOR`**, `Game.connectionStatusUpdate`, 2 lines: when automatic bitrate is
+on and the host has adapted this session (an APPLIED arrived), the "slow connection -- lower
+the bitrate" advice is replaced by a short "Connection slow · adapting bitrate (X Mbps)" in the
+same non-blocking overlay line; the host is already lowering it. Stock hosts, and automatic
+bitrate off, keep the original advice (`BitrateSessionTest.aPoorConnectionOnAnAdaptingHost…`,
+`BitrateWiringTest.thePoorConnectionWarningIsUntouched`),
+and the Tailscale packet-size path is pinned by `meow/net/TailnetPacketSizeTest` (N3).
+
+---
+
+## AV1 in automatic codec selection — tried and withdrawn (2026-09-24)
+
+An earlier commit in this PR let "automatic" offer AV1 on a hardware, low-latency AV1 decoder
+with RFI. On the owner's phone (MediaTek, `c2.mtk.*`) it negotiated `av1_nvenc` at 15 Mbps on
+an 11 ms direct Tailscale path and the picture was **pixelated and unreadable**; the next build
+negotiated `hevc_nvenc` at the same 15 Mbps and was clear. Bandwidth was not the cause. So
+automatic is back to upstream's behaviour exactly (AV1 only when the user forces it in
+Settings, then HEVC > H.264), the renderer line is byte-identical to upstream again, and there
+is no `MEOW-TOUCH(auto-av1)` site any more. Re-adding it needs a per-device allowlist backed by
+an on-device quality check, not a capability probe.
+
+## Decoder latency and pacing: audit, no change (2026-09-24)
+
+Read, not measured (measuring needs a live stream on the phone, which this change did not run):
+`MediaCodecHelper` already sets `KEY_LOW_LATENCY` where `FEATURE_LowLatency` is present and the
+known vendor keys (`vendor.low-latency.enable`, the Qualcomm, HiSilicon and RTC variants), and
+the MediaTek `*.lowlatency` decoders are used when present. Frame pacing defaults to
+"latency" (`DEFAULT_FRAME_PACING`), the lowest-latency setting, which is right for desktop
+use. `DecodedFrameGate`'s two renderer hooks allocate nothing (atomic arrays and a volatile).
+Resolution and FPS defaults were left as they are (native panel resolution, the existing FPS
+default); nothing here measured a reason to change them. Decode/render latency before and
+after is for the orchestrator's on-device run: the performance overlay shows both.
 
 ---
 
@@ -806,6 +1045,17 @@ survives. The two booleans cannot be told apart this way: a stored `false` is id
 whether inherited or chosen, so they are set once. That is the accepted cost of changing a
 boolean default, and the reason the migration is version-gated rather than run every launch.
 
+### Schema 2 (2026-09-24): every meow feature on — `meow/res/MeowDefaults.java`
+
+`DEFAULTS_MIGRATION_VERSION` is now `MeowDefaults.SCHEMA_VERSION` = 2. The schema-1 steps above
+are wrapped in `if (migratedTo < 1)` so bumping the version cannot re-run them and undo a
+resolution or orientation lock chosen since; the new steps live in `MeowDefaults.apply()`, one
+call from the migration. Below schema 2 it switches on viewport following (a second time, on
+purpose: until this release a crop was magnified twice, which is a good reason to have turned
+it off), cursor follow and automatic bitrate. Pinned by `DefaultsMigrationTest` (virgin
+install, an install at schema 1, off switches that stay off, profile stores never written) and
+`MeowDefaultsTest`.
+
 ### `app/src/main/java/com/limelight/meow/viewport/ViewportPreference.java`
 
 `DEFAULT` `false` → `true`. The class comment argued the case for off; it is rewritten to
@@ -845,6 +1095,17 @@ load-bearing again rather than dead.
   the user opts in — but the object is live where it previously was not.
 
 ---
+
+### Track pad (natural) for fresh installs (2026-09-24)
+
+`res/xml/preferences.xml`, `mouse_mode_list`: `android:defaultValue` `"0"` (multi-touch) ->
+`"2"` (Track pad, natural). The app is desktop-first and its owner works in trackpad mode.
+This reaches fresh installs only, and deliberately: `PcView`'s first `setDefaultValues`
+already stored `"0"` on every existing install, and no migration step rewrites it, so nobody
+who has launched the app loses their mode. The `"0"` fallbacks in
+`PreferenceConfiguration.readPreferences` and `Game`'s mode switcher are left as upstream
+wrote them; they only apply when nothing is stored, which `setDefaultValues` rules out.
+Pinned by `FreshInstallTouchModeTest`.
 
 ## Policy: back-ports from the ORIGINAL upstream
 

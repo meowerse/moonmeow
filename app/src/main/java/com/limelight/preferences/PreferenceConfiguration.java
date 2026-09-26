@@ -11,7 +11,7 @@ import android.view.Display;
 import android.view.WindowManager;
 
 import com.limelight.meow.res.NativeResolutionDefault;
-import com.limelight.meow.viewport.ViewportPreference;
+import com.limelight.meow.res.MeowDefaults;
 import com.limelight.nvstream.jni.MoonBridge;
 import com.limelight.profiles.ProfilesManager;
 
@@ -746,8 +746,8 @@ private static int getFramePacingValue(Context context) {
     /** MEOW-TOUCH(defaults): schema version of the one-shot default migration below. */
     static final String DEFAULTS_MIGRATION_PREF_STRING = "meow_defaults_migration";
 
-    /** MEOW-TOUCH(defaults): bump to re-run the migration after changing a default again. */
-    static final int DEFAULTS_MIGRATION_VERSION = 1;
+    /** MEOW-TOUCH(defaults): bump to run new migration steps after changing a default again. */
+    static final int DEFAULTS_MIGRATION_VERSION = MeowDefaults.SCHEMA_VERSION;
 
     /**
      * MEOW-TOUCH(defaults): carry three changed defaults onto installs that already exist.
@@ -825,36 +825,42 @@ private static int getFramePacingValue(Context context) {
         }
         final SharedPreferences canonical =
                 androidx.preference.PreferenceManager.getDefaultSharedPreferences(context);
-        if (canonical.getInt(DEFAULTS_MIGRATION_PREF_STRING, 0) >= DEFAULTS_MIGRATION_VERSION) {
+        final int migratedTo = canonical.getInt(DEFAULTS_MIGRATION_PREF_STRING, 0);
+        if (migratedTo >= DEFAULTS_MIGRATION_VERSION) {
             return;
         }
 
         final SharedPreferences.Editor editor = canonical.edit();
 
-        final String storedRes = canonical.getString(RESOLUTION_PREF_STRING, null);
-        if (storedRes == null || DEFAULT_RESOLUTION.equals(storedRes)) {
-            final String panelRes = getDefaultResolution(context);
-            if (!panelRes.equals(storedRes) && isResolutionDecodable(panelRes)) {
-                editor.putString(RESOLUTION_PREF_STRING, panelRes);
+        // Each version's steps run once. Re-running an earlier one would undo a choice the
+        // user made after it -- a 1280x720 they picked, an orientation lock they set.
+        if (migratedTo < 1) {
+            final String storedRes = canonical.getString(RESOLUTION_PREF_STRING, null);
+            if (storedRes == null || DEFAULT_RESOLUTION.equals(storedRes)) {
+                final String panelRes = getDefaultResolution(context);
+                if (!panelRes.equals(storedRes) && isResolutionDecodable(panelRes)) {
+                    editor.putString(RESOLUTION_PREF_STRING, panelRes);
 
-                // Bitrate is derived from resolution, so a stale one sizes bandwidth for a
-                // resolution we are no longer streaming. Only touch it when it is still the
-                // value the old resolution derived -- 0/absent means "never set", which
-                // already derives on read.
-                final String fps = canonical.getString(FPS_PREF_STRING, DEFAULT_FPS);
-                final int storedBitrate = canonical.getInt(BITRATE_PREF_STRING, 0);
-                if (storedBitrate == getDefaultBitrate(DEFAULT_RESOLUTION, fps)) {
-                    editor.putInt(BITRATE_PREF_STRING, getDefaultBitrate(panelRes, fps));
+                    // Bitrate is derived from resolution, so a stale one sizes bandwidth for a
+                    // resolution we are no longer streaming. Only touch it when it is still the
+                    // value the old resolution derived -- 0/absent means "never set", which
+                    // already derives on read.
+                    final String fps = canonical.getString(FPS_PREF_STRING, DEFAULT_FPS);
+                    final int storedBitrate = canonical.getInt(BITRATE_PREF_STRING, 0);
+                    if (storedBitrate == getDefaultBitrate(DEFAULT_RESOLUTION, fps)) {
+                        editor.putInt(BITRATE_PREF_STRING, getDefaultBitrate(panelRes, fps));
+                    }
                 }
+            }
+
+            if (!canonical.getBoolean(CHECKBOX_AUTO_ORIENTATION, false)) {
+                editor.putBoolean(CHECKBOX_AUTO_ORIENTATION, true);
             }
         }
 
-        if (!canonical.getBoolean(CHECKBOX_AUTO_ORIENTATION, false)) {
-            editor.putBoolean(CHECKBOX_AUTO_ORIENTATION, true);
-        }
-        if (!canonical.getBoolean(ViewportPreference.KEY, false)) {
-            editor.putBoolean(ViewportPreference.KEY, true);
-        }
+        // Version 2: every meow feature on (spec D1), including viewport following again for
+        // installs that turned it off while it double-magnified (F1, fixed with version 2).
+        MeowDefaults.apply(migratedTo, editor);
 
         editor.putInt(DEFAULTS_MIGRATION_PREF_STRING, DEFAULTS_MIGRATION_VERSION).apply();
     }

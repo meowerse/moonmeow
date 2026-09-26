@@ -11,6 +11,8 @@ import androidx.preference.PreferenceManager;
 import androidx.test.core.app.ApplicationProvider;
 
 import com.limelight.TestLogSuppressor;
+import com.limelight.meow.bitrate.AutoBitratePreference;
+import com.limelight.meow.cursor.CursorFollowPreference;
 import com.limelight.meow.viewport.ViewportPreference;
 
 import org.junit.Before;
@@ -121,5 +123,63 @@ public class DefaultsMigrationTest {
         assertFalse(profileLike.contains(PreferenceConfiguration.DEFAULTS_MIGRATION_PREF_STRING));
         assertFalse(profileLike.contains("checkbox_auto_orientation"));
         assertFalse(profileLike.contains(ViewportPreference.KEY));
+    }
+
+    // ---- schema 2: every meow feature on (D1) ----------------------------------------
+
+    @Test
+    public void aVirginInstallHasEveryMeowFeatureOn() {
+        PreferenceConfiguration.readPreferences(context);
+        assertTrue(canonical.getBoolean(ViewportPreference.KEY, false));
+        assertTrue(canonical.getBoolean(CursorFollowPreference.KEY, false));
+        assertTrue(canonical.getBoolean(AutoBitratePreference.KEY, false));
+        assertEquals(2, canonical.getInt(PreferenceConfiguration.DEFAULTS_MIGRATION_PREF_STRING, 0));
+    }
+
+    @Test
+    public void anInstallAlreadyAtSchemaOneGetsTheNewFeaturesAndNothingElse() {
+        // Migrated once, then the user locked orientation, picked 720p and turned viewport
+        // following off while it double-magnified.
+        canonical.edit()
+                .putInt(PreferenceConfiguration.DEFAULTS_MIGRATION_PREF_STRING, 1)
+                .putString(PreferenceConfiguration.RESOLUTION_PREF_STRING, "1280x720")
+                .putBoolean("checkbox_auto_orientation", false)
+                .putBoolean(ViewportPreference.KEY, false)
+                .commit();
+
+        PreferenceConfiguration.readPreferences(context);
+
+        assertTrue(canonical.getBoolean(ViewportPreference.KEY, false));
+        assertTrue(canonical.getBoolean(CursorFollowPreference.KEY, false));
+        assertTrue(canonical.getBoolean(AutoBitratePreference.KEY, false));
+        assertEquals("schema 1 steps must not run again",
+                "1280x720", canonical.getString(PreferenceConfiguration.RESOLUTION_PREF_STRING, null));
+        assertFalse(canonical.getBoolean("checkbox_auto_orientation", true));
+    }
+
+    @Test
+    public void theNewOffSwitchesStayOffAfterTheMigration() {
+        PreferenceConfiguration.readPreferences(context);
+        canonical.edit()
+                .putBoolean(CursorFollowPreference.KEY, false)
+                .putBoolean(AutoBitratePreference.KEY, false)
+                .putBoolean(ViewportPreference.KEY, false)
+                .commit();
+        PreferenceConfiguration.readPreferences(context);
+        assertFalse(canonical.getBoolean(CursorFollowPreference.KEY, true));
+        assertFalse(canonical.getBoolean(AutoBitratePreference.KEY, true));
+        assertFalse(canonical.getBoolean(ViewportPreference.KEY, true));
+        assertFalse(CursorFollowPreference.isEnabled(context));
+        assertFalse(AutoBitratePreference.isEnabled(context));
+    }
+
+    @Test
+    public void theNewKeysAreNeverWrittenIntoACallerSuppliedStore() {
+        SharedPreferences profileLike =
+                context.getSharedPreferences("profile-like-2", Context.MODE_PRIVATE);
+        profileLike.edit().clear().commit();
+        PreferenceConfiguration.readPreferences(context, profileLike);
+        assertFalse(profileLike.contains(CursorFollowPreference.KEY));
+        assertFalse(profileLike.contains(AutoBitratePreference.KEY));
     }
 }

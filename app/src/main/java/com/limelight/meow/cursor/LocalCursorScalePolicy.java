@@ -10,7 +10,8 @@ import com.limelight.meow.viewport.ViewportRect;
  *
  * <p>Two signals both mean "not zoomed":
  * <ul>
- *   <li>view scale ~ 1.0 (streamContainer.getScaleX() / PanZoomHandler.getScaleFactor())
+ *   <li>the user's logical zoom ~ 1.0 ({@code PanZoomHandler.getScaleFactor()} -- never the
+ *       stream view's own scale, which also carries the host crop's compensation)
  *   <li>visible crop covers the whole desktop (ViewportGeometry full-frame case)
  * </ul>
  * Either being true while the enlarge preference is enabled should show the bigger arrow.
