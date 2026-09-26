@@ -118,6 +118,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     private final Runnable settleCheck = this::onViewSettled;
     /** One display frame, added to the measured crop round trip to lead the band by. */
     static final long LEAD_FRAME_MS = 17L;
+    /** The shortest round trip a sample may claim. */
+    static final long MIN_ROUND_TRIP_MS = 16L;
     /** When the oldest request not yet answered by an echo was posted, or 0. UI thread. */
     private long unansweredRequestMs;
     /** Smoothed request-to-echo time, or 0 until measured. UI thread. */
@@ -144,8 +146,26 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     /** Composes the logical transform with the host's crop. UI thread; null until wired. */
     private ViewportCompositor compositor;
 
-    /** The crops recently asked for, so each echo's mapping is computed exactly. UI thread. */
+    /**
+     * The crops recently asked for, so each echo's mapping is computed exactly. Reporter
+     * thread: requests are recorded where they are handed to the library, and echoes are
+     * matched where they arrive.
+     */
     private final CropRequestHistory requestHistory = new CropRequestHistory();
+
+    /**
+     * The crops by frame for the per-frame presenter, or null. Written on the reporter thread
+     * straight from the echo, so the presenter learns of a crop without waiting for the UI
+     * thread -- the busiest thread during a pan, and an echo that loses the race to its first
+     * frame is a visible step.
+     */
+    private volatile CropTimeline frameTimeline;
+
+    /** Crop reporting is on (the viewport preference); without it the host never crops. */
+    private volatile boolean reportingEnabled;
+
+    /** The view's own surface, where the decoder goes back to if the presenter gives up. */
+    private android.view.Surface viewSurface;
 
     /**
      * Presents each decoded frame with its own crop transform (API 33+), or null when the
@@ -189,6 +209,7 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
     }
 
     public void setEnabled(final boolean enabled) {
+        reportingEnabled = enabled;
         post(() -> reporter.setEnabled(enabled));
     }
 
@@ -205,9 +226,6 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
                             ViewportCompositor compositor) {
         this.transformSource = source;
         this.compositor = compositor;
-        if (compositor != null) {
-            compositor.setRequestHistory(requestHistory);
-        }
     }
 
     /**
@@ -224,17 +242,27 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
      */
     public android.view.Surface decoderSurface(android.view.Surface fallback, int width,
                                                int height, boolean hdr) {
-        if (hdr || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU
-                || compositor == null || framePresenter != null
-                || !(streamView instanceof android.view.SurfaceView)) {
+        if (android.os.Build.VERSION.SDK_INT >= android.os.Build.VERSION_CODES.TIRAMISU
+                && framePresenter != null) {
+            // Already presenting: the same surface, never a second reader.
+            return framePresenter.surface();
+        }
+        if (hdr || !reportingEnabled
+                || android.os.Build.VERSION.SDK_INT < android.os.Build.VERSION_CODES.TIRAMISU
+                || compositor == null || !(streamView instanceof android.view.SurfaceView)) {
+            // Without crop reporting the host never crops, and there is nothing to pair.
             return fallback;
         }
+        viewSurface = fallback;
+        DecoderSurfaceSwitch.reset();
         try {
             CropTimeline timeline = new CropTimeline();
             framePresenter = new SurfaceFramePresenter((android.view.SurfaceView) streamView,
                     timeline, width, height);
             framePresenter.setFrameRate(frameRate);
+            framePresenter.setFailureListener(() -> mainHandler.post(this::onPresenterFailed));
             compositor.setTimeline(timeline);
+            frameTimeline = timeline;
             LimeLog.info("Viewport: presenting frames with their crop (per-frame layer)");
             return framePresenter.surface();
         } catch (RuntimeException e) {
@@ -243,9 +271,31 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
                 framePresenter.release();
                 framePresenter = null;
             }
+            frameTimeline = null;
             compositor.setTimeline(null);
             return fallback;
         }
+    }
+
+    /**
+     * UI thread: the presenter could not put frames on screen. The decoder goes back to the
+     * view's own surface and crops swap on the view's transform again, rather than the stream
+     * staying black.
+     */
+    void onPresenterFailed() {
+        LimeLog.warning("Viewport: per-frame presentation failed, back to the view's surface");
+        frameTimeline = null;
+        if (compositor != null) {
+            compositor.setTimeline(null);
+        }
+        if (viewSurface != null && viewSurface.isValid()) {
+            DecoderSurfaceSwitch.request(viewSurface);
+        }
+    }
+
+    /** The per-frame presenter's crops, or null. For tests. */
+    CropTimeline frameTimeline() {
+        return frameTimeline;
     }
 
     /** The stream view's surface was given {@code rate}; the presenter's layer gets it too. */
@@ -337,6 +387,11 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         MeowViewportBridge.setEchoListener(this);
         post(() -> {
             hostProvenAnnounced = false;
+            requestHistory.clear();
+            CropTimeline timeline = frameTimeline;
+            if (timeline != null) {
+                timeline.reset();
+            }
             reporter.onStreamStarted(streamWidth, streamHeight);
             live = reporter.isLive();
         });
@@ -352,12 +407,11 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         // what guarantees this lands after the reset above.
         guardBand.reset();
         guardBand.setDesktop(0, 0);
-        requestHistory.clear();
         unansweredRequestMs = 0L;
         final ViewportRect restored = requestFor(computeVisibleHostRect(), false);
         if (restored != null) {
-            requestHistory.record(restored);
             post(() -> {
+                requestHistory.record(restored);
                 reporter.onVisibleRectChanged(restored);
                 live = reporter.isLive();
             });
@@ -388,8 +442,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
         final ViewportRect rect = requestFor(computeVisibleHostRect(), true);
         if (rect != null) {
-            requestHistory.record(rect);
             post(() -> {
+                requestHistory.record(rect);
                 reporter.onVisibleRectChanged(rect);
                 live = reporter.isLive();
             });
@@ -517,8 +571,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
             return;
         }
         noteRequest();
-        requestHistory.record(rect);
         post(() -> {
+            requestHistory.record(rect);
             reporter.onVisibleRectChanged(rect);
             live = reporter.isLive();
         });
@@ -538,8 +592,16 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
                 // Composed from what the reporter validated, so a rectangle outside the
                 // stream frame never reaches the view: appliedRect() is null for it and the
                 // compositor keeps what it has.
-                forwardCrop(reporter.appliedRect(), reporter.desktopWidth(),
-                        reporter.desktopHeight(), frameIndex);
+                ViewportRect applied = reporter.appliedRect();
+                FrameMapping mapping = applied == null ? null
+                        : mappingFor(applied, reporter.desktopWidth(), reporter.desktopHeight());
+                CropTimeline timeline = frameTimeline;
+                if (timeline != null && mapping != null) {
+                    // Straight to the presenter, without the UI hop (see frameTimeline).
+                    timeline.add(frameIndex, mapping);
+                }
+                forwardCrop(mapping, reporter.desktopWidth(), reporter.desktopHeight(),
+                        frameIndex);
                 announceHostProven();
             }
         });
@@ -564,8 +626,19 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         }
     }
 
+    /**
+     * Reporter thread: what the frames of an applied crop show -- exact when the echo answers
+     * a recent request, estimated from the rounded echo otherwise.
+     */
+    private FrameMapping mappingFor(ViewportRect applied, int desktopWidth, int desktopHeight) {
+        FrameMapping exact = requestHistory.exactMapping(applied, desktopWidth, desktopHeight,
+                streamWidth, streamHeight);
+        return exact != null ? exact : HostCropPlan.mappingFor(applied, desktopWidth,
+                desktopHeight, streamWidth, streamHeight);
+    }
+
     /** Reporter thread: hand the applied crop to the compositor on the UI thread. */
-    private void forwardCrop(final ViewportRect applied, final int desktopWidth,
+    private void forwardCrop(final FrameMapping mapping, final int desktopWidth,
                              final int desktopHeight, final int frameIndex) {
         final ViewportCompositor presenting = compositor;
         final CursorFollowController follower = cursorFollow;
@@ -575,8 +648,8 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
             }
             noteEcho();
             guardBand.setDesktop(desktopWidth, desktopHeight);
-            if (presenting != null && applied != null) {
-                presenting.onCropApplied(applied, desktopWidth, desktopHeight, frameIndex);
+            if (presenting != null && mapping != null) {
+                presenting.onCropMapped(mapping, frameIndex);
             }
             if (follower != null) {
                 follower.onDesktopExtent(desktopWidth, desktopHeight);
@@ -599,7 +672,9 @@ public final class StreamViewportBinder implements ZoomTransformObserver,
         if (unansweredRequestMs == 0L) {
             return;
         }
-        long sample = android.os.SystemClock.uptimeMillis() - unansweredRequestMs;
+        // Bounded: a coalesced or lost request must not make the lead absurd.
+        long sample = Math.max(MIN_ROUND_TRIP_MS, Math.min(GuardBand.MAX_LEAD_MS,
+                android.os.SystemClock.uptimeMillis() - unansweredRequestMs));
         unansweredRequestMs = 0L;
         cropRoundTripMs = cropRoundTripMs == 0L ? sample : (cropRoundTripMs * 3 + sample) / 4;
         guardBand.setLeadMs(cropRoundTripMs + LEAD_FRAME_MS);

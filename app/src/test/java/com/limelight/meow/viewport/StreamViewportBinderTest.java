@@ -501,9 +501,33 @@ public class StreamViewportBinderTest {
     }
 
     @Test
+    public void anEchoAnsweringARecentRequestIsMappedExactly() {
+        SunmeowCropModel host = new SunmeowCropModel(STREAM_W, STREAM_H, STREAM_W, STREAM_H);
+        ViewportCompositor compositor = new ViewportCompositor(streamView,
+                new InlinePinchZoomControllerStub(), frame -> true, onFrame -> { });
+        binder.setTransformSource(new InlinePinchZoomControllerStub(), compositor);
+        startSupported();
+        streamView.setScaleX(4f);
+        streamView.setScaleY(4f);
+        streamView.setX(-VIEW_W * 1.3f);
+        streamView.setY(-VIEW_H * 1.7f);
+        binder.onZoomTransformChanged();
+        drain();
+        ViewportRect request = sender.last();
+        int[] source = host.source(request);
+        ViewportRect echo = host.echo(source);
+        binder.onViewportApplied(echo.x, echo.y, echo.width, echo.height, STREAM_W, STREAM_H, 0);
+        drain();
+        FrameMapping truth = host.trueMapping(source);
+        assertEquals(truth.offsetX, compositor.presentedMapping().offsetX, 1e-9);
+        assertEquals(truth.scaleX, compositor.presentedMapping().scaleX, 1e-12);
+    }
+
+    @Test
     public void anHdrStreamKeepsTheViewsOwnSurface() {
         android.view.SurfaceView surfaceView = new android.view.SurfaceView(context);
         StreamViewportBinder b = newBinder(surfaceView);
+        b.setEnabled(true);
         b.setTransformSource(new InlinePinchZoomControllerStub());
         android.view.Surface fallback = new android.view.Surface(
                 new android.graphics.SurfaceTexture(0));

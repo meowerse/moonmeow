@@ -875,8 +875,9 @@ geometry is to submit them in one transaction.
 **How (API 33+, SDR).** The decoder renders into an `ImageReader`
 (`SurfaceFramePresenter`). For each image, `FrameSelector` names it: the timestamp it was
 released with gives its presentation time (`FrameStamps`), which gives its host frame number
-(`DecodedFrameGate.frameForPts`), which gives the crop it was encoded with (`CropTimeline`, fed
-by the compositor from the echoes, each keyed by the frame it starts on). The presenter then
+(`DecodedFrameGate.frameForPts`), which gives the crop it was encoded with (`CropTimeline`,
+written by the binder on its reporter thread straight from each echo, keyed by the frame the
+crop starts on -- not through the UI thread, which is busiest during a pan). The presenter then
 applies one `SurfaceControl.Transaction` with `setBuffer` and that crop's geometry
 (`FrameLayerGeometry`) on a child layer of the stream view's surface. The view keeps the
 user's logical transform, exactly as `PanZoomHandler` writes it, so pans draw with the UI at the
@@ -893,21 +894,33 @@ threads and can release a queued older frame after a newer one).
 | `binding/video/MediaCodecDecoderRenderer.java` | `doFrame`, before its timestamped release | `FrameStamps.onRelease(nextOutputBuffer, frameTimeNanos)` |
 | `binding/video/MediaCodecDecoderRenderer.java` | latest-only path, before `releaseWithPolicy(__last, …)` | `FrameStamps.onOutput(__last, __lastPtsUs)` |
 | `binding/video/MediaCodecDecoderRenderer.java` | balanced path, before `outputBufferQueue.add(lastIndex)` | `FrameStamps.onOutput(lastIndex, presentationTimeUs)` |
+| `binding/video/MediaCodecDecoderRenderer.java` | first statement of the render loop | `DecoderSurfaceSwitch.apply(videoDecoder)` -- one atomic read; moves the output back to the view's surface if the presenter gave up |
 | `Game.java` | `setOnSurfaceAvailable` | `setRenderTarget(viewportBinder != null ? viewportBinder.decoderSurface(…) : streamContainer.getSurface())` |
 | `Game.java` | end of `surfaceCreated` | `viewportBinder.setFrameRate(desiredFrameRate)` -- the layer needs the view surface's frame-rate vote; a vote on the (now empty) view surface does not reach it |
 
 The renderer's non-balanced release paths are not hooked: `Game` forces balanced pacing, so
-they never run. A buffer that cannot be named (no hook saw it) keeps the last crop and is
-counted. The renderer file is CRLF; the hooks keep its line endings.
+they never run. `FrameStamps.onRelease` *takes* the index's presentation time rather than
+reading it, so if one of those paths is ever enabled its buffers go unnamed instead of being
+named after an earlier use of the same index. A buffer that cannot be named keeps the last
+crop and is counted. The renderer file is CRLF; the hooks keep its line endings.
 
 New code in `meow/viewport/`: `SurfaceFramePresenter` (Android), `FrameSelector`,
-`FrameStamps`, `CropTimeline`, `FrameLayerGeometry`, `CropRequestHistory`; the compositor gained
-`setTimeline`/`setRequestHistory`, `DecodedFrameGate` gained `frameForPts`, the binder
-`decoderSurface`/`setFrameRate`.
+`FrameStamps`, `CropTimeline`, `FrameLayerGeometry`, `CropRequestHistory`,
+`DecoderSurfaceSwitch`; the compositor gained `setTimeline`/`onCropMapped`, `DecodedFrameGate`
+gained `frameForPts`, the binder `decoderSurface`/`setFrameRate`.
 
-**Not used when:** API < 33 (no `Transaction.setBuffer`), HDR requested (the image path would
-drop the codec's HDR metadata), no compositor, or the stream view is not a `SurfaceView` (the
-stereo modes). Construction failure falls back to the view's own surface.
+**Not used when:** crop reporting is off (the viewport preference: the host never crops, so
+there is nothing to pair), API < 33 (no `Transaction.setBuffer`), HDR requested (the image path
+would drop the codec's HDR metadata), no compositor, or the stream view is not a `SurfaceView`
+(the stereo modes). Construction failure falls back to the view's own surface.
+
+**Giving up at run time.** Ten frames in a row that cannot be put on screen (the platform
+refusing the buffer, no hardware buffer) and the presenter hides its layer, the binder asks
+`DecoderSurfaceSwitch` for the view's own surface, and the renderer's loop moves the decoder
+there with `MediaCodec.setOutputSurface`; crops swap on the view's transform again. A
+presenter that silently shows nothing cannot be detected this way; that is what the device
+check below is for. Codec recovery after a switch reconfigures with the original render target
+(the reader), which then drains and is ignored -- stated, not handled.
 
 **Cost.** One reader hop instead of the codec queueing to the view's BLAST queue, which is also
 a transaction, so the step count is the same; what is added is the presenter thread's wake-up.
@@ -916,11 +929,21 @@ unnamed buffers, older frames dropped and late echoes. Allocation: this class ad
 frame, but the platform API allocates an `Image`, a `HardwareBuffer` and a `SyncFence` wrapper
 per frame; a stated deviation from "hot paths allocation-free", unavoidable on this API.
 
-**Late echoes.** The host sends the echo from the encode path once the frame is produced
-(`meow-protocol.md`), on the same link just ahead of that frame's video packets, so it arrives
-before the frame is decoded. If the control channel stalls (a retransmission) and the frame is
-shown first, that frame and the ones until the echo lands use the previous crop; the count is
-in the `MeowFrame` line.
+**Late echoes, the residual.** The host sends the echo from the encode path once the frame is
+produced (`meow-protocol.md`), on the same link just ahead of that frame's video packets; the
+frame still has to be reassembled and decoded, so an echo up to ~10 ms behind its frame's
+packets is in time (`SmoothPanSimulationTest.anEchoALittleBehindItsFrameIsStillInTime`). If the
+control channel stalls longer (a retransmission) and the frame is shown first, the frames shown
+before the echo lands use the previous crop -- a step of one crop move for that long -- and are
+counted as late echoes in the `MeowFrame` line
+(`…aLateEchoIsCountedAndOnlyTheFramesBeforeItAreOff`). Holding frames until a possible echo
+would add that latency to every frame of a pan, which is worse than the rare step.
+
+**One size change at stream start.** Until the first echo the desktop's size is unknown, so the
+band's size cannot yet be nudged to a host-stable one; the first echo can change it by up to 4
+reference pixels. That echo also carries the desktop box auto zoom waits for, so it lands at
+stream start, before the user moves; the simulation starts with the desktop unknown and pins
+that the size never changes after it.
 
 **Tested by** `SmoothPanSimulationTest` -- the owner's pan (portrait 1220x2712 stream, 5360x1440
 desktop, 6.6x, across the desktop at 1.9 views/s and back at 5.6) and a landscape diagonal pan
@@ -931,8 +954,9 @@ shows each desktop pixel within 0.5 screen pixels of where the logical view puts
 the measure fails for the view-property swap (a one-frame lag: thousands of pixels at the first
 crop, tens at each step) and for the echo-estimated mapping (3.0 px). Plus `FrameStampsTest`,
 `FrameSelectorTest`, `CropTimelineTest`, `FrameLayerGeometryTest` (composed with the view it is
-`ViewComposition`'s presented transform), `CropRequestHistoryTest`, `SurfaceFramePresenterTest`
-(the binder switches the compositor to per-frame, and back to the view's surface for HDR or a
+`ViewComposition`'s presented transform), `CropRequestHistoryTest`, `DecoderSurfaceSwitchTest`,
+`SurfaceFramePresenterTest` (the binder switches the compositor to per-frame, echoes reach the
+timeline, giving up moves the decoder back; the view's surface for HDR, reporting off or a
 non-`SurfaceView`) and `ViewportCompositionWiringTest` (the hooks).
 
 ---

@@ -1157,6 +1157,7 @@ public class MediaCodecDecoderRenderer extends VideoDecoderRenderer implements C
                 BufferInfo info = new BufferInfo();
                 long lastOutputNs = System.nanoTime();
                 while (!stopping) {
+                    com.limelight.meow.viewport.DecoderSurfaceSwitch.apply(videoDecoder); // MEOW-TOUCH(frame-exact-crop)
                     /* LATEST_ONLY_LOW_LATENCY */
                     if (!preferLowerDelays) {
                         try {

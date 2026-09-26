@@ -127,5 +127,15 @@ public class ViewportCompositionWiringTest {
         String created = body(game, "public void surfaceCreated(");
         assertTrue(created.contains("viewportBinder.setFrameRate(desiredFrameRate)"));
     }
+
+    @Test
+    public void theRenderLoopCanMoveTheDecoderBackToTheViewsSurface() throws IOException {
+        String renderer = code(RENDERER);
+        int loop = renderer.indexOf("while (!stopping) {");
+        int hook = renderer.indexOf(
+                "com.limelight.meow.viewport.DecoderSurfaceSwitch.apply(videoDecoder)");
+        assertTrue("first thing in the render loop", loop >= 0 && hook > loop
+                && renderer.substring(loop, hook).trim().equals("while (!stopping) {"));
+    }
 }
 

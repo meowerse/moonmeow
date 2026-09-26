@@ -281,43 +281,28 @@ public class ViewportCompositorTest {
     // ---- per-frame presentation -------------------------------------------------------
 
     @Test
-    public void withATimelineCropsGoToItAndTheViewKeepsTheLogicalTransform() {
+    public void withATimelineTheViewKeepsTheLogicalTransformThroughACrop() {
         CropTimeline timeline = new CropTimeline();
         compositor.setTimeline(timeline);
-        compositor.onStreamStarted(STREAM_W, STREAM_H);
         zoomInto480x270();
         hostAppliesQuarter(40);
+        frames.presentedUpTo = 40;
         vsync.fire();
-        // The view is exactly what PanZoomHandler wrote; the crop is the presenter's business.
+        // The view is exactly what PanZoomHandler wrote; the crop is the presenter's business
+        // (the binder writes the timeline, not the compositor).
         assertEquals(4f, view.getScaleX(), 0f);
         assertEquals(logical.x, view.getX(), 0f);
         assertEquals(0, compositor.pendingCount());
-        assertSame(FrameMapping.IDENTITY, timeline.mappingFor(39));
-        assertEquals(480.0, timeline.mappingFor(40).offsetX, 1.0);
-        assertEquals(0.25, timeline.mappingFor(40).scaleX, 1e-3);
-    }
-
-    @Test
-    public void anEchoAnsweringARecentRequestIsMappedExactly() {
-        SunmeowCropModel host = new SunmeowCropModel(5360, 1440, STREAM_W, STREAM_H);
-        CropRequestHistory history = new CropRequestHistory();
-        compositor.setRequestHistory(history);
-        ViewportRect request = new ViewportRect(611, 377, 673, 379);
-        history.record(request);
-        int[] source = host.source(request);
-        compositor.onCropApplied(host.echo(source), 5360, 1440, 0);
-        FrameMapping truth = host.trueMapping(source);
-        assertEquals(truth.offsetX, compositor.presentedMapping().offsetX, 1e-9);
-        assertEquals(truth.scaleY, compositor.presentedMapping().scaleY, 1e-12);
-    }
-
-    @Test
-    public void aNewStreamEmptiesTheTimeline() {
-        CropTimeline timeline = new CropTimeline();
-        compositor.setTimeline(timeline);
-        hostAppliesQuarter(40);
-        compositor.onStreamStarted(STREAM_W, STREAM_H);
         assertSame(FrameMapping.IDENTITY, timeline.mappingFor(41));
+        assertSame(FrameMapping.IDENTITY, compositor.presentedMapping());
+    }
+
+    @Test
+    public void aMappingTheBinderComputedIsPresentedAsGiven() {
+        FrameMapping exact = new FrameMapping(0.25, 0.25, 480.5, 269.75);
+        zoomInto480x270();
+        compositor.onCropMapped(exact, 0);
+        assertSame(exact, compositor.presentedMapping());
+        assertSingleMagnification(exact);
     }
 }
-

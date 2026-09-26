@@ -110,4 +110,13 @@ public class FrameStampsTest {
         a.join();
         b.join();
     }
+
+    @Test
+    public void aReleaseThatNeverRecordedItsIndexIsNotNamedAfterAnEarlierUse() {
+        FrameStamps.onOutput(1, 10L);
+        FrameStamps.onRelease(1, 100L);
+        FrameStamps.onRelease(1, 200L);   // a path without an onOutput hook
+        assertFalse(FrameStamps.lookup(200L, out));
+    }
 }
+

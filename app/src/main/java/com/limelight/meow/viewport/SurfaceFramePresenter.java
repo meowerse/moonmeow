@@ -1,8 +1,6 @@
 package com.limelight.meow.viewport;
 
-import android.annotation.SuppressLint;
 import android.graphics.ImageFormat;
-import android.graphics.PixelFormat;
 import android.graphics.Rect;
 import android.hardware.HardwareBuffer;
 import android.hardware.SyncFence;
@@ -41,7 +39,7 @@ import java.util.function.Consumer;
  * The decoder renders into an {@link ImageReader} instead of the view's surface. For every
  * frame this thread receives, it looks up which host frame it is ({@link FrameStamps},
  * {@link DecodedFrameGate#frameForPts}), which crop that frame was encoded with
- * ({@link CropTimeline}), and hands SurfaceFlinger the buffer <em>and</em> that crop's layer
+ * ({@link CropTimeline}, written from the echoes), and hands SurfaceFlinger the buffer <em>and</em> that crop's layer
  * geometry ({@link FrameLayerGeometry}) in one {@link SurfaceControl.Transaction}, on a child
  * layer of the stream view's surface. A transaction is applied atomically, so the pixels and
  * their transform cannot be split. The view itself keeps the user's logical transform (pinch
@@ -71,10 +69,16 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
     /** Latency histogram: 0.25 ms buckets up to 50 ms. */
     private static final int BUCKET_US = 250;
     private static final int BUCKETS = 200;
+    /**
+     * Frames in a row that could not be put on screen before giving up: the decoder is moved
+     * back to the view's own surface ({@link DecoderSurfaceSwitch}) rather than the stream
+     * staying black.
+     */
+    static final int MAX_CONSECUTIVE_FAILURES = 10;
 
-    /** Whether this device can present this way at all. */
-    public static boolean isSupported() {
-        return Build.VERSION.SDK_INT >= Build.VERSION_CODES.TIRAMISU;
+    /** Told once, on the presenter thread, when this presenter gives up. */
+    public interface FailureListener {
+        void onPresenterFailed();
     }
 
     private final SurfaceView view;
@@ -84,7 +88,7 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
     private final ImageReader reader;
 
     /** Presenter thread only. */
-    private final SurfaceControl.Transaction frameTransaction = new SurfaceControl.Transaction();
+    private SurfaceControl.Transaction frameTransaction = new SurfaceControl.Transaction();
     private final Slot[] slots = new Slot[MAX_IMAGES + 1];
     private final float[] geometry = new float[4];
     private final FrameSelector selector;
@@ -97,6 +101,12 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
     private volatile int streamHeight;
     private volatile float frameRate;
     private volatile boolean released;
+    private volatile FailureListener failureListener;
+
+    /** Set on the presenter thread, read on the UI thread too. */
+    private volatile boolean failed;
+    /** Presenter thread only. */
+    private int consecutiveFailures;
 
     // Statistics, presenter thread only.
     private final int[] latencyBuckets = new int[BUCKETS + 1];
@@ -142,20 +152,18 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
                 fence.close();
             }
             held.close();
-            if (!released) {
-                // A slot is free again: frames that arrived while every slot was taken wait.
-                onImageAvailable(reader);
-            }
+            // A slot is free again: frames that arrived while every slot was taken wait (and
+            // after a release they are drained).
+            onImageAvailable(reader);
         }
     }
 
     /**
      * @param view          the stream view; the layer is a child of its surface
-     * @param timeline      the crops, written by {@link ViewportCompositor}
+     * @param timeline      the crops, written by {@link StreamViewportBinder} from the echoes
      * @param bufferWidth   the stream size, for the reader's default buffer size
      * @param bufferHeight
      */
-    @SuppressLint("WrongConstant")
     public SurfaceFramePresenter(SurfaceView view, CropTimeline timeline,
                                  int bufferWidth, int bufferHeight) {
         this.view = view;
@@ -171,7 +179,7 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
                 ImageFormat.PRIVATE, MAX_IMAGES,
                 HardwareBuffer.USAGE_GPU_SAMPLED_IMAGE | HardwareBuffer.USAGE_COMPOSER_OVERLAY);
         reader.setOnImageAvailableListener(this, handler);
-        if (Build.VERSION.SDK_INT >= 37) {
+        if (Build.VERSION.SDK_INT >= Build.VERSION_CODES.CINNAMON_BUN) {
             // As the view's own surface: no producer throttling on the video path.
             reader.getSurface().setProducerThrottlingEnabled(false);
         }
@@ -184,6 +192,11 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
             surfaceHeight = frame.height();
             attach();
         }
+    }
+
+    /** Who to tell if frames cannot be presented. */
+    public void setFailureListener(FailureListener listener) {
+        failureListener = listener;
     }
 
     /** What the decoder renders into. */
@@ -253,7 +266,7 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
 
     /** UI thread: a child layer of the view's surface, above its own (empty) content. */
     private void attach() {
-        if (released || layer != null) {
+        if (released || failed || layer != null) {
             return;
         }
         SurfaceControl parent = view.getSurfaceControl();
@@ -263,7 +276,6 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
         SurfaceControl child = new SurfaceControl.Builder()
                 .setName("moonmeow-video")
                 .setParent(parent)
-                .setFormat(PixelFormat.OPAQUE)
                 .setOpaque(true)
                 .setHidden(false)
                 .build();
@@ -312,7 +324,10 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
 
     @Override
     public void onImageAvailable(ImageReader source) {
-        if (released) {
+        if (released || failed) {
+            // Keep the reader drained: a decoder that is still stopping (or still switching
+            // away) must never block on a full queue.
+            drain(source);
             return;
         }
         Slot slot = freeSlot();
@@ -354,6 +369,7 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
             if (buffer != null) {
                 buffer.close();
             }
+            onFailure("no buffer or geometry");
             return;
         }
         SyncFence acquire = null;
@@ -373,15 +389,64 @@ public final class SurfaceFramePresenter implements SurfaceHolder.Callback,
                             g[FrameLayerGeometry.SCALE_Y])
                     .setDataSpace(target, image.getDataSpace())
                     .apply();
+            consecutiveFailures = 0;
         } catch (RuntimeException e) {
-            // The layer went away between the read and the apply (surface destroyed).
+            // The layer went away between the read and the apply (surface destroyed), or the
+            // platform refused the buffer. Nothing half-built may ride along with the next
+            // frame: its release callback would close an image in another slot.
+            frameTransaction.close();
+            frameTransaction = new SurfaceControl.Transaction();
             slot.image = null;
             image.close();
             Log.w(TAG, "frame not presented: " + e);
+            onFailure(e.toString());
         } finally {
             buffer.close();
         }
         record(releasedAt);
+    }
+
+    private void onFailure(String why) {
+        if (layer == null || ++consecutiveFailures < MAX_CONSECUTIVE_FAILURES || failed) {
+            // A missing layer is the surface lifecycle, not a failure to present.
+            return;
+        }
+        failed = true;
+        Log.w(TAG, "giving up on per-frame presentation after " + consecutiveFailures
+                + " frames: " + why);
+        // The layer sits above the view's own content: hide it, or its last buffer would
+        // cover the video once the decoder renders there again.
+        SurfaceControl target = layer;
+        if (target != null) {
+            try {
+                SurfaceControl.Transaction t = new SurfaceControl.Transaction();
+                t.setVisibility(target, false);
+                t.apply();
+            } catch (RuntimeException e) {
+                Log.w(TAG, "could not hide the layer: " + e);
+            }
+        }
+        FailureListener listener = failureListener;
+        if (listener != null) {
+            listener.onPresenterFailed();
+        }
+    }
+
+    /** Acquire and close whatever is queued. Presenter thread. */
+    private static void drain(ImageReader source) {
+        while (true) {
+            Image image;
+            try {
+                image = source.acquireNextImage();
+            } catch (RuntimeException e) {
+                // Closed, or every image is held: a release brings us back here.
+                return;
+            }
+            if (image == null) {
+                return;
+            }
+            image.close();
+        }
     }
 
     private Slot freeSlot() {

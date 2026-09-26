@@ -53,9 +53,9 @@ import com.limelight.meow.gesture.InlinePinchZoomController;
  * own crop transform in one transaction. Then this class only feeds the timeline, and the
  * view keeps the user's logical transform, exactly as {@code PanZoomHandler} wrote it.
  *
- * <p>Either way the mapping of an echo is computed exactly when it answers a request the
- * client recently made ({@link CropRequestHistory}), and estimated from the rounded echo
- * otherwise.
+ * <p>Either way the binder computes the mapping of an echo exactly when it answers a request
+ * the client recently made ({@link CropRequestHistory}), and estimates it from the rounded
+ * echo otherwise ({@link #onCropApplied}).
  */
 public final class ViewportCompositor {
 
@@ -86,10 +86,11 @@ public final class ViewportCompositor {
     private int pendingCount;
     private boolean frameRequested;
 
-    /** Per-frame presentation: the crops by frame, or null for the view-property swap. */
+    /**
+     * Per-frame presentation: the presenter's crops by frame (written by the binder, on its
+     * reporter thread), or null for the view-property swap.
+     */
     private CropTimeline timeline;
-    /** The requests echoes are matched against, or null. */
-    private CropRequestHistory requests;
 
     private final float[] scratch = new float[4];
     private final Runnable onVsync = this::onVsync;
@@ -124,11 +125,6 @@ public final class ViewportCompositor {
         return timeline != null;
     }
 
-    /** The recent requests, so echoes can be mapped exactly. UI thread. */
-    public void setRequestHistory(CropRequestHistory requests) {
-        this.requests = requests;
-    }
-
     /** The mapping currently on screen. */
     public FrameMapping presentedMapping() {
         return presented;
@@ -145,9 +141,6 @@ public final class ViewportCompositor {
         this.streamHeight = Math.max(1, streamHeight);
         DecodedFrameGate.reset();
         FrameStamps.reset();
-        if (timeline != null) {
-            timeline.reset();
-        }
         clearPending();
         present(FrameMapping.IDENTITY);
     }
@@ -175,19 +168,19 @@ public final class ViewportCompositor {
         if (applied == null) {
             return;
         }
-        FrameMapping mapping = requests != null
-                ? requests.exactMapping(applied, desktopWidth, desktopHeight,
-                        streamWidth, streamHeight)
-                : null;
-        if (mapping == null) {
-            mapping = HostCropPlan.mappingFor(applied, desktopWidth, desktopHeight,
-                    streamWidth, streamHeight);
-        }
+        onCropMapped(HostCropPlan.mappingFor(applied, desktopWidth, desktopHeight,
+                streamWidth, streamHeight), frameIndex);
+    }
 
-        if (timeline != null) {
-            // The presenter pairs it with the frames that carry it; the view keeps the
+    /**
+     * The host applied a crop whose frames show {@code mapping}, starting at host frame
+     * {@code frameIndex} (0 when the host does not say). The binder computes the mapping,
+     * exactly when the echo answers a request it made.
+     */
+    public void onCropMapped(FrameMapping mapping, int frameIndex) {
+        if (mapping == null || timeline != null) {
+            // Per-frame presentation pairs the crop with its frames; the view keeps the
             // logical transform.
-            timeline.add(frameIndex, mapping);
             return;
         }
 

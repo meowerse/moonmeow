@@ -1,8 +1,9 @@
 package com.limelight.meow.viewport;
 
 /**
- * Which {@link FrameMapping} each host frame was encoded with. Written on the UI thread from the
- * host's echoes, read on the presenter thread once per frame. Plain Java.
+ * Which {@link FrameMapping} each host frame was encoded with. Written on the binder's reporter
+ * thread straight from the host's echoes (not through the UI thread, which is busiest during a
+ * pan), read on the presenter thread once per frame. Plain Java.
  *
  * <p>The host echoes each crop with the first frame that carries it. Every frame from that one
  * on, until the next crop's first frame, shows that crop; frames before it show whatever was in
@@ -45,7 +46,7 @@ public final class CropTimeline {
     private volatile int lastPresented;
     private volatile int lateEchoes;
 
-    /** A new stream: nothing is cropped yet. */
+    /** A new stream: nothing is cropped yet. The writer's thread. */
     public void reset() {
         entries = EMPTY;
         lastPresented = 0;
@@ -53,7 +54,7 @@ public final class CropTimeline {
     }
 
     /**
-     * The host applied {@code mapping} from {@code firstFrame} on. UI thread.
+     * The host applied {@code mapping} from {@code firstFrame} on. The writer's thread.
      *
      * @param firstFrame the echo's frame index; 0 (a host without echo v2) means "from the
      *                   next frame shown"

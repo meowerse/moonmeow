@@ -75,7 +75,9 @@ public final class FrameStamps {
         if (bufferIndex < 0 || bufferIndex >= INDEX_SLOTS) {
             return;
         }
-        long pts = PTS_BY_INDEX.get(bufferIndex);
+        // Taken, not read: a release path that never recorded this use of the index must not
+        // inherit the presentation time of an earlier one.
+        long pts = PTS_BY_INDEX.getAndSet(bufferIndex, NONE);
         if (pts == NONE) {
             return;
         }

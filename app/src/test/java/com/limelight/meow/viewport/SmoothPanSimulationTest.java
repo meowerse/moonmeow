@@ -37,7 +37,8 @@ public class SmoothPanSimulationTest {
     private static final long ENCODE_US = 5_000L;
     private static final long SERIALIZE_US = 8_000L;
     private static final long DECODE_US = 6_000L;
-    private static final long UI_ECHO_US = 2_000L;
+    /** The echo's hop from the library's callback thread to the binder's reporter thread. */
+    private static final long REPORTER_ECHO_US = 1_000L;
     private static final long LIBRARY_RATE_US = 50_000L;
 
     private enum Presentation { PER_FRAME, VIEW_PROPERTY_SWAP }
@@ -51,6 +52,10 @@ public class SmoothPanSimulationTest {
         int cropChanges;
         final List<String> sizes = new ArrayList<>();
         int backwards;
+        int lateEchoes;
+        int framesOverHalfPixel;
+        /** Request sizes after the desktop became known (the first echo). */
+        final List<String> sizesOnceKnown = new ArrayList<>();
     }
 
     /** A link whose delay wanders smoothly between base and base + jitter. */
@@ -115,6 +120,15 @@ public class SmoothPanSimulationTest {
      */
     private Result run(int[] stream, float zoom, double[][] path, Presentation presentation,
                        Mapping mappingMode, long seed) {
+        return run(stream, zoom, path, presentation, mappingMode, seed, 0L);
+    }
+
+    /**
+     * @param echoSkewUs the echo may arrive up to this much later than the frame it names
+     *                   (the control channel retransmitting while video flows)
+     */
+    private Result run(int[] stream, float zoom, double[][] path, Presentation presentation,
+                       Mapping mappingMode, long seed, long echoSkewUs) {
         FrameStamps.reset();
         DecodedFrameGate.reset();
         queuedFrames.clear();
@@ -123,8 +137,10 @@ public class SmoothPanSimulationTest {
         SunmeowCropModel host = new SunmeowCropModel(5360, 1440, sw, sh);
         ViewportRect content = host.content();
 
+        // As in production: the desktop's size is unknown until the first echo carries it.
         GuardBand band = new GuardBand();
-        band.setDesktop(5360, 1440);
+        boolean desktopKnown = false;
+        Random skew = new Random(seed * 101 + 3);
         CropRequestHistory history = new CropRequestHistory();
         CropTimeline timeline = new CropTimeline();
         FrameSelector selector = new FrameSelector(timeline);
@@ -180,6 +196,9 @@ public class SmoothPanSimulationTest {
                     if (!result.sizes.contains(size)) {
                         result.sizes.add(size);
                     }
+                    if (desktopKnown && !result.sizesOnceKnown.contains(size)) {
+                        result.sizesOnceKnown.add(size);
+                    }
                 }
             }
             // ---- the library: at most one send per 50 ms, the latest wins -----------------
@@ -203,15 +222,26 @@ public class SmoothPanSimulationTest {
                 if (changed) {
                     result.cropChanges++;
                     // Sent from the encode path once the frame is produced (meow-protocol.md).
-                    echoes.add(new Echo(arrive + UI_ECHO_US, host.echo(source), frameNumber));
+                    long late = echoSkewUs > 0 ? (long) (skew.nextDouble() * echoSkewUs) : 0L;
+                    echoes.add(new Echo(arrive + late + REPORTER_ECHO_US, host.echo(source),
+                            frameNumber));
                 }
                 inFlight.add(new Frame(frameNumber, arrive, arrive + SERIALIZE_US + DECODE_US,
                         source));
                 frameNumber++;
             }
             // ---- client: echoes reach the compositor ------------------------------------
-            while (!echoes.isEmpty() && echoes.peek().atUs <= now) {
-                Echo e = echoes.poll();
+            // Echoes can overtake each other once skewed: take any that are due.
+            for (java.util.Iterator<Echo> it = echoes.iterator(); it.hasNext(); ) {
+                Echo e = it.next();
+                if (e.atUs > now) {
+                    continue;
+                }
+                it.remove();
+                if (!desktopKnown) {
+                    band.setDesktop(5360, 1440);
+                    desktopKnown = true;
+                }
                 FrameMapping m = mappingMode == Mapping.EXACT
                         ? history.exactMapping(e.rect, 5360, 1440, sw, sh) : null;
                 if (m == null) {
@@ -262,12 +292,19 @@ public class SmoothPanSimulationTest {
                             vw, vh, pxPerRef);
                     result.maxErrorPx = Math.max(result.maxErrorPx, error);
                     result.framesChecked++;
+                    if (error > 0.5) {
+                        result.framesOverHalfPixel++;
+                    }
                 }
                 pendingViewMapping = shownMapping;
             }
         }
-        assertEquals("the band never resized during the pan: " + result.sizes, 1,
-                result.sizes.size());
+        result.lateEchoes = timeline.lateEchoes();
+        // One size before the first echo (the desktop's size unknown) and one after it: the
+        // first echo is at stream start, before the user moves -- never during the pan.
+        assertTrue("sizes " + result.sizes, result.sizes.size() <= 2);
+        assertEquals("the band never resized once the desktop was known: "
+                + result.sizesOnceKnown, 1, result.sizesOnceKnown.size());
         return result;
     }
 
@@ -397,4 +434,36 @@ public class SmoothPanSimulationTest {
         }
         assertTrue("estimated mappings must show a measurable step: " + worst, worst > 0.5);
     }
+
+    /**
+     * The echo is sent once its frame is produced, on the same link just ahead of the frame's
+     * packets, and the frame still has to be reassembled and decoded (14 ms here): an echo up
+     * to 10 ms later than its frame's packets is still in time.
+     */
+    @Test
+    public void anEchoALittleBehindItsFrameIsStillInTime() {
+        for (long seed = 21; seed <= 23; seed++) {
+            Result r = run(PORTRAIT, OWNER_ZOOM, ownerPan(), Presentation.PER_FRAME,
+                    Mapping.EXACT, seed, 10_000L);
+            assertEquals(0, r.lateEchoes);
+            assertTrue("worst " + r.maxErrorPx, r.maxErrorPx <= 0.5);
+        }
+    }
+
+    /**
+     * The residual, stated: an echo that arrives after its frame is on screen (the control
+     * channel retransmitting) cannot fix that frame. It is counted, and the frames shown
+     * before it arrives are the only ones off -- by the crop step, until the echo lands.
+     */
+    @Test
+    public void aLateEchoIsCountedAndOnlyTheFramesBeforeItAreOff() {
+        Result r = run(PORTRAIT, OWNER_ZOOM, ownerPan(), Presentation.PER_FRAME,
+                Mapping.EXACT, 31, 60_000L);
+        assertTrue("late echoes " + r.lateEchoes, r.lateEchoes > 0);
+        assertTrue(r.framesOverHalfPixel > 0);
+        // At most the frames that fit in the skew, per late echo.
+        assertTrue(r.framesOverHalfPixel + " frames over for " + r.lateEchoes + " late echoes",
+                r.framesOverHalfPixel <= r.lateEchoes * (60_000 / VSYNC_US + 1));
+    }
 }
+

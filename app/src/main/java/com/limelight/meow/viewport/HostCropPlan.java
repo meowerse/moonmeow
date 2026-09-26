@@ -130,7 +130,6 @@ public final class HostCropPlan {
                 (low[2] + high[2]) / 2, (low[3] + high[3]) / 2);
     }
 
-    /** More even columns than this never round to one reference pixel below 16:1. */
     /**
      * The exact mapping for an echo that answers {@code request}, or null when the echo is not
      * what the host makes of that request (it answered another one, clamped it differently, or
@@ -240,6 +239,7 @@ public final class HostCropPlan {
         return Math.max(min, Math.min(value, max));
     }
 
+    /** More even columns than this never round to one reference pixel below 16:1. */
     static final int MAX_EDGE_CANDIDATES = 8;
 
     private static final int INVALID = 0;
